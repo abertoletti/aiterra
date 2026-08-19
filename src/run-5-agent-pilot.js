@@ -58,6 +58,9 @@ const supervisor = new AgentSupervisor({
   modelCallsPerWindow: integerEnvironment(environment, "PILOT_MAX_MODEL_CALLS", 10),
   modelCallWindowMs: integerEnvironment(environment, "PILOT_MODEL_CALL_WINDOW_MS", 60_000),
   reconnectDelayMs: integerEnvironment(environment, "PILOT_RECONNECT_DELAY_MS", 2_000),
+  // Progressive by default; PILOT_CONTEXT_MODE=full reruns the old baseline for comparison.
+  contextMode: environment.PILOT_CONTEXT_MODE === "full" ? "full" : "progressive",
+  contextRequestsPerDecision: integerEnvironment(environment, "PILOT_CONTEXT_REQUESTS_PER_DECISION", 1),
   logger,
 });
 

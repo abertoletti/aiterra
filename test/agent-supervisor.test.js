@@ -133,7 +133,10 @@ class ScriptedPilotPlanner {
       } };
     }
     if (pendingConversation && id === "pilot-01") {
-      const relationship = observation.relationships.find((item) => item.characterId === "pilot-02");
+      // A co-present person's directional relationship rides in `nearby` in both
+      // context modes; the full `relationships` list only ships in full mode.
+      const relationship = observation.relationships?.find((item) => item.characterId === "pilot-02")
+        ?? observation.nearby.find((item) => item.id === "pilot-02")?.relationship;
       const appraisal = actions.find((item) => item.type === "appraise_interaction" && item.otherCharacterId === "pilot-02");
       if (appraisal && relationship?.affinity === 0) {
         return { action: {
@@ -168,3 +171,61 @@ async function waitFor(predicate, timeoutMs) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 20));
   }
 }
+
+test("the supervisor fetches the catalog a brain asks for, once, and then makes it decide", async (t) => {
+  const clock = new ManualClock("2042-06-01T18:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
+  configuration.version = "context-request-integration-test";
+  configuration.characters = configuration.characters.filter((character) => character.id === "pilot-01");
+  activateWorldConfiguration(world, configuration);
+
+  const tokens = { "pilot-01": "pilot-01-test-secret" };
+  const server = createHttpServer({ world, agentTokens: tokens, publicDir: resolve("public") });
+  await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  // A brain that always asks for detail, never volunteering an action.
+  const seen = [];
+  const planner = {
+    async decide({ observation, catalogs, contextRequestsRemaining }) {
+      seen.push({ contextRequestsRemaining, catalogKeys: Object.keys(catalogs ?? {}) });
+      if (contextRequestsRemaining > 0) {
+        return { contextRequest: { resource: "opportunities", filters: {} }, rationale: "I want the pay first." };
+      }
+      const rest = observation.availableActions.find((action) => action.type === "rest");
+      return { action: rest ? { type: "rest" } : { type: "record_decision", summary: "Waiting." } };
+    },
+  };
+  const supervisor = new AgentSupervisor({
+    agents: [{ characterId: "pilot-01", client: new AiterraAgentClient({ baseUrl, characterId: "pilot-01", token: tokens["pilot-01"] }) }],
+    planner, concurrency: 1, pollIntervalMs: 50, decisionCooldownMs: 1, maximumActionsPerCycle: 1,
+    modelCallsPerWindow: 50, modelCallWindowMs: 1_000, reconnectDelayMs: 10,
+    contextMode: "progressive", contextRequestsPerDecision: 1,
+    logger: { warn() {}, error() {}, log() {} },
+  });
+  t.after(async () => {
+    await supervisor.stop();
+    await new Promise((resolveClose) => server.close(resolveClose));
+  });
+
+  await supervisor.start();
+  await waitFor(() => seen.length >= 2, 5_000);
+  await supervisor.stop();
+
+  // First call has the budget and no catalog; the second has the fetched catalog
+  // and no budget, so the brain has to decide instead of asking again.
+  assert.equal(seen[0].contextRequestsRemaining, 1);
+  assert.deepEqual(seen[0].catalogKeys, []);
+  assert.equal(seen[1].contextRequestsRemaining, 0);
+  assert.deepEqual(seen[1].catalogKeys, ["opportunities"]);
+
+  const report = supervisor.report();
+  assert.ok(report.agents["pilot-01"].contextRequests >= 1);
+  assert.equal(report.agents["pilot-01"].contextRequestsByResource.opportunities, report.agents["pilot-01"].contextRequests);
+  assert.ok(report.agents["pilot-01"].observationBytes > 0, "the runtime reports what its baselines cost");
+
+  // The request is recorded server-side as a read, and it never advanced the
+  // projection the agent is holding.
+  assert.ok(world.history.some((event) => event.type === "DECISION_CONTEXT_REQUESTED"));
+});

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildDecisionMessages, DecisionValidationError, parseDecisionDocument, safeFallbackAction, validateAction,
+  AgentDecisionPlanner, buildDecisionMessages, DecisionValidationError, parseDecisionDocument,
+  safeFallbackAction, validateAction, validateContextRequest,
 } from "../src/agents/decision-planner.js";
 
 test("the decision parser accepts a fenced JSON object but returns only a currently available action", () => {
@@ -108,3 +109,95 @@ function observation(overrides = {}) {
     ...overrides,
   };
 }
+
+test("a brain may answer with a context request while its budget allows it", async () => {
+  const calls = [];
+  const modelClient = {
+    async complete({ messages }) {
+      calls.push(JSON.parse(messages[1].content));
+      return calls.length === 1
+        ? { content: JSON.stringify({ requestContext: { resource: "opportunities", filters: { feasibleOnly: true } }, rationale: "I need the pay before choosing." }), responseId: "r1", usage: {} }
+        : { content: JSON.stringify({ action: { type: "move", destinationId: "workshop" } }), responseId: "r2", usage: {} };
+    },
+  };
+  const planner = new AgentDecisionPlanner({ modelClient });
+  const progressive = observation({
+    contextMode: "progressive",
+    summaries: [{ resource: "opportunities", count: 20, feasibleCount: 4, requestAction: "inspect_opportunities" }],
+  });
+
+  const asked = await planner.decide({ observation: progressive, contextRequestsRemaining: 1 });
+  assert.deepEqual(asked.contextRequest, { resource: "opportunities", filters: { feasibleOnly: true } });
+  assert.equal(asked.action, undefined, "a request is not an action");
+
+  // The runtime fetches and asks again, now with the catalog and no budget left.
+  const decided = await planner.decide({
+    observation: progressive, contextRequestsRemaining: 0,
+    catalogs: { opportunities: { count: 20, items: [{ id: "commons-host" }] } },
+  });
+  assert.deepEqual(decided.action, { type: "move", destinationId: "workshop" });
+  assert.equal(calls[1].catalogs.opportunities.items[0].id, "commons-host", "the fetched catalog reaches the model");
+});
+
+test("a context request past the budget is not honoured, so a runtime cannot loop on asking", async () => {
+  const modelClient = {
+    async complete() {
+      return { content: JSON.stringify({ requestContext: { resource: "opportunities" } }), responseId: "r", usage: {} };
+    },
+  };
+  const planner = new AgentDecisionPlanner({ modelClient });
+  const progressive = observation({
+    contextMode: "progressive",
+    summaries: [{ resource: "opportunities", count: 20, feasibleCount: 4 }],
+  });
+
+  // With no budget the request is ignored and the document is read as an action,
+  // which fails validation rather than silently becoming another round trip.
+  await assert.rejects(
+    () => planner.decide({ observation: progressive, contextRequestsRemaining: 0 }),
+    (error) => error instanceof DecisionValidationError,
+  );
+});
+
+test("a context request is limited to offered resources and allowed filters", () => {
+  const progressive = observation({
+    contextMode: "progressive",
+    summaries: [{ resource: "opportunities", count: 3, feasibleCount: 1 }],
+  });
+
+  assert.deepEqual(
+    validateContextRequest({ resource: "opportunities", filters: { locationId: "commons" } }, progressive),
+    { resource: "opportunities", filters: { locationId: "commons" } },
+  );
+  for (const bad of [
+    { resource: "buildings" },
+    { resource: "opportunities", filters: { organizerId: "mira" } },
+    { resource: "" },
+  ]) {
+    assert.throws(() => validateContextRequest(bad, progressive),
+      (error) => error instanceof DecisionValidationError, `expected ${JSON.stringify(bad)} to be rejected`);
+  }
+});
+
+test("the context protocol is offered only in progressive mode and only while budget remains", () => {
+  const progressive = observation({
+    contextMode: "progressive",
+    summaries: [{ resource: "opportunities", count: 3, feasibleCount: 1 }],
+  });
+  const withBudget = buildDecisionMessages(progressive, [], [], { contextRequestsRemaining: 1 })[0].content;
+  const withoutBudget = buildDecisionMessages(progressive, [], [], { contextRequestsRemaining: 0 })[0].content;
+  const fullMode = buildDecisionMessages(observation(), [], [], { contextRequestsRemaining: 1 })[0].content;
+
+  assert.ok(withBudget.includes("requestContext"), "a progressive brain with budget is told how to ask");
+  assert.ok(!withoutBudget.includes("requestContext"), "spent budget removes the offer instead of tempting a refusal");
+  assert.ok(!fullMode.includes("requestContext"), "full mode already carries the catalogs");
+});
+
+test("a progressive observation uses the runtime's cached manifest", () => {
+  const progressive = observation({ contextMode: "progressive", rulesVersion: "agent-rules-v2" });
+  delete progressive.rules;
+  const cached = { version: "agent-rules-v2", energy: { maximum: 100 } };
+
+  const context = JSON.parse(buildDecisionMessages(progressive, [], [], { rules: cached })[1].content);
+  assert.deepEqual(context.rules, cached, "the model still receives the rules it must apply");
+});

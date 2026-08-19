@@ -7,6 +7,7 @@ export class AgentSupervisor {
     decisionCooldownMs = 500, maximumActionsPerCycle = 3,
     modelCallsPerWindow = 10, modelCallWindowMs = 60_000,
     reconnectDelayMs = 2_000, logger = console,
+    contextMode = "progressive", contextRequestsPerDecision = 1,
   }) {
     if (!Array.isArray(agents) || agents.length === 0) throw new Error("At least one agent is required");
     if (!planner || typeof planner.decide !== "function") throw new Error("An agent decision planner is required");
@@ -18,6 +19,9 @@ export class AgentSupervisor {
     this.modelCallsPerWindow = positiveInteger(modelCallsPerWindow, "modelCallsPerWindow");
     this.modelCallWindowMs = positiveInteger(modelCallWindowMs, "modelCallWindowMs");
     this.reconnectDelayMs = positiveInteger(reconnectDelayMs, "reconnectDelayMs");
+    if (!["full", "progressive"].includes(contextMode)) throw new Error("contextMode must be full or progressive");
+    this.contextMode = contextMode;
+    this.contextRequestsPerDecision = nonNegativeInteger(contextRequestsPerDecision, "contextRequestsPerDecision");
     this.logger = logger;
     this.semaphore = new Semaphore(positiveInteger(concurrency, "concurrency"));
     this.abortController = new AbortController();
@@ -133,11 +137,33 @@ export class AgentSupervisor {
     });
   }
 
+  // One observation, plus the two things a progressive runtime owns: echoing back the
+  // contextVersion it already holds so the server sends a delta, and keeping the rule
+  // manifest cached by version instead of receiving its body every time.
+  async observeWithContext(agent, state) {
+    const observation = await agent.client.observe({
+      signal: this.abortController.signal,
+      contextMode: this.contextMode,
+      contextVersion: state.contextVersion ?? 0,
+    });
+    state.contextVersion = observation.contextVersion ?? 0;
+    if (observation.rulesVersion && state.rulesVersion !== observation.rulesVersion) {
+      state.rules = observation.rules ?? await agent.client.rules({ signal: this.abortController.signal });
+      state.rulesVersion = observation.rulesVersion;
+      this.log("info", agent.characterId, "agent_rules_cached", null, {
+        rulesVersion: observation.rulesVersion, embedded: Boolean(observation.rules),
+      });
+    }
+    state.stats.observations += 1;
+    state.stats.observationBytes += JSON.stringify(observation).length;
+    return observation;
+  }
+
   async runDecisionCycle(agent, state) {
     for (let actionIndex = 0; actionIndex < this.maximumActionsPerCycle && this.running; actionIndex += 1) {
-      let observation = await agent.client.observe({ signal: this.abortController.signal });
+      let observation = await this.observeWithContext(agent, state);
       const acknowledged = await this.acknowledgeDeliveredNotifications(agent, state, observation);
-      if (acknowledged > 0) observation = await agent.client.observe({ signal: this.abortController.signal });
+      if (acknowledged > 0) observation = await this.observeWithContext(agent, state);
       this.recordObservation(agent, state, observation);
       if (!observation.decision?.requiredNow) return;
 
@@ -153,9 +179,9 @@ export class AgentSupervisor {
         });
       });
       if (waitedMs > 0) {
-        observation = await agent.client.observe({ signal: this.abortController.signal });
+        observation = await this.observeWithContext(agent, state);
         const acknowledgedAfterWait = await this.acknowledgeDeliveredNotifications(agent, state, observation);
-        if (acknowledgedAfterWait > 0) observation = await agent.client.observe({ signal: this.abortController.signal });
+        if (acknowledgedAfterWait > 0) observation = await this.observeWithContext(agent, state);
         this.recordObservation(agent, state, observation);
         if (!observation.decision?.requiredNow) return;
       }
@@ -172,14 +198,36 @@ export class AgentSupervisor {
       const history = await agent.client.history(40, { signal: this.abortController.signal });
       let action;
       try {
-        this.modelCalls += 1;
-        state.stats.modelCalls += 1;
-        const decision = await this.semaphore.run(() => this.planner.decide({
-          observation, history, recentActionFailures: state.recentActionFailures,
-          signal: this.abortController.signal,
-        }));
+        // The brain may ask for a catalog instead of acting, within a budget. Each
+        // request costs one model call, which is why the budget is small and why the
+        // request rate is reported: a runtime that asks every time has reproduced the
+        // problem progressive context exists to remove.
+        const catalogs = {};
+        let decision;
+        for (let attempt = 0; attempt <= this.contextRequestsPerDecision; attempt += 1) {
+          if (attempt > 0) state.modelRateLimiter.consume();
+          this.modelCalls += 1;
+          state.stats.modelCalls += 1;
+          const remaining = this.contextRequestsPerDecision - attempt;
+          decision = await this.semaphore.run(() => this.planner.decide({
+            observation, history, recentActionFailures: state.recentActionFailures,
+            signal: this.abortController.signal,
+            rules: state.rules, catalogs, contextRequestsRemaining: remaining,
+          }));
+          addUsage(state.stats.usage, decision.usage);
+          if (!decision.contextRequest) break;
+          const { resource, filters } = decision.contextRequest;
+          state.stats.contextRequests += 1;
+          state.stats.contextRequestsByResource[resource] = (state.stats.contextRequestsByResource[resource] ?? 0) + 1;
+          const page = await agent.client.inspect(resource, { filters, signal: this.abortController.signal });
+          catalogs[resource] = page;
+          this.log("info", agent.characterId, "decision_context_requested", null, {
+            resource, filters, returned: page.returned, count: page.count,
+            feasibleCount: page.feasibleCount, blockedCount: page.blockedCount,
+            rationale: decision.rationale, characterName: observation.character?.name,
+          });
+        }
         action = decision.action;
-        addUsage(state.stats.usage, decision.usage);
         this.log("verbose", agent.characterId, "model_response_received", null, {
           content: decision.rawContent,
           providerResponseId: decision.providerResponseId,
@@ -446,6 +494,8 @@ function createAgentState(characterId) {
       actionRejectionsByCode: {},
       conversationEnergySpent: 0,
       rateLimitWaits: 0, rateLimitWaitMilliseconds: 0,
+      contextRequests: 0, contextRequestsByResource: {},
+      observationBytes: 0, observations: 0,
       actionsByType: {},
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
     },

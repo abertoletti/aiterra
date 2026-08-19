@@ -16,8 +16,26 @@ export class AiterraAgentClient {
     this.fetchImpl = fetchImpl;
   }
 
-  observe({ signal = null } = {}) {
-    return this.request(`/api/characters/${encodeURIComponent(this.characterId)}/observation`, { signal });
+  observe({ signal = null, contextMode = "full", contextVersion = 0 } = {}) {
+    const query = contextMode === "progressive"
+      ? `?contextMode=progressive&contextVersion=${Number(contextVersion) || 0}`
+      : "";
+    return this.request(`/api/characters/${encodeURIComponent(this.characterId)}/observation${query}`, { signal });
+  }
+
+  // A decision-scoped catalog, requested only when the brain says the detail matters.
+  inspect(resource, { filters = {}, limit = 20, offset = 0, signal = null } = {}) {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    for (const [key, value] of Object.entries(filters)) query.set(key, String(value));
+    return this.request(
+      `/api/characters/${encodeURIComponent(this.characterId)}/context/${encodeURIComponent(resource)}?${query}`,
+      { signal },
+    );
+  }
+
+  // The manifest is stable for its version, so a runtime fetches it once per version.
+  rules({ signal = null } = {}) {
+    return this.request(`/api/characters/${encodeURIComponent(this.characterId)}/rules`, { signal });
   }
 
   history(limit = 40, { signal = null } = {}) {

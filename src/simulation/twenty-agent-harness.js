@@ -207,13 +207,27 @@ async function submitAction(baseUrl, tokens, characterId, action, idempotencyKey
   return response.json();
 }
 
+// The reference harness observes the way an external runtime is expected to: a
+// compact progressive baseline, echoing back the contextVersion it last saw. It
+// reads only pendingNotifications and stateVersion, both of which stay in the
+// baseline, so the gate exercises the progressive path end to end.
+const contextVersions = new Map();
+
 async function getObservation(baseUrl, tokens, characterId) {
-  const response = await fetch(`${baseUrl}/api/characters/${characterId}/observation`, {
-    headers: authorization(tokens[characterId]),
-  });
+  const since = contextVersions.get(characterId) ?? 0;
+  const response = await fetch(
+    `${baseUrl}/api/characters/${characterId}/observation?contextMode=progressive&contextVersion=${since}`,
+    { headers: authorization(tokens[characterId]) },
+  );
   assertStatus(response, 200, `observe ${characterId}`);
-  return response.json();
+  const observation = await response.json();
+  contextVersions.set(characterId, observation.contextVersion ?? 0);
+  observedBytes.total += JSON.stringify(observation).length;
+  observedBytes.count += 1;
+  return observation;
 }
+
+export const observedBytes = { total: 0, count: 0 };
 
 async function acknowledge(baseUrl, tokens, characterId, notificationId) {
   const response = await fetch(`${baseUrl}/api/characters/${characterId}/notifications/${notificationId}/ack`, {

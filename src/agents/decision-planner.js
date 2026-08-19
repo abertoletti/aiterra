@@ -1,5 +1,9 @@
 const MAX_MESSAGE_CHARACTERS = 2_000;
 const MAX_SHARED_FACTS = 8;
+const ALLOWED_CONTEXT_FILTERS = [
+  "locationId", "minimumCompensation", "feasibleOnly",
+  "startsAfter", "startsBefore", "subjectCharacterId",
+];
 
 export class DecisionValidationError extends Error {
   constructor(message) {
@@ -15,21 +19,31 @@ export class AgentDecisionPlanner {
     this.modelClient = modelClient;
   }
 
-  async decide({ observation, history = [], recentActionFailures = [], signal = null }) {
+  async decide({
+    observation, history = [], recentActionFailures = [], signal = null,
+    rules = null, catalogs = {}, contextRequestsRemaining = 0,
+  }) {
     const response = await this.modelClient.complete({
-      messages: buildDecisionMessages(observation, history, recentActionFailures),
+      messages: buildDecisionMessages(observation, history, recentActionFailures, {
+        rules, catalogs, contextRequestsRemaining,
+      }),
       signal,
     });
     try {
       const document = parseDecisionDocument(response.content);
-      const action = validateAction(document.action ?? document, observation, history);
-      return {
-        action,
+      const common = {
         rationale: typeof document.rationale === "string" ? document.rationale.slice(0, 500) : null,
         providerResponseId: response.responseId,
         usage: response.usage,
         rawContent: response.content,
       };
+      // The brain may answer a decision with a request for detail instead of an
+      // action, but only while requests remain: past the budget it must decide on
+      // what it has, so a runtime cannot loop on asking.
+      if (contextRequestsRemaining > 0 && document.requestContext) {
+        return { ...common, contextRequest: validateContextRequest(document.requestContext, observation) };
+      }
+      return { ...common, action: validateAction(document.action ?? document, observation, history) };
     } catch (error) {
       if (error instanceof DecisionValidationError) {
         error.rawModelContent = response.content.slice(0, 10_000);
@@ -41,12 +55,17 @@ export class AgentDecisionPlanner {
   }
 }
 
-export function buildDecisionMessages(observation, history = [], recentActionFailures = []) {
+export function buildDecisionMessages(observation, history = [], recentActionFailures = [], {
+  rules = null, catalogs = {}, contextRequestsRemaining = 0,
+} = {}) {
   if (!observation || typeof observation !== "object") throw new Error("An Aiterra observation is required");
+  const progressive = observation.contextMode === "progressive";
   const context = {
     worldTime: observation.worldTime,
     rulesVersion: observation.rulesVersion,
-    rules: observation.rules,
+    // In progressive mode the observation omits the manifest body and the runtime
+    // supplies the copy it cached by version.
+    rules: observation.rules ?? rules ?? undefined,
     decision: observation.decision,
     character: observation.character,
     nearby: observation.nearby,
@@ -54,16 +73,27 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
     activeConversations: observation.activeConversations,
     recentConversations: observation.recentConversations ?? [],
     knowledge: observation.knowledge,
-    pendingNotifications: observation.pendingNotifications,
-    availableJobs: (observation.availableJobs ?? []).map(compactJob),
+    availableJobs: observation.availableJobs ? observation.availableJobs.map(compactJob) : undefined,
     upcomingEvents: observation.upcomingEvents,
+    pendingNotifications: observation.pendingNotifications,
     invitations: observation.invitations ?? [],
     commitments: observation.commitments ?? [],
+    summaries: observation.summaries,
+    // Only the catalogs this decision actually asked for.
+    catalogs: Object.keys(catalogs).length > 0 ? catalogs : undefined,
     availableActions: observation.availableActions,
     requiredActionShapes: actionShapes(observation.availableActions ?? []),
     recentActionFailures: recentActionFailures.slice(-5),
     recentPermittedHistory: history.slice(-12).map(compactHistoryEvent),
   };
+  const contextProtocol = progressive && contextRequestsRemaining > 0
+    ? [
+      "This observation is deliberately compact. `summaries` reports, per resource, how many items you know and how many are currently possible; a low feasibleCount is not an empty world.",
+      "If and only if the detail would change your decision, answer with {\"requestContext\":{\"resource\":\"<a resource named in summaries>\",\"filters\":{}},\"rationale\":\"why you need it\"} and you will be asked again with that catalog included.",
+      `You may request detail ${contextRequestsRemaining} more time(s) for this decision; after that, decide with what you have.`,
+      "Do not request a catalog you already received below, and do not request one whose summary shows nothing you could act on.",
+    ]
+    : [];
   return [
     {
       role: "system",
@@ -81,11 +111,33 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "For team jobs, inspect workerIds, openTeamSlots, requirementsMode, and teamSkillCoverageAfterJoin; joining is a commitment and the server starts only a complete eligible team.",
         "Dialogue can propose future plans, but never claim that movement, work, attendance, possession, construction, inspection, or completion happened unless authoritative observation or history confirms it.",
         "After an ended conversation, prioritize one honest appraisal and adopt a secondary goal only when a concrete new commitment or concern emerged.",
+        ...contextProtocol,
         "Return JSON only, without markdown: {\"action\":{...},\"rationale\":\"one short sentence\"}.",
       ].join(" "),
     },
     { role: "user", content: JSON.stringify(context) },
   ];
+}
+
+// A brain may ask for detail, but only for a resource the observation named and
+// with the filters the contract allows. Everything else is the server's business.
+export function validateContextRequest(candidate, observation) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    throw new DecisionValidationError("The context request must be an object");
+  }
+  const resource = text(candidate.resource, "context resource", 40);
+  const offered = (observation.summaries ?? []).map((summary) => summary.resource);
+  if (!offered.includes(resource)) {
+    throw new DecisionValidationError(`Context resource ${resource} is not offered by this observation`);
+  }
+  const filters = {};
+  for (const [key, value] of Object.entries(candidate.filters ?? {})) {
+    if (!ALLOWED_CONTEXT_FILTERS.includes(key)) {
+      throw new DecisionValidationError(`Context filter ${key} is not allowed`);
+    }
+    filters[key] = value;
+  }
+  return { resource, filters };
 }
 
 function compactJob(job) {
