@@ -110,6 +110,41 @@ test("eventById survives a restart rebuilt from the store", () => {
   }
 });
 
+test("the conversation-appraisal index matches a full history scan", () => {
+  const { world } = buildWorld();
+  const characterIds = world.getPublicState().characters.map((character) => character.id);
+  const conversationIds = [...new Set(world.history
+    .filter((event) => event.data?.conversationId)
+    .map((event) => event.data.conversationId))];
+
+  const appraised = world.history.filter((event) => event.type === "RELATIONSHIP_APPRAISAL_RECORDED");
+  assert.ok(appraised.length > 0, "the slice must record at least one appraisal");
+  assert.ok(conversationIds.length > 0, "the slice must hold at least one conversation");
+
+  for (const characterId of characterIds) {
+    for (const conversationId of conversationIds) {
+      assert.equal(
+        world.hasConversationAppraisal(characterId, conversationId),
+        world.history.some((event) => event.type === "RELATIONSHIP_APPRAISAL_RECORDED"
+          && event.actorCharacterId === characterId && event.data.conversationId === conversationId),
+        `appraisal index disagrees for ${characterId} on ${conversationId}`,
+      );
+    }
+  }
+});
+
+test("the conversation-appraisal index is rebuilt on restart", () => {
+  const { world, store, config } = buildWorld();
+  const restarted = new World({ store, config, clock: new ManualClock("2042-06-12T20:00:00.000Z") });
+
+  for (const event of world.history.filter((item) => item.type === "RELATIONSHIP_APPRAISAL_RECORDED")) {
+    assert.ok(
+      restarted.hasConversationAppraisal(event.actorCharacterId, event.data.conversationId),
+      `restart lost the appraisal recorded by ${event.actorCharacterId}`,
+    );
+  }
+});
+
 test("the projection version rebuilt from a restart matches the live world", () => {
   const { world, store, config } = buildWorld();
   const restarted = new World({

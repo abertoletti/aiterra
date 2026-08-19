@@ -2890,8 +2890,7 @@ export class World {
   }
 
   hasConversationAppraisal(characterId, conversationId) {
-    return this.history.some((event) => event.type === "RELATIONSHIP_APPRAISAL_RECORDED"
-      && event.actorCharacterId === characterId && event.data.conversationId === conversationId);
+    return this.state.conversationAppraisals.has(conversationAppraisalKey(characterId, conversationId));
   }
 
   appraisalAction(characterId, conversation) {
@@ -3028,6 +3027,11 @@ export class World {
   // rescan the whole history on every observation and every action.
   indexEvent(event) {
     this.state.eventsById.set(event.id, event);
+    if (event.type === "RELATIONSHIP_APPRAISAL_RECORDED" && event.data?.conversationId) {
+      this.state.conversationAppraisals.add(
+        conversationAppraisalKey(event.actorCharacterId, event.data.conversationId),
+      );
+    }
     if (nonProjectionEventTypes.has(event.type)) return;
     if (event.type === "EVENT_CREATED") {
       // Perceivable by every character, including characters created later.
@@ -3556,7 +3560,12 @@ function createEmptyState() {
     returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
     eventsById: new Map(), characterProjectionVersions: new Map(), globalProjectionVersion: 0,
+    conversationAppraisals: new Set(),
   };
+}
+
+function conversationAppraisalKey(characterId, conversationId) {
+  return `${characterId}:${conversationId}`;
 }
 
 // Mirrors characterMayReference: the characters whose projection an event advances.
