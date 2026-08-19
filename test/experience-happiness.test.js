@@ -112,11 +112,11 @@ test("a resolution's factors sum to its raw delta", () => {
 
   const resolution = world.history.find((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED");
   const f = resolution.data.factors;
-  const summed = f.affinity + f.socialValue + f.participation + f.interaction + f.crowd + f.repetition + f.variance;
+  const summed = f.affinity + f.presenceValue + f.interaction + f.participation + f.crowd + f.repetition + f.variance;
   assert.ok(Math.abs(summed - resolution.data.rawDelta) < 0.02,
     `the breakdown must explain the delta: ${summed} vs ${resolution.data.rawDelta}`);
   // An owner reading the feed can see every cause, variance included.
-  for (const key of ["affinity", "socialValue", "participation", "interaction", "crowd", "repetition", "variance"]) {
+  for (const key of ["affinity", "presenceValue", "interaction", "participation", "crowd", "repetition", "variance"]) {
     assert.equal(typeof f[key], "number", `${key} must be recorded`);
   }
 });
@@ -346,4 +346,110 @@ test("neglect lowers the state without subtracting from what was lived", () => {
   assert.ok(jack.happiness < stateBefore, "the state decays");
   assert.equal(jack.livedHappiness, livedBefore,
     "decay is the absence of experience, not an experience, so nothing lived is taken away");
+});
+
+test("who you talked to, how it went, and what about, all change the evening", () => {
+  // Four otherwise identical evenings that differ only in the interaction.
+  const evening = ({ speak = 0, appraisal = null, topics = [], stranger = false } = {}) => {
+    const { world, clock } = experienceWorld();
+    world.createCharacter({
+      id: "sara", name: "Sara", locationId: "club", personality: [], goal: "Be here.",
+      preferences: Object.fromEntries(DIMENSIONS.map((d) => [d, 50])),
+    });
+    if (!stranger) {
+      // Someone Jack cares about a great deal.
+      world.establishRelationship({ fromId: "jack", toId: "sara", affinity: 80, trust: 40 });
+      world.establishRelationship({ fromId: "sara", toId: "jack", affinity: 60 });
+    }
+    nightAtTheClub(world, clock);
+    world.joinExperience("jack", "friday-night");
+    world.joinExperience("sara", "friday-night");
+    if (speak > 0) {
+      const conversation = world.startConversation("jack", "sara", "Good to see you.", [], { topics });
+      for (let turn = 1; turn < speak; turn += 1) {
+        world.sendMessage(turn % 2 === 1 ? "sara" : "jack", conversation.data.conversationId, `Turn ${turn}`, [], { topics });
+      }
+      if (appraisal) {
+        world.appraiseInteraction("jack", "sara", appraisal.value,
+          { conversationId: conversation.data.conversationId, interactionKind: appraisal.kind });
+      }
+    }
+    clock.advanceGameMinutes(121);
+    world.advanceTo(clock.now());
+    return world.history.filter((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED"
+      && event.data.characterId === "jack").at(-1).data.factors;
+  };
+
+  const alone = evening();
+  const present = evening({ speak: 0 });
+  const talkedWell = evening({ speak: 4, appraisal: { kind: "interaction", value: "appreciated" } });
+  const argued = evening({ speak: 4, appraisal: { kind: "insult", value: "offended" } });
+  const withStranger = evening({ speak: 4, appraisal: { kind: "interaction", value: "appreciated" }, stranger: true });
+
+  // Presence with someone valued is worth something, but much less than talking.
+  assert.ok(present.presenceValue > 0, "being in the room with someone you value counts");
+  assert.ok(talkedWell.interaction > present.presenceValue * 2,
+    "and talking to them counts far more, which is what stops presence-farming");
+
+  // The sign matters: an argument with someone who matters makes the evening worse.
+  assert.ok(argued.interaction < 0, `an argument must cost, got ${argued.interaction}`);
+  assert.ok(argued.interaction < talkedWell.interaction);
+
+  // A good exchange with a stranger is worth less than with someone who matters,
+  // but not nothing, because meeting people has to be worthwhile.
+  assert.ok(withStranger.interaction > 0);
+  assert.ok(withStranger.interaction < talkedWell.interaction,
+    "relationship importance weighs the same conversation differently");
+
+  assert.equal(alone.interaction, 0, "no interaction, no interaction value");
+});
+
+test("talking about what the other person cares about lands better", () => {
+  const factorsWith = (topics) => {
+    const { world, clock } = experienceWorld();
+    world.createCharacter({
+      id: "sara", name: "Sara", locationId: "club", personality: [], goal: "Be here.",
+      // Sara cares about music and not at all about competition.
+      preferences: {
+        music: 100, socializing: 100, learning: 60, competition: 0, spirituality: 60,
+        luxury: 60, adventure: 40, relaxation: 40, creativity: 40, nature: 0,
+      },
+    });
+    world.establishRelationship({ fromId: "sara", toId: "jack", affinity: 60 });
+    nightAtTheClub(world, clock);
+    world.joinExperience("sara", "friday-night");
+    world.joinExperience("jack", "friday-night");
+    const conversation = world.startConversation("sara", "jack", "Listen to this.", [], { topics });
+    world.sendMessage("jack", conversation.data.conversationId, "Go on.", [], { topics });
+    clock.advanceGameMinutes(121);
+    world.advanceTo(clock.now());
+    return world.history.filter((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED"
+      && event.data.characterId === "sara").at(-1).data.factors;
+  };
+
+  const aboutMusic = factorsWith(["music"]);
+  const aboutCompetition = factorsWith(["competition"]);
+  const aboutNothing = factorsWith([]);
+
+  assert.ok(aboutMusic.interaction > aboutNothing.interaction,
+    "a conversation about what she cares about is worth more than an undeclared one");
+  assert.ok(aboutCompetition.interaction < aboutNothing.interaction,
+    "and one about something she does not care about is worth less");
+  assert.deepEqual(aboutMusic.interactionDetail[0].topics, ["music"],
+    "the topic is recorded, so the evening stays explainable");
+});
+
+test("an invented conversation topic is rejected, not ignored", () => {
+  const { world, clock } = experienceWorld();
+  world.createCharacter({ id: "sara", name: "Sara", locationId: "club", personality: [], goal: "x" });
+  nightAtTheClub(world, clock);
+
+  assert.throws(
+    () => world.startConversation("jack", "sara", "Hello", [], { topics: ["nightlife"] }),
+    (error) => error instanceof DomainError && error.code === "UNKNOWN_TOPIC",
+  );
+  assert.throws(
+    () => world.startConversation("jack", "sara", "Hello", [], { topics: ["music", "luxury", "nature"] }),
+    (error) => error instanceof DomainError && error.code === "TOO_MANY_TOPICS",
+  );
 });

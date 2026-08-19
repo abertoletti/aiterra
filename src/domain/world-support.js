@@ -172,6 +172,36 @@ export function dominantDimension(profile, grammar) {
   return bestValue > 0 ? best : null;
 }
 
+// At most two, from the controlled taxonomy. Free text carries the meaning; the topic
+// list is the mechanical handle, so an invented topic is rejected rather than ignored.
+export function normalizeTopics(topics, grammar) {
+  if (topics === undefined || topics === null) return [];
+  if (!Array.isArray(topics)) throw invalid("INVALID_TOPICS", "Conversation topics must be an array");
+  if (topics.length > 2) throw invalid("TOO_MANY_TOPICS", "A turn may declare at most two topics");
+  const normalized = [];
+  for (const topic of topics) {
+    if (!grammar.profileDimensions.includes(topic)) {
+      throw invalid("UNKNOWN_TOPIC", `${topic} is not a version-${grammar.profileTaxonomyVersion} profile dimension`);
+    }
+    if (!normalized.includes(topic)) normalized.push(topic);
+  }
+  return normalized;
+}
+
+export function appraisalOutcomeKey(detail) {
+  if (!detail?.appraisal) return "unappraised";
+  if (detail.appraisal === "neutral") return "neutral";
+  return `${detail.interactionKind}:${detail.appraisal}`;
+}
+
+// Point 9: quality from declared interest, not from a classifier. With no declared
+// topic the exchange is neutral; a topic this resident cares about lands better.
+export function topicFitFor(preferences, topics, policy) {
+  if (!topics || topics.length === 0) return policy.topicFitNeutral;
+  const average = topics.reduce((sum, topic) => sum + (preferences?.[topic] ?? 0), 0) / topics.length;
+  return policy.topicFitNeutral + ((average - 50) / 50) * policy.topicFitRange;
+}
+
 export function experienceAttendanceKey(eventId, characterId) {
   return `${eventId}:${characterId}`;
 }

@@ -9,7 +9,8 @@ import {
 } from "./world-context.js";
 import {
   DomainError, addMilliseconds, clamp, itemsTouchedByEvent, coPresenceKey, conflict, conversationAppraisalKey,
-  dominantDimension, evenPreferences, experienceAttendanceKey, normalizeExperienceProfile, normalizePreferences,
+  appraisalOutcomeKey, dominantDimension, evenPreferences, experienceAttendanceKey,
+  normalizeExperienceProfile, normalizePreferences, normalizeTopics, topicFitFor,
   profileAffinity, round2,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
@@ -424,23 +425,23 @@ export class World {
     );
 
     const others = this.overlappingAttendees(gathering.id, characterId);
-    const socialValue = clamp(
+    // Presence is the small factor and interaction is the large one. Being in a room
+    // with someone you value is worth something; talking to them is worth much more.
+    // Without that gap a resident could farm Happiness by standing near people.
+    const presenceValue = clamp(
       others.reduce((total, otherId) => {
         const relationship = this.getRelationship(characterId, otherId);
-        return total + (relationship ? (relationship.affinity - relationship.tension) / 100 : 0);
+        return total + (relationship ? (relationship.affinity - relationship.tension) / 200 : 0);
       }, 0),
-      -policy.socialValueBound, policy.socialValueBound,
+      -policy.presenceValueBound, policy.presenceValueBound,
     );
 
     const plannedMinutes = Math.max(1, Math.round((new Date(gathering.endsAt) - new Date(gathering.startsAt)) / 60_000));
     const share = presenceMinutes / plannedMinutes;
     const participation = share < 0.10 ? -4 : share < 0.40 ? -2 : share < 0.75 ? 0 : 2;
 
-    // Saturating rather than capped: with a flat cap the exploit is to hit the cap
-    // exactly, and there is no threshold to aim at here.
-    const turns = attendance?.conversationTurns ?? 0;
-    const interaction = round2(policy.interactionValueMaximum
-      * (1 - Math.exp(-policy.interactionSaturationK * turns)));
+    const interactionDetail = this.socialInteractionValue(character, attendance, gathering);
+    const interaction = interactionDetail.value;
 
     const capacity = gathering.capacity ?? null;
     const crowd = capacity === null
@@ -457,9 +458,9 @@ export class World {
 
     const factors = {
       affinity: round2(affinity),
-      socialValue: round2(socialValue),
-      participation,
+      presenceValue: round2(presenceValue),
       interaction,
+      participation,
       crowd,
       repetition: round2(repetition),
       variance,
@@ -467,9 +468,12 @@ export class World {
       presenceMinutes,
       plannedMinutes,
       coPresentCount: others.length,
+      // The per-person breakdown is what makes an evening explainable: who it was, how
+      // much was said, and how it went.
+      interactionDetail: interactionDetail.perPerson,
       profileTaxonomyVersion: grammar.profileTaxonomyVersion,
     };
-    const raw = affinity + socialValue + participation + interaction + crowd + repetition + variance;
+    const raw = affinity + presenceValue + interaction + participation + crowd + repetition + variance;
 
     const resolved = this.record("EXPERIENCE_HAPPINESS_RESOLVED", {
       actorCharacterId: characterId,
@@ -487,6 +491,47 @@ export class World {
       causedByEventIds: [resolved.id], worldTime, factors,
     });
     return resolved;
+  }
+
+  // SocialValue = Σ intensity × importance × outcome × novelty × topicFit, per person.
+  // Five turns with someone who matters, that went well, about something you care
+  // about, is a different evening from five turns of small talk with a stranger — and
+  // an argument with someone who matters makes the evening worse, not merely flat.
+  socialInteractionValue(character, attendance, gathering) {
+    const policy = this.config.happiness;
+    const perPerson = [];
+    for (const [otherId, detail] of Object.entries(attendance?.interactions ?? {})) {
+      const relationship = this.getRelationship(character.id, otherId);
+      // Saturating per person: the first real exchange is worth most, the fifth little.
+      const intensity = 1 - Math.exp(-policy.interactionSaturationK * detail.turns);
+      // Someone you feel strongly about matters more, in either direction. A stranger
+      // still counts for something, which is what makes meeting people worthwhile.
+      const importance = relationship
+        ? clamp(
+          policy.strangerImportance
+            + (Math.abs(relationship.affinity) + relationship.tension) / 100,
+          policy.strangerImportance, 1,
+        )
+        : policy.strangerImportance;
+      const outcome = policy.interactionOutcomes[appraisalOutcomeKey(detail)]
+        ?? policy.interactionOutcomes.unappraised;
+      // Meeting someone new is worth more than the hundredth exchange with a regular.
+      const novelty = relationship ? 1 : policy.firstMeetingNovelty;
+      // Point 9: interaction quality without a server-side classifier. The speaker
+      // declares what was discussed from the controlled taxonomy; this character's own
+      // preferences decide whether it landed.
+      const topicFit = topicFitFor(character.preferences, detail.topics, policy);
+      perPerson.push({
+        otherId, turns: detail.turns, appraisal: detail.appraisal ?? null,
+        topics: [...(detail.topics ?? [])],
+        value: round2(policy.interactionValueMaximum * intensity * importance * outcome * novelty * topicFit),
+      });
+    }
+    const total = perPerson.reduce((sum, entry) => sum + entry.value, 0);
+    return {
+      value: round2(clamp(total, -policy.interactionValueMaximum, policy.interactionValueMaximum)),
+      perPerson,
+    };
   }
 
   currentAttendeeCount(eventId) {
@@ -1122,7 +1167,10 @@ export class World {
     }
   }
 
-  startConversation(initiatorId, targetId, openingMessage = "") {
+  startConversation(initiatorId, targetId, openingMessage = "", sharedFacts = [], options = {}) {
+    // Validated up front: an invented topic must not leave a half-started conversation
+    // behind, and the opening turn is only written at the end of this command.
+    const openingTopics = normalizeTopics(options.topics, this.config.grammar);
     const initiator = this.requireCharacter(initiatorId);
     const target = this.requireCharacter(targetId);
     if (initiator.agentAvailability === "unavailable") throw conflict("AGENT_UNAVAILABLE", "Unavailable agents cannot start synchronous conversations");
@@ -1178,11 +1226,12 @@ export class World {
     this.ensureRelationshipEdge(initiatorId, targetId, event.id);
     this.ensureRelationshipEdge(targetId, initiatorId, event.id);
     this.evaluateAndMaybeNotify(event, targetId, { directTarget: true });
-    if (openingMessage) this.sendMessage(initiatorId, conversationId, openingMessage, [], { opening: true });
+    if (openingMessage) this.sendMessage(initiatorId, conversationId, openingMessage, sharedFacts, { opening: true, topics: openingTopics });
     return event;
   }
 
   sendMessage(senderId, conversationId, text, sharedFacts = [], options = {}) {
+    const topics = normalizeTopics(options.topics, this.config.grammar);
     const sender = this.requireCharacter(senderId);
     const conversation = this.requireConversation(conversationId);
     if (!conversation.participantIds.includes(senderId)) throw forbidden("NOT_PARTICIPANT", "Character is not a conversation participant");
@@ -1220,6 +1269,9 @@ export class World {
       data: {
         conversationId, messageId, senderId, participantIds: conversation.participantIds,
         text, sharedFacts: facts, energyCost: turnEnergyCost, endsConversation: reachesTurnLimit,
+        // Controlled vocabulary, so what a conversation was about can weigh on the
+        // listener's experience without the server ever classifying free text.
+        topics,
       },
     });
 
@@ -1913,12 +1965,12 @@ export class World {
         break;
       }
       case "start_conversation": {
-        const event = this.startConversation(characterId, action.targetCharacterId, action.openingMessage);
+        const event = this.startConversation(characterId, action.targetCharacterId, action.openingMessage, action.sharedFacts ?? [], { topics: action.topics });
         result = this.actionResult(characterId, event, { conversationId: event.data.conversationId });
         break;
       }
       case "send_message": {
-        const event = this.sendMessage(characterId, action.conversationId, action.text, action.sharedFacts);
+        const event = this.sendMessage(characterId, action.conversationId, action.text, action.sharedFacts, { topics: action.topics });
         result = this.actionResult(characterId, event, { messageId: event.data.messageId });
         break;
       }

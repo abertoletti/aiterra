@@ -62,31 +62,53 @@ The observation exposes the character's own Happiness, its own preference vector
 
 Resolution happens **exactly once** per attendance, at whichever comes first: the character's departure, the experience's end, or its terminal cancellation. A resolution records every input, the raw delta, the applied delta, and the policy version.
 
-Version 1 uses seven factors, each bounded, summed and then clamped to the −15..+15 raw range:
+Version 1 uses eight factors, each bounded, summed and then clamped to the −15..+15 raw range:
 
 | Factor | Range | Derived from |
 | --- | ---: | --- |
 | Profile affinity | −6 to +9 | `(affinity − 40) × 0.15`, where affinity is the approved delivery-weighted preference |
-| Social value | −5 to +5 | the character's own directional relationships with residents actually co-present |
+| Presence | −2 to +2 | relationships with residents actually co-present, whether or not they spoke |
+| Interaction | −6 to +6 | per counterpart: intensity, importance, outcome, novelty, and topic fit |
 | Participation | −4 to +2 | actual presence against the experience's planned duration |
-| Verified interaction | 0 to +4 | conversation turns the character actually took while present, saturating |
 | Crowd context | −2 to +2 | count of other residents actually co-present, against capacity |
 | Repetition | −5 to 0 | the character's own recent resolutions at this place or this kind of experience |
 | Variance | −1.5 to +1.5 | drawn once per resolution and recorded as a factor |
 
 Nothing announced is ever an input. A contributor who was billed but never present contributes nothing; an attendee list is irrelevant unless those residents were actually there; a private RSVP never becomes a name.
 
-### Social value
+### Presence, and interaction
 
-For every other resident actually co-present during the attendance, using only the perceiving character's own outgoing edge:
+These are two factors on purpose, and the gap between them is deliberate. Being in a room with someone matters; talking to them matters far more. Collapsing them would let a resident farm Happiness by standing near people it values without ever speaking, which is exactly the reward-hacking the split prevents.
+
+Presence uses only the perceiving character's own outgoing edge:
 
 ```text
-socialValue = clamp( Σ_other ( affinity(me→other) − tension(me→other) ) / 100 , −5, +5 )
+presence = clamp( Σ_other ( affinity(me→other) − tension(me→other) ) / 200 , −2, +2 )
 ```
 
-This is the factor that makes the same gathering a good evening for one resident and a bad one for another. Being in a room with two people you like is worth something; being in a room with someone you are in conflict with costs something, whether or not you speak to them. It uses affinity and tension and deliberately not trust, which is about reliability rather than whether an evening was pleasant.
+Interaction is computed per counterpart and summed:
 
-It reads only the character's own direction, so it never discloses or depends on how the other resident feels.
+```text
+interaction_i = 6 × intensity × importance × outcome × novelty × topicFit
+
+intensity  = 1 − e^(−0.55 × turns)     saturating, so the fifth turn adds little
+importance = 0.3 … 1, from ( |affinity| + tension ) / 100
+outcome    = +1   appreciated
+             +0.3 unappraised
+             +0.1 neutral
+             −0.6 uncomfortable
+             −1   offended
+novelty    = 1.3 for a first meeting, otherwise 1
+topicFit   = 1 ± 0.6, from this character's preference for the declared topics
+```
+
+Importance rises with the magnitude of a relationship in either direction, so an argument with someone who matters costs more than one with a stranger. A stranger still carries a floor of 0.3, because meeting people has to be worth doing.
+
+Outcome is the only term that can turn the factor negative, and it is **declared by the perceiving brain** through the appraisal it already submits. No server-side classifier reads free text, and no LLM is involved in deciding whether an evening went well.
+
+topicFit is how interaction quality is measured without a classifier. A turn may declare at most two topics from the controlled taxonomy; the listener's own preference for those topics decides whether it landed. An undeclared turn is neutral, so declaring nothing is never punished — only declaring badly.
+
+Both terms read only the character's own direction, so neither discloses nor depends on how the other resident feels.
 
 ### Participation
 

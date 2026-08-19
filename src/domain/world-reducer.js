@@ -239,6 +239,7 @@ export function applyEvent(state, event) {
         endedAt: null,
         accruedMinutes: prior && !prior.resolved ? prior.accruedMinutes : 0,
         conversationTurns: prior && !prior.resolved ? prior.conversationTurns : 0,
+        interactions: prior && !prior.resolved ? prior.interactions : {},
         resolved: false,
       });
       break;
@@ -274,6 +275,20 @@ export function applyEvent(state, event) {
         dominantDimension: data.dominantDimension ?? null, worldTime: event.worldTime,
       });
       state.happinessResolutions.set(data.characterId, history);
+      break;
+    }
+    case "RELATIONSHIP_APPRAISAL_RECORDED": {
+      // The brain declares the outcome of the interaction; no server-side classifier is
+      // needed, and a bad exchange can now make the evening worse.
+      const perceiver = state.characters.get(data.fromId);
+      if (perceiver?.activity?.type === "attend_event") {
+        const attending = state.experienceAttendance.get(experienceAttendanceKey(perceiver.activity.eventId, data.fromId));
+        const existing = attending && !attending.resolved ? attending.interactions[data.toId] : null;
+        if (existing) {
+          existing.appraisal = data.appraisal;
+          existing.interactionKind = data.interactionKind;
+        }
+      }
       break;
     }
     case "HAPPINESS_CHANGED": {
@@ -338,11 +353,23 @@ export function applyEvent(state, event) {
       break;
     case "CONVERSATION_MESSAGE_SENT": {
       // Verified interaction: only turns this character itself took, and only while it
-      // was actually present at an experience.
+      // was actually present at an experience. Tracked per counterpart, because whom
+      // you talked to is what makes the evening good or bad.
       const speaker = state.characters.get(data.senderId ?? event.actorCharacterId);
       if (speaker?.activity?.type === "attend_event") {
         const attending = state.experienceAttendance.get(experienceAttendanceKey(speaker.activity.eventId, speaker.id));
-        if (attending && !attending.resolved) attending.conversationTurns += 1;
+        if (attending && !attending.resolved) {
+          attending.conversationTurns += 1;
+          for (const otherId of data.participantIds ?? []) {
+            if (otherId === speaker.id) continue;
+            const existing = attending.interactions[otherId] ?? { turns: 0, appraisal: null, interactionKind: null, topics: [] };
+            existing.turns += 1;
+            for (const topic of data.topics ?? []) {
+              if (!existing.topics.includes(topic)) existing.topics.push(topic);
+            }
+            attending.interactions[otherId] = existing;
+          }
+        }
       }
       const conversation = state.conversations.get(data.conversationId);
       conversation.messages.push({

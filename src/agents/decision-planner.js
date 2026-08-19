@@ -106,6 +106,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "Follow requiredActionShapes exactly. Fields shown as required must be present and non-empty; availableActions contains valid IDs but may omit required natural-language fields.",
         "If a conversation response is pending, prioritize send_message, remain_silent, or end_conversation.",
         "Use concise natural dialogue. Shared facts must be claims the character actually knows.",
+        "Declare what a turn was about with 'topics', at most two of the profile dimensions listed in rules.happiness.profileDimensions. A conversation about something the other person cares about lands better than small talk, and an honest appraisal afterwards is what decides whether it went well or badly for you.",
         "Conversation turns consume energy. Respect turnsRemaining, avoid repetitive acknowledgements, and appraise or end once the purpose is met; closingRecommended means conclude now instead of starting another topic.",
         "Use authoritative invitations to turn dialogue into action: invite a known resident to an offered location or event, and accept or decline incoming invitations according to character intent.",
         "For team jobs, inspect workerIds, openTeamSlots, requirementsMode, and teamSkillCoverageAfterJoin; joining is a commitment and the server starts only a complete eligible team.",
@@ -198,6 +199,7 @@ function actionShapes(availableActions) {
         conversationId: "<an offered conversationId>",
         text: "<required non-empty natural dialogue, 1-2000 characters>",
         sharedFacts: [],
+        topics: "<optional, at most two profile dimensions this turn was about>",
       }; break;
       case "end_conversation": shapes.end_conversation = { type, conversationId: "<an offered conversationId>" }; break;
       case "remain_silent": shapes.remain_silent = { type, conversationId: "<an offered conversationId>" }; break;
@@ -276,11 +278,17 @@ export function validateAction(candidate, observation, history = []) {
       return { ...action, openingMessage: text(candidate.openingMessage, "openingMessage", MAX_MESSAGE_CHARACTERS) };
     }
     case "send_message": {
+      const topics = candidate.topics === undefined || candidate.topics === null
+        ? []
+        : (Array.isArray(candidate.topics) ? candidate.topics.slice(0, 2).map((topic) => text(String(topic), "topic", 40)) : []);
       const action = matchedIdentifierAction(type, "conversationId", candidate, templates);
       return {
         ...action,
         text: text(candidate.text, "message text", MAX_MESSAGE_CHARACTERS),
         sharedFacts: validateSharedFacts(candidate.sharedFacts ?? []),
+        // The server revalidates against the controlled taxonomy and rejects an
+        // invented topic, so passing it through unchecked is safe and honest.
+        ...(topics.length > 0 ? { topics } : {}),
       };
     }
     case "end_conversation":

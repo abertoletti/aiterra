@@ -54,9 +54,24 @@ export const defaultConfig = Object.freeze({
     affinityScale: 0.15,
     affinityMinimum: -6,
     affinityMaximum: 9,
-    socialValueBound: 5,
-    interactionValuePerTurn: 1,
-    interactionValueMaximum: 4,
+    // Presence is the small factor, interaction the large one.
+    presenceValueBound: 2,
+    interactionValueMaximum: 6,
+    strangerImportance: 0.3,
+    firstMeetingNovelty: 1.3,
+    // Outcomes are declared by the perceiving brain, so no server-side classifier is
+    // needed and a bad exchange can lower Happiness.
+    interactionOutcomes: {
+      "greeting:appreciated": 1,
+      "interaction:appreciated": 1,
+      "rejection:uncomfortable": -0.6,
+      "insult:offended": -1,
+      neutral: 0.1,
+      unappraised: 0.3,
+    },
+    // Talking about something this resident cares about lands better than small talk.
+    topicFitNeutral: 1,
+    topicFitRange: 0.6,
     crowdBound: 2,
     repetitionPerPriorAttendance: 1.5,
     repetitionMinimum: -5,
