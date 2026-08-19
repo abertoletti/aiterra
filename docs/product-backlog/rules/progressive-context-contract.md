@@ -178,7 +178,7 @@ An affordance enumerates its instances **only when the instances differ in somet
 
 The test is mechanical, and worth applying to every new affordance: if two enumerated entries differ only by identifiers the projection already carries, the enumeration is transporting no information.
 
-`send_invitation` was the first case to fail it. It has two free parameters, so enumerating instances cost the product of their domains — and every one of those entries carried no feasibility of its own, while its target identifiers were already in `nearby` and the `people` catalog and its destination identifiers were already in the `move` affordances, the `experiences` catalog, and the character's own location. The declared form is a single entry carrying the remaining open-invitation count, the allowed destination types, and the lead and window minutes.
+`send_invitation` was the first case to fail it, and it failed badly enough that the enumerated form was removed outright rather than kept behind `contextMode=full`. An invitation is aimed: the agent has already decided who and where before it reaches for the action. Offering it as one entry per known person per destination cost the product of two domains, proposed inviting someone to the room the character was already standing in, and carried no per-combination feasibility to justify itself, while every identifier it spelled out was already in `nearby`, the known relationships, the reachable destinations, or the known experiences. The declared form is a single entry carrying the remaining open-invitation count, the allowed destination types, and the lead and window minutes.
 
 This matters more, not less, as the city grows. Enumerating instances costs the product of the parameter domains, so an action with three free parameters — a contributor hire is candidate by role by experience — is unaffordable as instances and constant as a declaration. A declared envelope does not grow with the world at all.
 
@@ -216,7 +216,7 @@ Run-level metrics: baseline bytes per decision (p50 and p90), catalog bytes per 
 5. Each invalidation code is produced by its cause, stays readable once as `stale`, and rejects submission without partial effect.
 6. A rules-version change delivers the manifest exactly once and emits the invalidation.
 7. The manifest carries the `context` section, and the new manifest version is distinguishable from `agent-rules-v1`.
-8. A declared affordance still reaches every combination the enumerated form offered, and does not grow when locations or experiences are added.
+8. A declared affordance names no target and no destination, is offered once in either context mode, and does not grow when locations or experiences are added; a combination assembled only from context the agent already holds is accepted by the server.
 9. Overflow reduces page size and truncates free text without ever dropping a known item or a blocker.
 10. A cached catalog never suppresses a feasibility or blocker change.
 11. `contextMode=full` and `contextMode=progressive` expose the same set of known item identifiers for the same character and world state.

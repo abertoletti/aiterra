@@ -46,9 +46,19 @@ test("invitations target either a location or event and accepted commitments hav
     id: "debate", title: "Town debate", locationId: "square",
     startsAt: addGameMinutes(clock.now(), 90), endsAt: addGameMinutes(clock.now(), 150),
   });
+  // The affordance declares that both destination kinds are open, rather than
+  // enumerating every person against every place; the agent aims the invitation.
   const actions = world.getObservation("aria").availableActions.filter((action) => action.type === "send_invitation");
-  assert.ok(actions.some((action) => action.destinationType === "location" && action.destinationId === "square"));
-  assert.ok(actions.some((action) => action.destinationType === "event" && action.destinationId === "debate"));
+  assert.equal(actions.length, 1);
+  assert.deepEqual(actions[0].destinationTypes, ["location", "event"]);
+  assert.ok(actions[0].openInvitationsRemaining > 0);
+
+  // Both kinds are genuinely accepted by the server.
+  const toEvent = world.sendInvitation("aria", "borin", {
+    destinationType: "event", destinationId: "debate", message: "Come to the debate.",
+  });
+  assert.equal(toEvent.data.eventId, "debate");
+  world.respondToInvitation("borin", toEvent.data.invitationId, "decline");
 
   const sent = world.sendInvitation("aria", "borin", {
     destinationType: "location", destinationId: "square", message: "Meet me at the square.",

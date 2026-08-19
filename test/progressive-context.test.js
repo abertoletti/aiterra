@@ -113,42 +113,51 @@ test("progressive and full disclose the same known items for the same world stat
   assert.deepEqual(blockedIn(progressive), blockedIn(full));
 });
 
-test("the collapsed invitation affordance still reaches every pair full mode enumerated", () => {
+test("the invitation affordance is one aimed declaration, in either context mode", () => {
   const { world } = pilotWorld();
   const characterId = "pilot-01";
 
-  const full = world.getObservation(characterId);
-  const progressive = world.getObservation(characterId, { contextMode: "progressive" });
-  const enumerated = full.availableActions.filter((action) => action.type === "send_invitation");
-  const envelopes = progressive.availableActions.filter((action) => action.type === "send_invitation");
+  for (const contextMode of ["full", "progressive"]) {
+    const observation = world.getObservation(characterId, { contextMode });
+    const offers = observation.availableActions.filter((action) => action.type === "send_invitation");
 
-  assert.ok(enumerated.length > 1, "full mode enumerates the cross-product");
-  assert.equal(envelopes.length, 1, "progressive mode declares the envelope once");
-
-  // Every identifier the cross-product spelled out must still be sourceable from
-  // somewhere the agent holds, or collapsing would have removed a real option.
-  const reachableTargets = new Set([
-    ...progressive.nearby.map((person) => person.id),
-    ...world.inspectContext(characterId, { resource: "people", limit: 50 }).items.map((person) => person.id),
-  ]);
-  const reachableDestinations = new Set([
-    progressive.character.locationId,
-    ...progressive.availableActions.filter((action) => action.type === "move").map((action) => action.destinationId),
-    ...world.inspectContext(characterId, { resource: "experiences", limit: 50 }).items.map((item) => item.id),
-  ]);
-
-  for (const offer of enumerated) {
-    assert.ok(reachableTargets.has(offer.targetCharacterId),
-      `target ${offer.targetCharacterId} would be unreachable after collapsing`);
-    assert.ok(reachableDestinations.has(offer.destinationId),
-      `destination ${offer.destinationId} would be unreachable after collapsing`);
-    assert.ok(envelopes[0].destinationTypes.includes(offer.destinationType));
+    assert.equal(offers.length, 1, `${contextMode} mode must declare the envelope once`);
+    assert.equal(offers[0].targetCharacterId, undefined, "the affordance names no target");
+    assert.equal(offers[0].destinationId, undefined, "the affordance names no destination");
+    assert.deepEqual(offers[0].destinationTypes, ["location", "event"]);
+    assert.equal(offers[0].openInvitationsRemaining, 3);
+    assert.equal(offers[0].locationLeadWorldMinutes, 30);
+    assert.equal(offers[0].locationWindowWorldMinutes, 30);
   }
+});
 
-  // And the envelope carries the constraints the enumeration used to imply.
-  assert.equal(envelopes[0].openInvitationsRemaining, 3);
-  assert.equal(envelopes[0].locationLeadWorldMinutes, 30);
-  assert.equal(envelopes[0].locationWindowWorldMinutes, 30);
+test("everything the invitation envelope permits is sourceable and actually accepted", () => {
+  const { world } = pilotWorld();
+  const characterId = "pilot-01";
+  const observation = world.getObservation(characterId, { contextMode: "progressive" });
+
+  // The parameters the agent must supply come from context it already holds.
+  const targets = [
+    ...observation.nearby.map((person) => person.id),
+    ...world.inspectContext(characterId, { resource: "people", limit: 50 }).items.map((person) => person.id),
+  ];
+  const experiences = world.inspectContext(characterId, { resource: "experiences", limit: 50 }).items;
+  assert.ok(targets.length > 0, "the agent knows who it could invite");
+  assert.ok(experiences.length > 0, "the agent knows where it could invite them");
+
+  // And the server accepts a combination assembled purely from that context, which
+  // is the property that makes the declaration safe rather than merely smaller.
+  const sent = world.sendInvitation(characterId, targets[0], {
+    destinationType: "event", destinationId: experiences[0].id, message: "Join me there.",
+  });
+  assert.equal(sent.type, "INVITATION_SENT");
+  assert.equal(sent.data.eventId, experiences[0].id);
+
+  // A location the character knows works the same way.
+  const toLocation = world.sendInvitation(characterId, targets[0], {
+    destinationType: "location", destinationId: observation.character.locationId, message: "Stay here with me.",
+  });
+  assert.equal(toLocation.data.locationId, observation.character.locationId);
 });
 
 test("the invitation affordance does not grow with the world", () => {
