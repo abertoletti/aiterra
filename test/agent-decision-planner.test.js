@@ -201,3 +201,48 @@ test("a progressive observation uses the runtime's cached manifest", () => {
   const context = JSON.parse(buildDecisionMessages(progressive, [], [], { rules: cached })[1].content);
   assert.deepEqual(context.rules, cached, "the model still receives the rules it must apply");
 });
+
+test("secondary goals validate against known identifiers, not against full-mode records", () => {
+  // A progressive observation: no relationships, no upcomingEvents, no availableJobs.
+  // Reading only those records rejected every goal type once they stopped being sent.
+  const progressive = observation({
+    contextMode: "progressive",
+    known: { characterIds: ["pilot-02"], locationIds: ["commons", "workshop"], eventIds: ["welcome"] },
+    availableActions: [
+      { type: "propose_secondary_goal", allowedGoalTypes: ["strengthen_relationship", "visit_location", "attend_event", "find_work"] },
+    ],
+  });
+  delete progressive.relationships;
+  delete progressive.upcomingEvents;
+  delete progressive.availableJobs;
+
+  const history = [{ id: "ev-source", type: "CO_PRESENCE_STARTED" }];
+  const propose = (goal) => validateAction({ type: "propose_secondary_goal", goal }, progressive, history);
+
+  for (const goal of [
+    { type: "strengthen_relationship", targetId: "pilot-02" },
+    { type: "visit_location", targetId: "workshop" },
+    { type: "attend_event", targetId: "welcome" },
+    { type: "find_work", targetId: "commons" },
+  ]) {
+    const validated = propose({ ...goal, sourceEventId: "ev-source", declaredReason: "A reason." });
+    assert.equal(validated.goal.type, goal.type);
+    assert.equal(validated.goal.targetId, goal.targetId);
+  }
+
+  // Targets outside `known` are still refused, and so is an unperceived source.
+  assert.throws(() => propose({ type: "strengthen_relationship", targetId: "pilot-09", sourceEventId: "ev-source", declaredReason: "x" }),
+    (error) => error instanceof DecisionValidationError);
+  assert.throws(() => propose({ type: "visit_location", targetId: "atlantis", sourceEventId: "ev-source", declaredReason: "x" }),
+    (error) => error instanceof DecisionValidationError);
+  assert.throws(() => propose({ type: "attend_event", targetId: "welcome", sourceEventId: "ev-invented", declaredReason: "x" }),
+    (error) => error instanceof DecisionValidationError);
+});
+
+test("the prompt asks the character to pursue something and says how to name a goal", () => {
+  const prompt = buildDecisionMessages(observation())[0].content;
+  assert.ok(prompt.includes("should be pursuing something"),
+    "the first pilot adopted zero goals because the prompt told it to adopt them only rarely");
+  assert.ok(prompt.includes("known.characterIds"), "and it must say where a valid target comes from");
+  assert.ok(!prompt.includes("only when a concrete new commitment"), "the discouraging wording is gone");
+});

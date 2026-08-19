@@ -1904,6 +1904,31 @@ export class World {
     }
   }
 
+  // Mirrors validateGoalTarget: the identifiers this character is allowed to name.
+  // Kept as ids so a compact baseline can still support goals and invitations.
+  knownTargetIds(characterId) {
+    const character = this.requireCharacter(characterId);
+    const characterIds = new Set();
+    for (const key of this.state.relationships.keys()) {
+      if (key.startsWith(`${characterId}->`)) characterIds.add(key.slice(key.indexOf("->") + 2));
+    }
+    if (character.activity?.type !== "moving") {
+      for (const other of this.state.characters.values()) {
+        if (other.id !== characterId && other.locationId === character.locationId && other.activity?.type !== "moving") {
+          characterIds.add(other.id);
+        }
+      }
+    }
+    const now = this.clock.now();
+    return {
+      characterIds: [...characterIds].sort(),
+      locationIds: [...this.state.locations.keys()].sort(),
+      eventIds: [...this.state.gatherings.values()]
+        .filter((gathering) => new Date(gathering.endsAt) >= now)
+        .map((gathering) => gathering.id).sort(),
+    };
+  }
+
   // Compact summaries of every catalog resource. `since` is the contextVersion the
   // runtime last saw, so the delta needs no server-side memory of past deliveries.
   getContextSummaries(characterId, since = 0) {
@@ -1998,6 +2023,10 @@ export class World {
       contextContractVersion: CONTEXT_CONTRACT_VERSION,
       contextVersion: stateVersion,
       summaries: this.getContextSummaries(characterId, contextVersion),
+      // Identifiers, not records: what this character may legitimately name as the
+      // target of a goal or an invitation. Compact enough for the baseline, and it
+      // keeps a runtime from having to fetch a catalog just to know what exists.
+      known: this.knownTargetIds(characterId),
       stateVersion,
       character: publicCharacter(character),
       nearby,

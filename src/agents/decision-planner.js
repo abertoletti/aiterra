@@ -110,7 +110,13 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "Use authoritative invitations to turn dialogue into action: invite a known resident to an offered location or event, and accept or decline incoming invitations according to character intent.",
         "For team jobs, inspect workerIds, openTeamSlots, requirementsMode, and teamSkillCoverageAfterJoin; joining is a commitment and the server starts only a complete eligible team.",
         "Dialogue can propose future plans, but never claim that movement, work, attendance, possession, construction, inspection, or completion happened unless authoritative observation or history confirms it.",
-        "After an ended conversation, prioritize one honest appraisal and adopt a secondary goal only when a concrete new commitment or concern emerged.",
+        "After an ended conversation, prioritize one honest appraisal.",
+        // The first pilot adopted zero goals in 165 actions. It was obeying us: the
+        // previous wording said to adopt one "only when" something concrete emerged,
+        // and nothing else in the prompt asked the character to want anything.
+        "Your character should be pursuing something. Keep at least one active secondary goal whenever you have capacity for it, and propose one as soon as a perceived event gives you a reason: someone worth knowing better, a rivalry, work worth finding, a place or gathering worth reaching.",
+        "A secondary goal needs a sourceEventId you actually perceived - take it from recentPermittedHistory or a pendingNotification - and a targetId listed in `known` (known.characterIds, known.locationIds, known.eventIds). Goals persist across decisions, so use them to stay on a plan instead of reconsidering from scratch each time.",
+        "Abandon a goal explicitly when it is achieved or no longer makes sense, rather than leaving it to expire.",
         ...contextProtocol,
         "Return JSON only, without markdown: {\"action\":{...},\"rationale\":\"one short sentence\"}.",
       ].join(" "),
@@ -404,22 +410,28 @@ function validateSecondaryGoal(candidate, template, observation, history) {
   };
 }
 
+// Prefers observation.known, which both context modes carry as identifiers, and falls
+// back to the full-mode records. Reading only the records silently rejected almost
+// every goal in progressive mode, since that is where those records stop being sent.
 function validateGoalTarget(type, targetId, observation) {
+  const known = observation.known ?? {};
+  const knownCharacters = new Set(known.characterIds
+    ?? [...(observation.relationships ?? []).map((item) => item.characterId),
+      ...(observation.nearby ?? []).map((item) => item.id)]);
+  const knownLocations = new Set(known.locationIds ?? [
+    observation.character?.locationId,
+    ...(observation.availableActions ?? []).filter((item) => item.type === "move").map((item) => item.destinationId),
+  ].filter(Boolean));
+  const knownEvents = new Set(known.eventIds ?? (observation.upcomingEvents ?? []).map((item) => item.id));
+
   if (["strengthen_relationship", "avoid_character", "resolve_conflict"].includes(type)) {
-    const knownCharacters = new Set((observation.relationships ?? []).map((item) => item.characterId));
     if (!targetId || !knownCharacters.has(targetId)) throw new DecisionValidationError("The secondary goal character target is not known");
   } else if (type === "visit_location") {
-    const knownLocations = new Set([
-      observation.character?.locationId,
-      ...(observation.availableActions ?? []).filter((item) => item.type === "move").map((item) => item.destinationId),
-    ]);
     if (!targetId || !knownLocations.has(targetId)) throw new DecisionValidationError("The visit-location target is not visible");
   } else if (type === "attend_event") {
-    const visibleEvents = new Set((observation.upcomingEvents ?? []).map((item) => item.id));
-    if (!targetId || !visibleEvents.has(targetId)) throw new DecisionValidationError("The attend-event target is not visible");
+    if (!targetId || !knownEvents.has(targetId)) throw new DecisionValidationError("The attend-event target is not visible");
   } else if (type === "find_work" && targetId) {
-    const jobLocations = new Set((observation.availableJobs ?? []).map((item) => item.locationId));
-    if (!jobLocations.has(targetId)) throw new DecisionValidationError("The find-work location is not visible");
+    if (!knownLocations.has(targetId)) throw new DecisionValidationError("The find-work location is not visible");
   }
 }
 
