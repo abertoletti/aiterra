@@ -2,13 +2,13 @@
 
 **Version:** 1 · **Scope:** observation, attendance, and realized value · **Updated:** 2026-08-19 · **Applies to:** AIT-1203, AIT-1501, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1508, AIT-1509, AIT-1601, AIT-1606, AIT-1609
 
-Version 1 approves the subset the first vertical slice needs: what Happiness is, how preferences work, how realized value is computed from what actually happened, the mandatory neglect pressure, and the low-Happiness consequence. The novelty reward, contributor value, venue quality, Expected-Happiness disclosure, and anti-collusion remain **Draft** and are listed at the end, so AIT-1503 and AIT-1506 through AIT-1509 stay blocked.
+Version 1 approves the subset the first vertical slice needs: what Happiness is, how preferences work, how realized value is computed from what actually happened, and the neglect pressure. The novelty reward, contributor value, venue quality, Expected-Happiness disclosure, and anti-collusion remain **Draft** and are listed at the end, so AIT-1503 and AIT-1506 through AIT-1509 stay blocked.
 
 Version 1 exists because the first seven-agent pilot measured what a world without incentives produces: 77% of all actions were conversation, 6% was work, and no character adopted a single goal in 165 actions. Credits had no sink, so working meant nothing. Happiness is the sink and the second feedback signal.
 
 ## Invariants
 
-- Happiness is bounded and server-authoritative, distinct from Credits, Energy, skills, relationships, popularity, reputation, and goals.
+- Happiness state is bounded and server-authoritative, and the lived total is unbounded. Both are distinct from Credits, Energy, skills, relationships, popularity, reputation, and goals.
 - Characters and experiences use the profile dimensions owned by the [city, building, and experience grammar policy](building-grammar-policy.md), version 1. This policy normalizes and values them; it never redefines them.
 - Realized Happiness uses what actually happened and can be positive, neutral, or negative.
 - Presence of a valued person raises expectation as an opportunity. Material realized social value requires verified interaction.
@@ -62,7 +62,7 @@ The observation exposes the character's own Happiness, its own preference vector
 
 Resolution happens **exactly once** per attendance, at whichever comes first: the character's departure, the experience's end, or its terminal cancellation. A resolution records every input, the raw delta, the applied delta, and the policy version.
 
-Version 1 uses eight factors, each bounded, summed and then clamped to the −15..+15 raw range:
+Version 1 uses seven factors, each bounded, summed and then clamped to the −15..+15 raw range:
 
 | Factor | Range | Derived from |
 | --- | ---: | --- |
@@ -180,7 +180,9 @@ Work now carries a Happiness cost of **1.5** per completed job, applied before s
 
 - Resolution is once per attendance, keyed by character and experience, and is replay-safe.
 - Re-entering the same experience does not resolve a second time; presence accumulates and resolves once.
-- Interaction value counts only turns the character itself took while actually present, and saturates as `4 × (1 − e^(−0.55·turns))`: a flat cap invites hitting the cap exactly, while saturation has no threshold to aim at.
+- Interaction value counts only turns the character itself took while actually present, and saturates per counterpart: a flat cap invites hitting the cap exactly and stopping, while saturation has no threshold to aim at.
+- Presence is worth much less than interaction, so standing near valued residents without ever speaking to them cannot be farmed.
+- A declared conversation topic is validated against the controlled taxonomy before anything is written, so an invented topic cannot leave a half-started conversation behind.
 - Crowd context counts authoritative co-presence, never announced or private RSVPs.
 - Repeating the same place or the same kind of experience is penalized by the repetition factor, so a resident cannot farm one profile-matched gathering. What remains open is the reward for genuine novelty, which makes the world stingy rather than exploitable.
 
