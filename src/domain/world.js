@@ -2574,22 +2574,40 @@ export class World {
           .filter((key) => key.startsWith(`${character.id}->`))
           .map((key) => key.slice(key.indexOf("->") + 2)),
       ])];
-      for (const targetCharacterId of knownTargetIds) {
-        for (const location of this.state.locations.values()) {
-          const startsAt = addGameMinutes(this.clock.now(), this.config.invitations.locationLeadWorldMinutes);
-          actions.push({
+      if (compactAffordances) {
+        // An invitation has two free parameters, so enumerating its instances costs
+        // the product of their domains and grows with the city. It also adds nothing:
+        // no instance carries a feasibility of its own, and every identifier is
+        // already in nearby, the people catalog, the move affordances, or the
+        // experience catalog. So the affordance declares the envelope and the agent,
+        // which already knows who it wants to invite and where, supplies both.
+        actions.push({
+          type: "send_invitation",
+          openInvitationsRemaining: this.config.invitations.maximumOpenPerCharacter - openSentInvitations,
+          destinationTypes: ["location", "event"],
+          locationLeadWorldMinutes: this.config.invitations.locationLeadWorldMinutes,
+          locationWindowWorldMinutes: this.config.invitations.locationWindowWorldMinutes,
+          targetsFrom: "a co-present resident or a person you already know",
+          destinationsFrom: "your current location, a location you can reach, or a known experience",
+        });
+      } else {
+        for (const targetCharacterId of knownTargetIds) {
+          for (const location of this.state.locations.values()) {
+            const startsAt = addGameMinutes(this.clock.now(), this.config.invitations.locationLeadWorldMinutes);
+            actions.push({
+              type: "send_invitation", targetCharacterId,
+              destinationType: "location", destinationId: location.id,
+              locationId: location.id, startsAt: startsAt.toISOString(),
+              endsAt: addGameMinutes(startsAt, this.config.invitations.locationWindowWorldMinutes).toISOString(),
+            });
+          }
+          for (const gathering of upcomingEvents) actions.push({
             type: "send_invitation", targetCharacterId,
-            destinationType: "location", destinationId: location.id,
-            locationId: location.id, startsAt: startsAt.toISOString(),
-            endsAt: addGameMinutes(startsAt, this.config.invitations.locationWindowWorldMinutes).toISOString(),
+            destinationType: "event", destinationId: gathering.id,
+            eventId: gathering.id, locationId: gathering.locationId,
+            startsAt: gathering.startsAt, endsAt: gathering.endsAt,
           });
         }
-        for (const gathering of upcomingEvents) actions.push({
-          type: "send_invitation", targetCharacterId,
-          destinationType: "event", destinationId: gathering.id,
-          eventId: gathering.id, locationId: gathering.locationId,
-          startsAt: gathering.startsAt, endsAt: gathering.endsAt,
-        });
       }
     }
     if (character.secondaryGoals.filter((goal) => goal.status === "active").length < this.config.goals.maximumActiveSecondaryGoals) {

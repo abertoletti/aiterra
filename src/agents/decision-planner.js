@@ -251,9 +251,25 @@ export function validateAction(candidate, observation, history = []) {
       const targetCharacterId = text(candidate.targetCharacterId, "targetCharacterId", 100);
       const destinationType = text(candidate.destinationType, "destinationType", 20);
       const destinationId = text(candidate.destinationId, "destinationId", 100);
-      const template = templates.find((item) => item.targetCharacterId === targetCharacterId
-        && item.destinationType === destinationType && item.destinationId === destinationId);
-      if (!template) throw new DecisionValidationError("The invitation does not match an offered target and destination");
+      const enumerated = templates.filter((item) => item.targetCharacterId !== undefined);
+      if (enumerated.length > 0) {
+        // Full mode still offers every combination, so match one exactly.
+        const template = enumerated.find((item) => item.targetCharacterId === targetCharacterId
+          && item.destinationType === destinationType && item.destinationId === destinationId);
+        if (!template) throw new DecisionValidationError("The invitation does not match an offered target and destination");
+      } else {
+        // Progressive mode declares the envelope instead of the combinations. The
+        // runtime checks the shape and the declared destination types; whether this
+        // particular person and place are allowed stays the server's call, as it is
+        // for every other action.
+        const envelope = templates[0] ?? {};
+        if (!(envelope.destinationTypes ?? ["location", "event"]).includes(destinationType)) {
+          throw new DecisionValidationError("The invitation destination type is not offered");
+        }
+        if (envelope.openInvitationsRemaining === 0) {
+          throw new DecisionValidationError("No open invitation slots remain");
+        }
+      }
       return { type, targetCharacterId, destinationType, destinationId, message: text(candidate.message, "invitation message", MAX_MESSAGE_CHARACTERS) };
     }
     case "respond_invitation": {

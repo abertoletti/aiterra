@@ -94,12 +94,16 @@ test("progressive and full disclose the same known items for the same world stat
     .items.map((item) => item.id).sort();
   assert.deepEqual(catalogEventIds, full.upcomingEvents.map((item) => item.id).sort());
 
-  // The same affordances on the same targets, in the same order: progressive mode
-  // makes them terser, it never removes an option the character had.
-  const signature = (observation) => observation.availableActions.map((action) =>
-    [action.type, action.jobId, action.eventId, action.destinationId, action.targetCharacterId]
-      .filter((value) => value !== undefined).join(":"));
-  assert.deepEqual(signature(progressive), signature(full));
+  // The same action types, and for the enumerated ones the same targets: progressive
+  // mode makes affordances terser, it never removes an option the character had.
+  const types = (observation) => [...new Set(observation.availableActions.map((action) => action.type))].sort();
+  assert.deepEqual(types(progressive), types(full));
+
+  const targets = (observation, type, key) => observation.availableActions
+    .filter((action) => action.type === type).map((action) => action[key]).sort();
+  for (const [type, key] of [["accept_job", "jobId"], ["move", "destinationId"], ["attend_event", "eventId"], ["start_conversation", "targetCharacterId"]]) {
+    assert.deepEqual(targets(progressive, type, key), targets(full, type, key), `${type} targets differ`);
+  }
   assert.equal(progressive.stateVersion, full.stateVersion);
 
   // And the blocked ones stay blocked, with the same primary reason.
@@ -107,6 +111,64 @@ test("progressive and full disclose the same known items for the same world stat
     .filter((action) => action.feasibility?.status === "blocked")
     .map((action) => [action.jobId ?? action.eventId ?? action.targetCharacterId, action.feasibility.blockingCode]));
   assert.deepEqual(blockedIn(progressive), blockedIn(full));
+});
+
+test("the collapsed invitation affordance still reaches every pair full mode enumerated", () => {
+  const { world } = pilotWorld();
+  const characterId = "pilot-01";
+
+  const full = world.getObservation(characterId);
+  const progressive = world.getObservation(characterId, { contextMode: "progressive" });
+  const enumerated = full.availableActions.filter((action) => action.type === "send_invitation");
+  const envelopes = progressive.availableActions.filter((action) => action.type === "send_invitation");
+
+  assert.ok(enumerated.length > 1, "full mode enumerates the cross-product");
+  assert.equal(envelopes.length, 1, "progressive mode declares the envelope once");
+
+  // Every identifier the cross-product spelled out must still be sourceable from
+  // somewhere the agent holds, or collapsing would have removed a real option.
+  const reachableTargets = new Set([
+    ...progressive.nearby.map((person) => person.id),
+    ...world.inspectContext(characterId, { resource: "people", limit: 50 }).items.map((person) => person.id),
+  ]);
+  const reachableDestinations = new Set([
+    progressive.character.locationId,
+    ...progressive.availableActions.filter((action) => action.type === "move").map((action) => action.destinationId),
+    ...world.inspectContext(characterId, { resource: "experiences", limit: 50 }).items.map((item) => item.id),
+  ]);
+
+  for (const offer of enumerated) {
+    assert.ok(reachableTargets.has(offer.targetCharacterId),
+      `target ${offer.targetCharacterId} would be unreachable after collapsing`);
+    assert.ok(reachableDestinations.has(offer.destinationId),
+      `destination ${offer.destinationId} would be unreachable after collapsing`);
+    assert.ok(envelopes[0].destinationTypes.includes(offer.destinationType));
+  }
+
+  // And the envelope carries the constraints the enumeration used to imply.
+  assert.equal(envelopes[0].openInvitationsRemaining, 3);
+  assert.equal(envelopes[0].locationLeadWorldMinutes, 30);
+  assert.equal(envelopes[0].locationWindowWorldMinutes, 30);
+});
+
+test("the invitation affordance does not grow with the world", () => {
+  const { world } = pilotWorld();
+  const before = world.getObservation("pilot-01", { contextMode: "progressive" })
+    .availableActions.filter((action) => action.type === "send_invitation");
+
+  world.defineLocation({ id: "gallery", name: "Gallery" });
+  world.defineLocation({ id: "market", name: "Market" });
+  world.createEvent({
+    id: "gallery-opening", title: "Gallery opening", locationId: "gallery",
+    startsAt: "2042-01-01T10:00:00.000Z", endsAt: "2042-01-01T12:00:00.000Z",
+  });
+
+  const after = world.getObservation("pilot-01", { contextMode: "progressive" })
+    .availableActions.filter((action) => action.type === "send_invitation");
+
+  assert.equal(before.length, 1);
+  assert.equal(after.length, 1, "two more locations and an experience must not add affordances");
+  assert.deepEqual(after, before, "the envelope is unchanged by world growth");
 });
 
 test("a summary reports blocked items rather than hiding them behind a low count", () => {

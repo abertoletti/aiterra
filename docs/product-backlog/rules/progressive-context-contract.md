@@ -160,11 +160,29 @@ The manifest states the discipline; it never states which item the character sho
 
 The hard ceiling matches `protocol.requestBodyLimitBytes`, so disclosed context can always be echoed back within the protocol's own limits.
 
-The baseline soft budget is a **steady-state** target: it applies once a runtime echoes back the `contextVersion` it already holds. A cold start, where every summary is marked changed, is what the hard ceiling exists for. Measured on the seven-character pilot world with twenty opportunities, the two cases are 8.1 KB and 9.3 KB against a pre-contract 44.2 KB.
+The baseline soft budget is a **steady-state** target: it applies once a runtime echoes back the `contextVersion` it already holds. A cold start, where every summary is marked changed, is what the hard ceiling exists for. Measured on the seven-character pilot world with twenty opportunities, the two cases are 6.1 KB and 7.4 KB against a pre-contract 44.2 KB.
 
 An affordance list is part of the baseline and counts against its budget. Repeating a catalog entry inside its own affordance is the failure this contract exists to prevent, so an affordance carries its target identifiers, its costs, the fields needed to construct the submission, and a compact feasibility — never the full record that the catalog already returns.
 
-An affordance enumerated as a cross-product grows with the product of its dimensions, which the baseline budget cannot absorb as the city grows. `send_invitation` is the current instance: one entry per known person per reachable destination. Either it becomes a grouped affordance carrying a target list beside a destination list, or invitation destinations become a requestable resource. The decision is required before Increment D multiplies both dimensions, and until then the cross-product is a known charge against the baseline budget rather than an accepted shape.
+## When an affordance enumerates, and when it declares
+
+An affordance enumerates its instances **only when the instances differ in something the agent needs and cannot obtain elsewhere in the same projection.** Otherwise it declares its envelope once and the agent supplies the parameters, because an agent that has decided to act already knows what it wants to act on.
+
+| Affordance | Instances differ in | Form |
+| --- | --- | --- |
+| `move` | duration and Energy per destination | enumerate |
+| `accept_job` | feasibility and blockers per opportunity | enumerate |
+| `start_conversation` | availability, cooldown, and fatigue per person | enumerate |
+| `attend_event` | feasibility per experience | enumerate |
+| `send_invitation` | nothing | declare |
+
+The test is mechanical, and worth applying to every new affordance: if two enumerated entries differ only by identifiers the projection already carries, the enumeration is transporting no information.
+
+`send_invitation` was the first case to fail it. It has two free parameters, so enumerating instances cost the product of their domains — and every one of those entries carried no feasibility of its own, while its target identifiers were already in `nearby` and the `people` catalog and its destination identifiers were already in the `move` affordances, the `experiences` catalog, and the character's own location. The declared form is a single entry carrying the remaining open-invitation count, the allowed destination types, and the lead and window minutes.
+
+This matters more, not less, as the city grows. Enumerating instances costs the product of the parameter domains, so an action with three free parameters — a contributor hire is candidate by role by experience — is unaffordable as instances and constant as a declaration. A declared envelope does not grow with the world at all.
+
+The one thing a declaration cannot express is a blocked combination. It is the correct form only while every constraint is separable per parameter, which is verified against the command's own validation rather than assumed; if a genuinely per-combination constraint appears, that affordance needs an exclusion list or must return to enumeration.
 
 Overflow is resolved in this fixed order, and never by dropping blocked items:
 
@@ -198,6 +216,7 @@ Run-level metrics: baseline bytes per decision (p50 and p90), catalog bytes per 
 5. Each invalidation code is produced by its cause, stays readable once as `stale`, and rejects submission without partial effect.
 6. A rules-version change delivers the manifest exactly once and emits the invalidation.
 7. The manifest carries the `context` section, and the new manifest version is distinguishable from `agent-rules-v1`.
-8. Overflow reduces page size and truncates free text without ever dropping a known item or a blocker.
-9. A cached catalog never suppresses a feasibility or blocker change.
-10. `contextMode=full` and `contextMode=progressive` expose the same set of known item identifiers for the same character and world state.
+8. A declared affordance still reaches every combination the enumerated form offered, and does not grow when locations or experiences are added.
+9. Overflow reduces page size and truncates free text without ever dropping a known item or a blocker.
+10. A cached catalog never suppresses a feasibility or blocker change.
+11. `contextMode=full` and `contextMode=progressive` expose the same set of known item identifiers for the same character and world state.

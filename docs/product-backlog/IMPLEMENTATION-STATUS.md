@@ -11,7 +11,7 @@ This is the delivery inventory for the checked-in implementation. `Done` means t
 | Release 0 | 26 | 0 | 0 | 26 |
 | Full product backlog | 40 | 14 | 44 | 98 |
 
-Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 96 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
+Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 98 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
 
 ## Epic progress
 
@@ -90,7 +90,7 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 
 | Story | Delivery | Current evidence and remaining gap |
 | --- | --- | --- |
-| AIT-207 | In progress | A compact progressive baseline, per-resource summaries with a feasible/blocked split, a client-echoed delta with the twenty-identifier overflow guard, a cached manifest reduced to version plus digest, and the manifest `context` section under `agent-rules-v2`. Measured on the seven-character pilot world: 44.2 KB to 8.1 KB steady state and 9.3 KB cold, a 82% reduction. Pinned selection and its invalidation codes remain, as do the resources Increment D introduces. |
+| AIT-207 | In progress | A compact progressive baseline, per-resource summaries with a feasible/blocked split, a client-echoed delta with the twenty-identifier overflow guard, a cached manifest reduced to version plus digest, and the manifest `context` section under `agent-rules-v2`. Measured on the seven-character pilot world: 44.2 KB to 6.1 KB steady state and 7.4 KB cold, an 86% reduction. Pinned selection and its invalidation codes remain, as do the resources Increment D introduces. |
 | AIT-909 | In progress | `inspect_opportunities` returns every known opportunity with requirements, schedule, pay, energy, and all blockers, sharing one feasibility computation with the `accept_job` affordance so the two cannot disagree; `feasibleOnly` reports what it removed; ordering is deterministic and paging is lossless. Selection retention through travel and application remains. |
 | AIT-1102 | In progress | Movement, work, event, rest, and conversation costs are authoritative, disclosed, and applied once; training/study energy and interruption rules are not implemented yet. |
 | AIT-1302 | In progress | Accept, decline, expiry, known-conflict validation, and shared commitment visibility exist; cancellation and renegotiation remain. |
@@ -121,7 +121,7 @@ The seven-agent Azure Foundry pilot recorded a median of **31 KB** of decision c
 
 ## Remaining implementation priorities
 
-1. Finish AIT-207 and AIT-909: the pinned-selection lifecycle and its invalidation codes, and a decision on the `send_invitation` cross-product, which the baseline budget cannot absorb once Increment D multiplies people and destinations.
+1. Finish AIT-207 and AIT-909: the pinned-selection lifecycle and its invalidation codes.
 2. Implement the approved subjective claims and promises policy in AIT-705 and AIT-706, so a character retains what it heard, from whom, and what it believed was promised.
 3. Remove the remaining scaling limits: event-log snapshots instead of complete replay at boot. The projection-version and causal-lookup indexes are in place, and `World` is decomposed into the support, reducer, owner-projection, and context modules.
 4. Replace JSONL with a transactional event/outbox store and command locks before a multi-node shared environment.
