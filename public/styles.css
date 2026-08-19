@@ -446,3 +446,112 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 /* The newest entry is what the eye should land on. */
 #timeline > li:first-child .event-copy p,
 #world-activity > li:first-child p { font-weight: 500; }
+
+/* Everyone at once. The resident panel answers "what is this person like"; this answers
+   "who is winning and who is having a bad time", which is what an observer opens with. */
+.residents-table { overflow-x: auto; margin-top: 4px; }
+.residents-table table { border-collapse: collapse; width: 100%; font-size: 12px; }
+
+.residents-table th {
+  text-align: left;
+  font-size: 9.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0 8px 6px;
+  white-space: nowrap;
+}
+
+.residents-table td {
+  padding: 7px 8px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.residents-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.residents-table tr.selected { background: rgba(70, 110, 132, .07); }
+.residents-table .doing, .residents-table .cares { color: var(--muted); }
+.residents-table .cares { text-transform: capitalize; }
+
+.resident-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  border-bottom: 1px dotted var(--line-strong, var(--line));
+}
+
+.resident-link:hover { color: var(--green); }
+.resident-link:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+.happiness-chip {
+  display: inline-block;
+  min-width: 30px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(104, 115, 110, .12);
+  font-variant-numeric: tabular-nums;
+}
+
+.happiness-chip.good { background: var(--mint); color: #0b4a37; }
+.happiness-chip.poor { background: rgba(229, 104, 79, .18); color: #8c2f1c; }
+
+.lived { display: block; font-weight: 600; }
+.lived.good { color: var(--green); }
+.lived.poor { color: var(--coral); }
+
+.lived-track {
+  display: block;
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: rgba(104, 115, 110, .14);
+  overflow: hidden;
+}
+
+.lived-fill { display: block; height: 100%; border-radius: 2px; }
+.lived-fill.good { background: var(--green); }
+.lived-fill.poor { background: var(--coral); }
+
+/* Standings. Three pillars side by side rather than one number, because no Score
+   formula is approved yet and inventing weights here would quietly become the design. */
+.standings { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+
+.standing {
+  display: grid;
+  grid-template-columns: 26px minmax(70px, auto) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.standing.leader { border-color: var(--green); background: rgba(15, 107, 80, .05); }
+.standing.selected { box-shadow: inset 3px 0 0 var(--blue); }
+
+.standing .place {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.standing.leader .place { color: var(--green); }
+
+.pillars { display: flex; flex-wrap: wrap; gap: 14px; }
+
+.pillar { display: inline-flex; align-items: baseline; gap: 5px; font-size: 11.5px; }
+.pillar-label { color: var(--muted); font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; }
+.pillar-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+.pillar-rank { color: var(--muted); font-size: 10px; }
+
+.built-badge { font-size: 10.5px; color: var(--green); white-space: nowrap; }
+
+.standings-note { margin: 10px 0 0; font-size: 11px; color: var(--muted); max-width: 62ch; }

@@ -17,6 +17,11 @@ const worldEventCount = document.querySelector("#world-event-count");
 const cityMap = document.querySelector("#city-map");
 const cityMeta = document.querySelector("#city-meta");
 const buildingList = document.querySelector("#building-list");
+const residentsTable = document.querySelector("#residents-table");
+const residentsMeta = document.querySelector("#residents-meta");
+const standings = document.querySelector("#standings");
+const standingsMeta = document.querySelector("#standings-meta");
+const standingsNote = document.querySelector("#standings-note");
 
 select.addEventListener("change", () => {
   state.selectedId = select.value;
@@ -76,7 +81,143 @@ function renderWorldOverview() {
   renderJobs();
   renderEvents();
   renderEconomy();
+  renderStandings();
+  renderResidents();
   renderCity();
+}
+
+// A run is won on Credits, what was actually lived, and the relationships that came to
+// matter. The score policy is still Draft - no weights are approved - so this ranks by
+// each pillar and combines them by SUM OF RANKS, which needs no weights and no
+// normalisation. It is a standing, not the Score, and it says so.
+function renderStandings() {
+  const residents = state.world.characters;
+  if (residents.length === 0) return;
+  const buildings = state.world.city?.buildings ?? [];
+
+  const pillars = [
+    { key: "credits", label: "Credits", of: (resident) => resident.credits },
+    { key: "lived", label: "Lived", of: (resident) => round1(resident.livedHappiness ?? 0) },
+    {
+      key: "bonds",
+      label: "Bonds",
+      of: (resident) => (resident.importantRelationships ?? [])
+        .reduce((total, relationship) => total + Math.max(0, relationship.strength ?? 0), 0),
+    },
+  ];
+
+  const rankOf = {};
+  for (const pillar of pillars) {
+    const ordered = [...residents].sort((left, right) => pillar.of(right) - pillar.of(left));
+    ordered.forEach((resident, index) => {
+      rankOf[resident.id] ??= {};
+      // Equal values share a rank, or a tie would decide the standing by array order.
+      const tied = ordered.findIndex((other) => pillar.of(other) === pillar.of(resident));
+      rankOf[resident.id][pillar.key] = tied + 1;
+    });
+  }
+
+  const table = residents
+    .map((resident) => {
+      const ranks = rankOf[resident.id];
+      return {
+        resident,
+        ranks,
+        rankSum: pillars.reduce((total, pillar) => total + ranks[pillar.key], 0),
+        built: buildings.filter((building) => building.proprietorId === resident.id).length,
+      };
+    })
+    .sort((left, right) => left.rankSum - right.rankSum
+      || right.resident.livedHappiness - left.resident.livedHappiness);
+
+  const leader = table[0];
+  standingsMeta.textContent = leader ? `${leader.resident.name} leads` : "";
+  standings.innerHTML = table.map((entry, index) => `
+    <div class="standing ${index === 0 ? "leader" : ""} ${entry.resident.id === state.selectedId ? "selected" : ""}">
+      <span class="place">${index + 1}</span>
+      <button class="resident-link" data-resident="${escapeHtml(entry.resident.id)}">${escapeHtml(entry.resident.name)}</button>
+      <span class="pillars">
+        ${pillars.map((pillar) => `
+          <span class="pillar" title="${pillar.label}: rank ${entry.ranks[pillar.key]} of ${residents.length}">
+            <span class="pillar-label">${pillar.label}</span>
+            <span class="pillar-value">${pillar.key === "lived" ? signed(pillar.of(entry.resident)) : number(pillar.of(entry.resident))}</span>
+            <span class="pillar-rank">#${entry.ranks[pillar.key]}</span>
+          </span>`).join("")}
+      </span>
+      <span class="built-badge" title="buildings owned">${entry.built ? `${entry.built} built` : ""}</span>
+    </div>`).join("");
+
+  standingsNote.textContent = "Ranked by sum of places across the three things a run is won on. "
+    + "No approved Score formula exists yet, so nothing here is weighted.";
+
+  for (const button of standings.querySelectorAll(".resident-link")) {
+    button.addEventListener("click", () => {
+      state.selectedId = button.dataset.resident;
+      select.value = state.selectedId;
+      renderWorldOverview();
+      renderCharacter();
+      loadCharacterTimeline();
+    });
+  }
+}
+
+// Everyone at once. The selected-resident panel answers "what is this person like";
+// this answers "who is winning, and who is having a bad time", which is the question an
+// observer actually opens the page with.
+function renderResidents() {
+  const residents = [...state.world.characters]
+    .sort((left, right) => right.livedHappiness - left.livedHappiness);
+  const buildings = state.world.city?.buildings ?? [];
+  const lived = residents.map((resident) => Math.abs(resident.livedHappiness ?? 0));
+  const livedScale = Math.max(1, ...lived);
+
+  residentsMeta.textContent = `${residents.length} residents · sorted by what they have lived`;
+  residentsTable.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Resident</th><th>Doing</th>
+          <th class="num">Happiness</th><th class="num">Lived</th>
+          <th class="num">Credits</th><th class="num">Energy</th><th class="num">Built</th>
+          <th>Cares most about</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${residents.map((resident) => {
+    const owned = buildings.filter((building) => building.proprietorId === resident.id).length;
+    const top = Object.entries(resident.preferences ?? {})
+      .sort(([, left], [, right]) => right - left).slice(0, 3)
+      .map(([dimension]) => dimension).join(", ");
+    const livedValue = round1(resident.livedHappiness ?? 0);
+    const livedWidth = Math.round((Math.abs(livedValue) / livedScale) * 100);
+    const activity = describeActivity(resident.activity, locationById(resident.locationId)?.name ?? resident.locationId);
+    return `
+          <tr class="${resident.id === state.selectedId ? "selected" : ""}">
+            <td><button class="resident-link" data-resident="${escapeHtml(resident.id)}">${escapeHtml(resident.name)}</button></td>
+            <td class="doing">${escapeHtml(activity.title)}</td>
+            <td class="num"><span class="happiness-chip ${resident.happiness >= 60 ? "good" : resident.happiness <= 35 ? "poor" : ""}">${resident.happiness}</span></td>
+            <td class="num">
+              <span class="lived ${livedValue < 0 ? "poor" : livedValue > 0 ? "good" : ""}">${signed(livedValue)}</span>
+              <span class="lived-track"><span class="lived-fill ${livedValue < 0 ? "poor" : "good"}" style="width:${livedWidth}%"></span></span>
+            </td>
+            <td class="num">${number(resident.credits)}</td>
+            <td class="num">${resident.energy}</td>
+            <td class="num">${owned || "—"}</td>
+            <td class="cares">${escapeHtml(top)}</td>
+          </tr>`;
+  }).join("")}
+      </tbody>
+    </table>`;
+
+  for (const button of residentsTable.querySelectorAll(".resident-link")) {
+    button.addEventListener("click", () => {
+      state.selectedId = button.dataset.resident;
+      select.value = state.selectedId;
+      renderResidents();
+      renderCharacter();
+      loadCharacterTimeline();
+    });
+  }
 }
 
 // The grid as it actually stands: who owns what, what is going up, and what each
