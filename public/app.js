@@ -14,6 +14,9 @@ const eventMeta = document.querySelector("#event-meta");
 const economyOverview = document.querySelector("#economy-overview");
 const worldActivity = document.querySelector("#world-activity");
 const worldEventCount = document.querySelector("#world-event-count");
+const cityMap = document.querySelector("#city-map");
+const cityMeta = document.querySelector("#city-meta");
+const buildingList = document.querySelector("#building-list");
 
 select.addEventListener("change", () => {
   state.selectedId = select.value;
@@ -73,6 +76,95 @@ function renderWorldOverview() {
   renderJobs();
   renderEvents();
   renderEconomy();
+  renderCity();
+}
+
+// The grid as it actually stands: who owns what, what is going up, and what each
+// finished place delivers. A cell is small on purpose - the whole city has to be
+// readable at once, or an operator cannot see a district forming.
+function renderCity() {
+  const city = state.world.city;
+  if (!city) return;
+  const buildingsByCell = new Map();
+  for (const building of city.buildings) {
+    for (let dx = 0; dx < building.width; dx += 1) {
+      for (let dy = 0; dy < building.height; dy += 1) {
+        buildingsByCell.set(`${building.x + dx},${building.y + dy}`, building);
+      }
+    }
+  }
+  const plotsByCell = new Map(city.plots.map((plot) => [`${plot.x},${plot.y}`, plot]));
+  const seededByCell = new Map(city.seededLocations
+    .filter((location) => Number.isInteger(location.x))
+    .map((location) => [`${location.x},${location.y}`, location]));
+  const residentsByLocation = new Map();
+  for (const location of state.world.locations) {
+    residentsByLocation.set(location.id, location.population);
+  }
+
+  const active = city.buildings.filter((building) => building.status === "ACTIVE").length;
+  const rising = city.buildings.filter((building) => building.status === "UNDER_CONSTRUCTION").length;
+  cityMeta.textContent = `${city.width}x${city.height} · ${city.plots.length} plots held · ${active} built`
+    + (rising ? ` · ${rising} rising` : "");
+
+  const cells = [];
+  for (let y = 1; y <= city.height; y += 1) {
+    for (let x = 1; x <= city.width; x += 1) {
+      const key = `${x},${y}`;
+      const building = buildingsByCell.get(key);
+      const seeded = seededByCell.get(key);
+      const plot = plotsByCell.get(key);
+      let className = "cell";
+      let label = "";
+      let title = `${x},${y} · empty land`;
+      if (seeded) {
+        className += " seeded";
+        label = seeded.name.slice(0, 1);
+        title = `${seeded.name} · ${residentsByLocation.get(seeded.id) ?? 0} here now`;
+      } else if (building) {
+        className += building.status === "ACTIVE" ? " building"
+          : building.status === "UNDER_CONSTRUCTION" ? " rising" : " delinquent";
+        label = building.name.slice(0, 1);
+        const here = residentsByLocation.get(building.locationId) ?? 0;
+        title = `${building.name} — ${building.status.toLowerCase()}\n`
+          + `${characterName(building.proprietorId)} · ${building.tags.join(", ") || "no tags"}\n`
+          + `balance ${building.balance} · earned ${building.revenue} · upkeep ${building.dailyUpkeep}/day\n`
+          + `${here} here now`;
+      } else if (plot?.ownerId) {
+        className += " owned";
+        title = `${x},${y} · held by ${characterName(plot.ownerId)}`;
+      }
+      cells.push(`<i class="${className}" title="${escapeHtml(title)}">${escapeHtml(label)}</i>`);
+    }
+  }
+  cityMap.style.setProperty("--columns", city.width);
+  cityMap.innerHTML = cells.join("");
+
+  buildingList.innerHTML = city.buildings.length
+    ? city.buildings.map((building) => `
+      <article class="building-card ${building.status.toLowerCase()}">
+        <div class="building-topline">
+          <div>
+            <span class="location-id">${escapeHtml(building.x + "," + building.y)} · ${escapeHtml(building.status.toLowerCase())}</span>
+            <h3>${escapeHtml(building.name)}</h3>
+          </div>
+          <strong class="population-count">${building.capacity}</strong>
+        </div>
+        <p class="location-caption">${escapeHtml(characterName(building.proprietorId))} · ${escapeHtml(building.tags.join(" · ") || "no tags")}</p>
+        ${building.description ? `<p class="building-description">${escapeHtml(building.description)}</p>` : ""}
+        <div class="location-signals">
+          <span>built for ${building.constructionCost}</span>
+          <span>earned ${building.revenue}</span>
+          <span>balance ${building.balance}</span>
+          <span>upkeep ${building.dailyUpkeep}/day</span>
+        </div>
+        <p class="routes">Can: ${escapeHtml(building.capabilities.join(" · "))}</p>
+      </article>`).join("")
+    : `<p class="empty-note">Nobody has built anything yet. Residents buy plots at ${city.plotPrice} credits and choose what their place delivers.</p>`;
+}
+
+function characterName(characterId) {
+  return characterById(characterId)?.name ?? characterId ?? "unknown";
 }
 
 function renderLocations() {

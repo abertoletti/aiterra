@@ -256,3 +256,88 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 @media (prefers-reduced-motion: reduce) {
   .timeline li { opacity: 1; animation: none; }
 }
+
+/* The city grid. Every cell is a plot; the whole map has to read at a glance, so a
+   cell carries a colour and one letter rather than a label that would not fit. */
+.city-map {
+  display: grid;
+  grid-template-columns: repeat(var(--columns, 20), 1fr);
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.city-map .cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: rgba(104, 115, 110, .09);
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  color: transparent;
+  cursor: default;
+}
+
+.city-map .cell.owned { background: rgba(207, 139, 40, .28); }
+.city-map .cell.seeded { background: var(--blue); color: var(--paper); }
+.city-map .cell.building { background: var(--green); color: var(--paper); }
+.city-map .cell.rising {
+  background: repeating-linear-gradient(45deg, var(--amber), var(--amber) 3px, rgba(207, 139, 40, .45) 3px, rgba(207, 139, 40, .45) 6px);
+  color: var(--ink);
+}
+.city-map .cell.delinquent { background: var(--coral); color: var(--paper); }
+
+.city-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.city-legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+.city-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.city-legend .swatch.seeded { background: var(--blue); }
+.city-legend .swatch.building { background: var(--green); }
+.city-legend .swatch.rising { background: var(--amber); }
+.city-legend .swatch.delinquent { background: var(--coral); }
+.city-legend .swatch.owned { background: rgba(207, 139, 40, .28); }
+
+.building-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.building-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--panel);
+}
+
+.building-card.under_construction { border-left-color: var(--amber); }
+.building-card.delinquent { border-left-color: var(--coral); }
+
+.building-topline { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.building-topline h3 { margin: 2px 0 0; font-size: 15px; }
+
+.building-description {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.empty-note { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }

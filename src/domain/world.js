@@ -3013,6 +3013,35 @@ export class World {
         .sort((a, b) => b.strength - a.strength),
     }));
     const jobs = [...this.state.jobs.values()].map((job) => publicJob(job, this.config.energy.workCost));
+    // AIT-1006. The operator sees the grid, who holds what, and how each building is
+    // doing, without seeing any character's private reasoning.
+    const city = {
+      gridVersion: this.config.city.gridVersion,
+      width: this.config.city.width,
+      height: this.config.city.height,
+      plotPrice: this.config.city.plotPricePerCell,
+      capabilities: [...this.config.city.capabilities],
+      upkeepIntervalWorldMinutes: this.config.city.upkeepIntervalWorldMinutes,
+      profileTaxonomyVersion: this.config.grammar.profileTaxonomyVersion,
+      plots: [...this.state.plots.values()].map((plot) => ({
+        id: plot.id, x: plot.x, y: plot.y, ownerId: plot.ownerId, buildingId: plot.buildingId,
+      })),
+      buildings: [...this.state.buildings.values()].map((building) => ({
+        buildingId: building.buildingId, name: building.name, description: building.description ?? null,
+        proprietorId: building.proprietorId, locationId: building.locationId,
+        x: building.x, y: building.y, width: building.width, height: building.height,
+        status: building.status, capacity: building.capacity,
+        capabilities: [...building.capabilities], profile: structuredClone(building.profile),
+        tags: derivedTags(building.profile, this.config.grammar),
+        constructionCost: building.constructionCost, dailyUpkeep: building.dailyUpkeep,
+        upkeepPerInterval: building.upkeepPerInterval,
+        balance: building.balance, revenue: building.revenue, upkeepPaid: building.upkeepPaid,
+        completesAt: building.completesAt ?? null,
+      })),
+      seededLocations: [...this.state.locations.values()]
+        .filter((location) => !location.buildingId)
+        .map((location) => ({ id: location.id, name: location.name, x: location.x ?? null, y: location.y ?? null })),
+    };
     const events = [...this.state.gatherings.values()].map((event) => {
       const startsAt = new Date(event.startsAt);
       const endsAt = new Date(event.endsAt);
@@ -3095,6 +3124,7 @@ export class World {
         currency: this.config.jobs.currency,
         systemBudgets: [...this.state.systemBudgets.values()].map((budget) => structuredClone(budget)),
       },
+      city,
       worldConfigurationVersion: this.state.activeWorldConfigurationVersion,
     };
   }
