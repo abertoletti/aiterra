@@ -28,6 +28,12 @@ const nonProjectionEventTypes = new Set([
   "OPPORTUNITIES_VIEWED", "AGENT_RULES_REQUESTED",
 ]);
 
+// A directional relationship is private to its owner, so only `fromId` projects it.
+const directionalRelationshipEventTypes = new Set([
+  "RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED",
+  "RELATIONSHIP_APPRAISAL_RECORDED", "RELATIONSHIP_OBJECTIVE_OUTCOME_RECORDED",
+]);
+
 export class DomainError extends Error {
   constructor(code, message, status = 400, details = null) {
     super(message);
@@ -2144,8 +2150,10 @@ export class World {
 
   characterStateVersion(characterId) {
     this.requireCharacter(characterId);
-    return [...this.history].reverse().find((event) =>
-      !nonProjectionEventTypes.has(event.type) && this.characterMayReference(characterId, event))?.sequence ?? 0;
+    return Math.max(
+      this.state.characterProjectionVersions.get(characterId) ?? 0,
+      this.state.globalProjectionVersion,
+    );
   }
 
   getCharacterHistory(characterId, limit = 100) {
@@ -3001,13 +3009,29 @@ export class World {
   }
 
   characterMayReference(characterId, event) {
-    if (["RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED", "RELATIONSHIP_APPRAISAL_RECORDED", "RELATIONSHIP_OBJECTIVE_OUTCOME_RECORDED"].includes(event.type)) {
+    if (directionalRelationshipEventTypes.has(event.type)) {
       return event.data.fromId === characterId;
     }
     if (event.actorCharacterId === characterId || event.subjectCharacterId === characterId) return true;
     if (event.data?.participantIds?.includes(characterId)) return true;
     if (event.type === "EVENT_CREATED") return true;
     return false;
+  }
+
+  // Keeps characterStateVersion O(1). Without this every observation and every
+  // action would rescan the whole history to find its own latest projection.
+  indexProjectionVersion(event) {
+    if (nonProjectionEventTypes.has(event.type)) return;
+    if (event.type === "EVENT_CREATED") {
+      // Perceivable by every character, including characters created later.
+      this.state.globalProjectionVersion = Math.max(this.state.globalProjectionVersion, event.sequence);
+      return;
+    }
+    for (const characterId of projectionCharactersForEvent(event)) {
+      if (event.sequence > (this.state.characterProjectionVersions.get(characterId) ?? 0)) {
+        this.state.characterProjectionVersions.set(characterId, event.sequence);
+      }
+    }
   }
 
   requireCharacter(id) {
@@ -3077,6 +3101,7 @@ export class World {
   }
 
   apply(event) {
+    this.indexProjectionVersion(event);
     const data = event.data;
     switch (event.type) {
       case "LOCATION_DEFINED":
@@ -3523,7 +3548,20 @@ function createEmptyState() {
     systemBudgets: new Map(), platformIncident: null,
     returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
+    characterProjectionVersions: new Map(), globalProjectionVersion: 0,
   };
+}
+
+// Mirrors characterMayReference: the characters whose projection an event advances.
+// EVENT_CREATED is handled separately because it is perceivable by every character.
+function projectionCharactersForEvent(event) {
+  if (directionalRelationshipEventTypes.has(event.type)) {
+    return event.data?.fromId ? [event.data.fromId] : [];
+  }
+  return [...new Set([
+    event.actorCharacterId, event.subjectCharacterId,
+    ...(event.data?.participantIds ?? []),
+  ].filter(Boolean))];
 }
 
 function relationshipKey(fromId, toId) {

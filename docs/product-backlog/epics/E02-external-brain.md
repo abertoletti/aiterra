@@ -145,6 +145,7 @@ The public shape and invalidation behavior are governed by the [progressive deci
 - A requested catalog includes infeasible known items and their blockers; progressive disclosure must not silently filter them out.
 - Once an item is selected or accepted, its relevant context is retained through dependent decisions until completion, cancellation, or invalidation, while unrelated catalog detail is omitted.
 - Stable rules are referenced by manifest version and cached safely; a stateless model receives only the applicable rule subset, exact current constraints, and any version change needed for the current decision.
+- The rules manifest itself states the context discipline: that the baseline carries only what the current decision requires, which resources can be requested, how to read a summary that includes blocked items, and that a selection survives dependent decisions. A runtime learns the discipline from the manifest rather than from a private prompt, and the section ships under a new manifest version.
 - Delta and invalidation metadata tell the runtime when a summary or selected context must be refreshed; action submission remains authoritatively revalidated.
 - Context selection never exposes private or unlearned information and never removes a constraint required to understand an action or rejection.
 

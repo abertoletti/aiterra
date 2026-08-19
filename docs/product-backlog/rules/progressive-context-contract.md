@@ -122,6 +122,26 @@ Invalidation codes, all delivered as compact signals rather than a resent catalo
 
 An invalidated selection stays readable for one further decision, marked `stale: true`, so the brain can react to the loss instead of silently losing its plan. Submitting an action against a stale selection returns an actionable error with no partial effect.
 
+## Rules manifest: context discipline
+
+The discipline itself is a stable rule, so it belongs in the manifest rather than in each runtime's private prompt. A stateless model that receives only the manifest and the current baseline must be able to work out that the baseline is deliberately incomplete and that asking is its job.
+
+The manifest gains a `context` section carrying, at minimum:
+
+| Field | Content |
+| --- | --- |
+| `contractVersion` | this contract's version |
+| `mode` | `progressive` or `full` |
+| `instruction` | that the baseline carries only what the current decision requires, and that detail is requested explicitly when the decision needs it |
+| `requestable` | the catalog resources this character may request |
+| `summaryReading` | that a summary `count` includes items the character cannot currently do, and that a low `feasibleCount` is not an empty world |
+| `selection` | pinned-selection limit, unengaged TTL, and that a selection survives travel and work without re-requesting its catalog |
+| `caching` | that the manifest is stable for its version, and that feasibility, Energy, Credits, and availability never are |
+
+Adding this section changes the manifest body, so it ships with a new manifest version rather than silently altering `agent-rules-v1`. A runtime that requests a catalog it does not need is not in error, but the ratio of requests to decisions is a reported metric, because a runtime that requests everything on every decision has reproduced the problem this contract exists to remove.
+
+The manifest states the discipline; it never states which item the character should choose.
+
 ## Caching and version compatibility
 
 - The rules manifest is cacheable by `rulesVersion` and validated by `rulesDigest`. On a version change the next baseline carries the full manifest once and emits `CONTEXT_RULES_VERSION_CHANGED`.
@@ -171,6 +191,7 @@ Run-level metrics: baseline bytes per decision (p50 and p90), catalog bytes per 
 4. A pinned selection survives travel, work, and conversation, and is not resent as a full catalog.
 5. Each invalidation code is produced by its cause, stays readable once as `stale`, and rejects submission without partial effect.
 6. A rules-version change delivers the manifest exactly once and emits the invalidation.
-7. Overflow reduces page size and truncates free text without ever dropping a known item or a blocker.
-8. A cached catalog never suppresses a feasibility or blocker change.
-9. `contextMode=full` and `contextMode=progressive` expose the same set of known item identifiers for the same character and world state.
+7. The manifest carries the `context` section, and the new manifest version is distinguishable from `agent-rules-v1`.
+8. Overflow reduces page size and truncates free text without ever dropping a known item or a blocker.
+9. A cached catalog never suppresses a feasibility or blocker change.
+10. `contextMode=full` and `contextMode=progressive` expose the same set of known item identifiers for the same character and world state.
