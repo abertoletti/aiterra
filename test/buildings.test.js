@@ -239,13 +239,36 @@ test("upkeep is charged from the building's balance, and failure is explicit", (
   assert.equal(paid.length, 1, "charged exactly once per due interval");
   assert.equal(world.state.buildings.get(buildingId).balance, 50 - perInterval);
 
-  // Drain it and let enough intervals pass that the balance cannot cover one.
-  clock.advanceGameMinutes(60 * 200);
+  // With the balance empty the proprietor's own pocket covers it: delinquency should
+  // mean insolvent, not inattentive, and a resident holding thousands should not lose a
+  // building over an unpaid two.
+  clock.advanceGameMinutes(60 * 40);
+  world.advanceTo(clock.now());
+  assert.equal(world.state.buildings.get(buildingId).balance, 0);
+  assert.equal(world.state.buildings.get(buildingId).status, "ACTIVE",
+    "a solvent proprietor keeps the building");
+  const paidFromPocket = world.history.filter((event) => event.type === "BUILDING_UPKEEP_PAID"
+    && event.data.fromProprietor > 0);
+  assert.ok(paidFromPocket.length > 0, "and the charge comes out of their credits instead");
+
+});
+
+test("a building whose proprietor is also broke fails explicitly", () => {
+  // Just enough to buy the land and build, and nothing left over.
+  const { world, clock } = cityWorld({ credits: 1_440, upkeepIntervalWorldMinutes: 60 });
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  const buildingId = started.data.buildingId;
+  assert.ok(world.getObservation("luca").character.credits < 20, "the proprietor is spent");
+
+  clock.advanceGameMinutes(60 * 40);
   world.advanceTo(clock.now());
   const failed = world.history.filter((event) => event.type === "BUILDING_UPKEEP_FAILED");
-  assert.ok(failed.length > 0, "an unfunded building fails explicitly rather than going into hidden debt");
+  assert.ok(failed.length > 0, "an unfundable building fails explicitly rather than going into hidden debt");
   assert.equal(world.state.buildings.get(buildingId).status, "DELINQUENT");
   assert.ok(world.state.buildings.get(buildingId).balance >= 0, "and never holds a negative balance");
+  assert.ok(failed[0].data.shortfall > 0, "with the shortfall recorded");
 });
 
 test("an agent can actually reach the authoring actions through the runner", () => {
@@ -331,4 +354,62 @@ test("only the proprietor funds the building, and the ledger survives a replay",
   assert.equal(rebuilt.locationId, original.locationId);
   assert.deepEqual(rebuilt.profile, original.profile);
   assert.equal(replayed.state.plots.get("plot-12-10").buildingId, buildingId);
+});
+
+test("the city is visible from anywhere, so a night elsewhere can be chosen", () => {
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  world.hostExperience("luca", {
+    buildingId: started.data.buildingId, title: "Friday Night",
+    description: "Doors at ten.", profile: { music: 90, socializing: 70 },
+    durationGameMinutes: 120, accessPrice: 30,
+  });
+
+  // Anna is at homes and has never heard of the place. Three runs showed that no agent
+  // ever requests a catalog, so a gathering it must ask about is a gathering nobody
+  // attends. The observation carries the city itself.
+  const tonight = world.getObservation("anna", { contextMode: "progressive" }).cityTonight;
+  assert.equal(tonight.length, 1);
+  assert.equal(tonight[0].title, "Friday Night");
+  assert.equal(tonight[0].accessPrice, 30);
+  assert.equal(tonight[0].here, false);
+  assert.equal(tonight[0].travelMinutes, 25, "and says what getting there costs");
+  assert.ok(tonight[0].affinity > 70, "and what it is worth to this particular resident");
+  assert.deepEqual(tonight[0].tags, ["music", "socializing"]);
+});
+
+test("hosting can omit the profile and deliver what the place delivers", () => {
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+
+  const hosted = world.hostExperience("luca", {
+    buildingId: started.data.buildingId, title: "Just Another Friday",
+    description: "The usual.", durationGameMinutes: 90, accessPrice: 20,
+  });
+  assert.deepEqual(hosted.data.profile, world.state.buildings.get(started.data.buildingId).profile,
+    "composing a vector is the heaviest part of hosting, so omitting it is allowed");
+});
+
+test("a proprietor can see the upkeep coming and whether the place is idle", () => {
+  const { world, clock } = cityWorld({ upkeepIntervalWorldMinutes: 60 });
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+
+  const offerFor = () => world.getObservation("luca").availableActions
+    .find((action) => action.type === "fund_building");
+  const idle = offerFor();
+  assert.equal(idle.liveExperienceCount, 0, "an idle building is the thing upkeep punishes");
+  assert.ok(idle.nextUpkeepAt, "so the charge has to be visible before it lands");
+  assert.equal(idle.upkeepPerInterval >= 1, true);
+
+  world.hostExperience("luca", {
+    buildingId: started.data.buildingId, title: "Tonight",
+    description: "On.", durationGameMinutes: 120,
+  });
+  assert.equal(offerFor().liveExperienceCount, 1);
 });

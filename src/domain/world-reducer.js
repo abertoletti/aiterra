@@ -257,9 +257,14 @@ export function applyEvent(state, event) {
     }
     case "BUILDING_UPKEEP_PAID": {
       const building = state.buildings.get(data.buildingId);
-      building.balance -= data.amount;
+      building.balance -= data.fromBalance ?? data.amount;
+      if (data.fromProprietor) {
+        const proprietor = state.characters.get(data.proprietorId);
+        if (proprietor) proprietor.credits -= data.fromProprietor;
+      }
       building.upkeepPaid += data.amount;
       building.lastUpkeepAt = data.chargedAt;
+      if (building.status === "DELINQUENT") building.status = "ACTIVE";
       break;
     }
     case "BUILDING_UPKEEP_FAILED": {

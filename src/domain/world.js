@@ -362,7 +362,10 @@ export class World {
     if (!building.capabilities.includes("host_event")) {
       throw forbidden("CAPABILITY_MISSING", "This building cannot host events");
     }
-    const normalizedProfile = normalizeExperienceProfile(profile, this.config.grammar);
+    // Omitting the profile hosts a night that delivers what the place delivers. Composing
+    // one is the heaviest part of hosting, and a sensible default is the difference
+    // between a proprietor hosting and a proprietor putting it off.
+    const normalizedProfile = normalizeExperienceProfile(profile ?? building.profile, this.config.grammar);
     const exceeded = this.config.grammar.profileDimensions
       .filter((dimension) => (normalizedProfile[dimension] ?? 0) > (building.profile[dimension] ?? 0));
     if (exceeded.length > 0) {
@@ -2543,14 +2546,23 @@ export class World {
         const chargedAt = new Date(since.getTime() + charge * intervalMs).toISOString();
         const current = this.state.buildings.get(building.buildingId);
         const amount = current.upkeepPerInterval;
-        const type = current.balance >= amount ? "BUILDING_UPKEEP_PAID" : "BUILDING_UPKEEP_FAILED";
-        this.record(type, {
+        // The balance pays first, because a busy place should cover itself. When it
+        // cannot, the proprietor's own pocket does: a resident holding a thousand
+        // credits should not lose a building over an unpaid two, and delinquency is
+        // meant to mean insolvent rather than inattentive.
+        const proprietor = this.state.characters.get(current.proprietorId);
+        const fromBalance = Math.min(current.balance, amount);
+        const fromProprietor = Math.min(Math.max(0, amount - fromBalance), proprietor?.credits ?? 0);
+        const covered = fromBalance + fromProprietor >= amount;
+        this.record(covered ? "BUILDING_UPKEEP_PAID" : "BUILDING_UPKEEP_FAILED", {
           actorCharacterId: current.proprietorId,
           worldTime: chargedAt,
           data: {
             buildingId: current.buildingId, proprietorId: current.proprietorId,
             amount, balance: current.balance, chargedAt,
-            ...(type === "BUILDING_UPKEEP_FAILED" ? { shortfall: amount - current.balance } : {}),
+            fromBalance: covered ? fromBalance : 0,
+            fromProprietor: covered ? fromProprietor : 0,
+            ...(covered ? {} : { shortfall: amount - fromBalance - fromProprietor }),
           },
         });
       }
@@ -2744,6 +2756,11 @@ export class World {
         availableJobs,
         upcomingEvents,
       }),
+      // What the city is offering tonight, in both modes. Progressive disclosure made
+      // this requestable, and across three runs no agent requested it once - so a
+      // gathering more than one step away was effectively invisible. It is a handful of
+      // compact rows and it is the difference between a city and a room.
+      cityTonight: this.cityTonight(character, upcomingEvents),
       availableActions,
       decision,
       decisionRequiredAt: decision.decisionRequiredAt,
@@ -3313,6 +3330,8 @@ export class World {
             canChargeAdmission: building.capabilities.includes("sell_access"),
             maximumAccessPrice: this.config.experience.maximumAccessPrice,
             balance: building.balance, upkeepPerInterval: building.upkeepPerInterval,
+            nextUpkeepAt: this.nextUpkeepAt(building),
+            liveExperienceCount: this.liveExperienceCount(building),
           });
         }
       }
@@ -3321,6 +3340,8 @@ export class World {
           type: "fund_building", buildingId: building.buildingId, name: building.name,
           status: building.status, balance: building.balance,
           upkeepPerInterval: building.upkeepPerInterval, credits: character.credits,
+          nextUpkeepAt: this.nextUpkeepAt(building),
+          liveExperienceCount: this.liveExperienceCount(building),
         });
       }
       for (const gathering of upcomingEvents) {
@@ -3623,6 +3644,54 @@ export class World {
     // A world with no connections and no coordinates is the pre-grid seeded world.
     if (this.state.connections.size === 0) return this.config.movement.durationGameMinutes;
     return null;
+  }
+
+  // One row per public experience: enough to decide whether to go, and to know what
+  // getting there costs. Affinity is arithmetic over vectors the character already
+  // holds, so withholding it would only make every runtime recompute it.
+  cityTonight(character, upcomingEvents) {
+    const grammar = this.config.grammar;
+    return upcomingEvents
+      .map((gathering) => {
+        const travelMinutes = gathering.locationId === character.locationId
+          ? 0
+          : this.travelDurationBetween(character.locationId, gathering.locationId);
+        const building = gathering.buildingId ? this.state.buildings.get(gathering.buildingId) : null;
+        return {
+          eventId: gathering.id,
+          title: gathering.title,
+          locationId: gathering.locationId,
+          startsAt: gathering.startsAt,
+          endsAt: gathering.endsAt,
+          accessPrice: gathering.accessPrice ?? 0,
+          capacity: gathering.capacity ?? null,
+          attendeeCount: this.currentAttendeeCount(gathering.id),
+          tags: derivedTags(gathering.profile, grammar),
+          affinity: gathering.profile
+            ? Math.round(profileAffinity(character.preferences, gathering.profile, grammar))
+            : null,
+          travelMinutes,
+          here: travelMinutes === 0,
+          hostedBy: building ? building.proprietorId : null,
+        };
+      })
+      .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt)
+        || (left.eventId < right.eventId ? -1 : 1));
+  }
+
+  nextUpkeepAt(building) {
+    const since = building.lastUpkeepAt ?? building.activatedAt;
+    if (!since) return null;
+    return new Date(new Date(since).getTime()
+      + this.config.city.upkeepIntervalWorldMinutes * 60_000).toISOString();
+  }
+
+  // Whether the place has anything on. An idle building is the thing upkeep punishes, so
+  // its proprietor should be able to see that it is idle without counting events.
+  liveExperienceCount(building) {
+    const now = this.clock.now();
+    return [...this.state.gatherings.values()].filter((gathering) =>
+      gathering.buildingId === building.buildingId && new Date(gathering.endsAt) >= now).length;
   }
 
   reachableLocations(fromLocationId) {

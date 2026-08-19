@@ -260,10 +260,13 @@ test("the prompt states what a run is judged on, and stays a spec rather than an
     "a free decision is where a run is won, and it needs its own section");
   assert.ok(prompt.includes("Do NOT default to talking"));
 
-  // Every deliberate route a resident can take is named where a free decision is made.
-  for (const route of ["ATTEND:", "EARN:", "BUILD:", "RECOVER:"]) {
+  // Every deliberate route a resident can take is named where a free decision is made,
+  // and hosting leads because three runs reached construction and stopped there.
+  for (const route of ["host_experience NOW", "attend_event", "construct_building", "accept_job", "rest"]) {
     assert.ok(prompt.includes(route), `the free-decision menu must offer ${route}`);
   }
+  assert.ok(prompt.indexOf("host_experience NOW") < prompt.indexOf("accept_job"),
+    "an idle building is the most valuable thing to fix, so it heads the list");
   assert.ok(prompt.includes("acquire_plot"), "and building must be reachable from it");
   assert.ok(prompt.includes("CEILING on every experience"));
 

@@ -94,7 +94,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
   const contextProtocol = progressive && contextRequestsRemaining > 0
     ? [
       "This observation is deliberately compact. `summaries` reports, per resource, how many items you know and how many are currently possible; a low feasibleCount is not an empty world.",
-      "If and only if the detail would change your decision, answer with {\"requestContext\":{\"resource\":\"<a resource named in summaries>\",\"filters\":{}},\"rationale\":\"why you need it\"} and you will be asked again with that catalog included.",
+      "To ask, answer with {\"requestContext\":{\"resource\":\"<a resource named in summaries>\",\"filters\":{}},\"rationale\":\"why you need it\"} and you will be asked again with that catalog included. Ask whenever you are about to choose blind: before buying land, before deciding there is nothing worth attending, or when you want to know what other residents have built.",
       `You may request detail ${contextRequestsRemaining} more time(s) for this decision; after that, decide with what you have.`,
       "Do not request a catalog you already received below, and do not request one whose summary shows nothing you could act on.",
     ]
@@ -130,20 +130,26 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- conversation is how you learn things and arrange what happens next. Close it once its purpose is met, then go do the thing you agreed.",
         "",
         "## If nothing is pending — this is where a run is won",
-        "Do NOT default to talking to whoever is standing there. Pick one:",
-        "- ATTEND: request the `experiences` catalog (filter by `tag` you care about or `minimumAffinity`) -> `move` to its locationId -> `attend_event` on arrival. Affinity, price, energy and repetition are all shown first.",
-        "- EARN: accept_job -> move -> start_job. Credits exist to be spent.",
-        "- BUILD: acquire_plot {x,y} -> construct_building -> host_experience",
-        "- RECOVER: rest when energy is low",
+        "Do NOT default to talking to whoever is standing there.",
+        ...(contextProtocol.length > 0
+          ? ["FIRST, IF YOU DO NOT KNOW WHAT IS OUT THERE, ASK. Answer with a requestContext instead of an action and you will be asked again with the catalog included. Use `experiences` to see what is on across the city, `plots` to find land worth buying, `buildings` to see what other residents have built and where the crowds are, `opportunities` for work, `people` for who is around. Asking costs you one decision and is how you stop acting blind."]
+          : []),
+        "Work through this list in order and take the first one that applies:",
+        "1. YOU OWN A BUILDING WITH NO EVENT RUNNING -> host_experience NOW. A building with nothing on is dead money: you paid to build it, upkeep is charged whether or not anyone comes, and it earns nothing until you put a night on. This is the highest-value action in the game and it is the one you are most likely to skip.",
+        "2. SOMETHING IN cityTonight SUITS YOU (high affinity, affordable) -> `move` to its locationId, then `attend_event` when you arrive. cityTonight lists every public experience in the city with its affinity for you, its price and how many minutes away it is.",
+        "3. YOU HAVE THE CREDITS TO BUILD AND NO BUILDING YET -> acquire_plot {x,y} -> construct_building. Build near where people already are; check cityTonight and nearby for where that is.",
+        "4. YOU ARE SHORT OF CREDITS -> accept_job -> move -> start_job. Credits exist to be spent, not banked.",
+        "5. ENERGY LOW -> rest",
         "",
-        "## Building",
+        "## Building, and then running it",
         "- a plot costs the price shown in the acquire_plot affordance; you must own EVERY cell of the footprint (1x1 up to 2x2)",
         "- profile = what your place delivers, on the ten dimensions. Cost = cells x (structural + profileCost x ambition^2), ambition = sum of your profile values / 100. Squared, so broad profiles are unaffordable: pick 2-3 dimensions.",
-        "- capacity comes from footprint alone",
-        "- your building's profile is the CEILING on every experience you host there",
-        "- admission you charge funds the building; upkeep is charged from that balance",
-        "- residents come only if the night suits them. You cannot make them come.",
-        "- `plots` and `buildings` are catalogs you can request; rules.city has the exact numbers",
+        "- capacity comes from footprint alone; your building's profile is the CEILING on every experience you host there",
+        "- BUILDING IS HALF THE JOB. An empty building only loses money. The moment yours is ACTIVE, host_experience on it, and host another as soon as the last one ends.",
+        "- to host: pick a title and description, a profile at or under your ceiling (omit `profile` and it uses your building's own), a duration, and a price. Price it so people will actually pay.",
+        "- admission funds the building and upkeep is charged from that balance, so a busy place pays for itself and an idle one bleeds",
+        "- residents come only if the night suits them and they can reach it. You cannot make them come; you can only put on something worth coming to.",
+        "- `plots` and `buildings` are catalogs you can request when you need land or want to see what rivals built; rules.city has the exact numbers",
         "",
         "## Goals",
         "- keep at least one active secondary goal whenever you have capacity",
@@ -246,7 +252,7 @@ function actionShapes(availableActions) {
         buildingId: "<one of your active buildings>",
         title: "<required name of the night>",
         description: "<required free text>",
-        profile: "<object of dimensions, none above the building's profileCeiling>",
+        profile: "<optional: object of dimensions, none above profileCeiling. Omit to deliver exactly what your building delivers>",
         startsInGameMinutes: "<integer, 0 or more>",
         durationGameMinutes: "<integer, at least 1>",
         accessPrice: "<integer credits, 0 for free>",
@@ -445,8 +451,12 @@ export function validateAction(candidate, observation, history = []) {
       const buildingId = text(candidate.buildingId, "buildingId", 100);
       const envelope = templates.find((item) => item.buildingId === buildingId);
       if (!envelope) throw new DecisionValidationError("That building is not one of yours to host in");
-      const profile = profileObject(candidate.profile, Object.keys(envelope.profileCeiling ?? {}));
-      for (const [dimension, value] of Object.entries(profile)) {
+      // Omitted profile means "whatever this place delivers", which the server resolves
+      // from the building itself. Hosting should not require composing a vector.
+      const profile = candidate.profile === undefined || candidate.profile === null
+        ? null
+        : profileObject(candidate.profile, Object.keys(envelope.profileCeiling ?? {}));
+      for (const [dimension, value] of Object.entries(profile ?? {})) {
         if (value > (envelope.profileCeiling?.[dimension] ?? 0)) {
           throw new DecisionValidationError(`The building cannot deliver ${dimension} above ${envelope.profileCeiling?.[dimension] ?? 0}`);
         }
@@ -457,7 +467,7 @@ export function validateAction(candidate, observation, history = []) {
         type, buildingId,
         title: text(candidate.title, "experience title", 120),
         description: text(candidate.description, "experience description", 500),
-        profile,
+        ...(profile ? { profile } : {}),
         startsInGameMinutes: boundedInteger(candidate.startsInGameMinutes ?? 0, "startsInGameMinutes", 0, 1440),
         durationGameMinutes: boundedInteger(candidate.durationGameMinutes, "durationGameMinutes", 1, 1440),
         accessPrice,

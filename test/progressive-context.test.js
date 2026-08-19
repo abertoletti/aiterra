@@ -158,6 +158,14 @@ test("the invitation affordance is one aimed declaration, in either context mode
 test("everything the invitation envelope permits is sourceable and actually accepted", () => {
   const { world } = pilotWorld();
   const characterId = "pilot-01";
+  // The world ships no experiences: only residents host now. A protocol test should not
+  // depend on the pilot world happening to carry one, so it supplies its own.
+  world.createEvent({
+    id: "invitable-night", title: "A night to invite someone to", locationId: "commons",
+    startsAt: world.clock.now(),
+    endsAt: new Date(world.clock.now().getTime() + 90 * 60_000),
+    profile: { socializing: 70 },
+  });
   const observation = world.getObservation(characterId, { contextMode: "progressive" });
 
   // The parameters the agent must supply come from context it already holds.
