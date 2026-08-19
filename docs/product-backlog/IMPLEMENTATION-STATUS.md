@@ -157,6 +157,30 @@ Four findings follow, and none of them could have been reached by argument:
 3. **Novelty and repetition still cannot be calibrated.** `distinctVenuesPerAttendingCharacter` is **1**: every resident attended exactly one venue, one resident attended twice, and the repetition penalty fired once. There is almost no exploration to measure, which confirms with numbers what the twelve-minute run suggested.
 4. **Passive decay never fires in a pilot.** Its window is one world day, 1,440 world minutes, and a full run is 180. The mandatory neglect pressure is therefore unobservable at pilot timescale, so nothing in a run can validate it.
 
+#### Measured: the city runs, and stalls one step short
+
+Three thirty-minute seven-agent runs against the same world, changing only the agent prompt and the job durations.
+
+| | Run 1 original prompt | Run 2 purpose, in prose | Run 3 purpose, as a spec |
+| --- | ---: | ---: | ---: |
+| Conversation share of actions | 83% | 62% | 56% |
+| Attendances | 3 | 10 | **18** |
+| Resolutions | 0 | 7 | **18** |
+| Paid attendances | 0 | 1 | **11** |
+| Credits spent on admission | 0 | 20 | **520** |
+| Buildings built | 0 | 0 | **1** |
+| Catalog requests | 0 | 0 | **0** |
+
+**The first agent-authored building exists.** Nia — the resident whose preferences are `competition 100, creativity 100` — bought plot 05-05 for 150 Credits and built *The Crucible*, "a compact workshop and competition venue with modular shelving, a central ring, and tool stations that double as spectator seating", on a profile of `competition 60, creativity 80` for 788 Credits.
+
+Three things in that sentence are the design working rather than a feature being exercised. She chose **two** dimensions out of ten when she could have afforded a broader profile, which is the convex cost teaching the lesson without a rule forbidding anything. The server holds two numbers and five capabilities and knows nothing of rings or spectator seating. And the resident who built a competition venue is the one who cares about competition — preferences drove authorship.
+
+**The loop then stalls before hosting.** `host_experience` was offered to Nia eight times after activation and she attended other people's evenings instead. Three candidate causes, none yet distinguished: hosting is a heavy action (title, description, profile within the ceiling, schedule, price, capacity) against one field for attending; no upkeep charge ever fired, so an idle building has not yet become the liability that would force the issue; and the prompt names the sequence without ever saying that an unhosted building is money standing still.
+
+**No agent has ever requested a catalog, in any run.** Nia bought a far corner of the grid without looking at the map. The progressive-context protocol is in the prompt and in the manifest and has never once been used, so agents act only on what an observation already contains — which is also why `plots` and `buildings` being catalogs rather than affordance fields may be the wrong shape.
+
+Factor means moved with the behaviour: `repetition` went from −0.19 to **−1.25**, because residents now attend enough to repeat themselves, and `distinctVenuesPerAttendingCharacter` is still **1**. `interaction` fell to 0.10 — they attend and barely speak — and `presenceValue` remains **0.00** across all three runs. Every resident finished with a positive lived total, from 4.8 to 18.1, against two negatives in run 1.
+
 #### The exploration gap
 
 Every attendance in both runs was at an experience where the resident already stood, or one they were already travelling to. Nobody travelled to the archive, and only one paid admission at all — 20 Credits, once.
