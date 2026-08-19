@@ -165,16 +165,40 @@ export function createHttpServer({
       if (request.method === "GET" && match) {
         const characterId = decodeURIComponent(match[1]);
         authorizeAndLimit(request, characterId, "observe", agentTokens, rateLimits, world);
-        let observation = world.getObservation(characterId);
-        if (observation.availableJobs.length > 0 || observation.upcomingEvents.length > 0) {
+        const contextOptions = {
+          contextMode: url.searchParams.get("contextMode") ?? "full",
+          contextVersion: Number(url.searchParams.get("contextVersion") ?? 0),
+        };
+        let observation = world.getObservation(characterId, contextOptions);
+        // In progressive mode the catalogs are not shipped, so an unrequested
+        // observation must not claim the character viewed them.
+        if (observation.availableJobs?.length > 0 || observation.upcomingEvents?.length > 0) {
           const viewed = world.recordOpportunitiesViewed(
             characterId,
             observation.availableJobs.map((job) => job.id),
             observation.upcomingEvents.map((event) => event.id),
           );
-          if (viewed.recorded) observation = world.getObservation(characterId);
+          if (viewed.recorded) observation = world.getObservation(characterId, contextOptions);
         }
         return json(response, 200, observation);
+      }
+
+      match = url.pathname.match(/^\/api\/characters\/([^/]+)\/context\/([^/]+)$/);
+      if (request.method === "GET" && match) {
+        const characterId = decodeURIComponent(match[1]);
+        const resource = decodeURIComponent(match[2]);
+        authorizeAndLimit(request, characterId, "observe", agentTokens, rateLimits, world);
+        const filters = {};
+        for (const [key, value] of url.searchParams) {
+          if (key === "limit" || key === "offset") continue;
+          filters[key] = value;
+        }
+        return json(response, 200, world.inspectContext(characterId, {
+          resource,
+          filters,
+          limit: Number(url.searchParams.get("limit") ?? 20),
+          offset: Number(url.searchParams.get("offset") ?? 0),
+        }));
       }
 
       match = url.pathname.match(/^\/api\/characters\/([^/]+)\/rules$/);

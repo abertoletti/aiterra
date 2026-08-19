@@ -5,7 +5,10 @@ import { buildTimeline } from "./timeline.js";
 import { applyEvent } from "./world-reducer.js";
 import * as ownerProjection from "./world-owner.js";
 import {
-  DomainError, addMilliseconds, clamp, coPresenceKey, conflict, conversationAppraisalKey,
+  CONTEXT_CONTRACT_VERSION, CONTEXT_MODES, CONTEXT_RESOURCES, contextSummaries, inspectCatalog,
+} from "./world-context.js";
+import {
+  DomainError, addMilliseconds, clamp, itemsTouchedByEvent, coPresenceKey, conflict, conversationAppraisalKey,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
   normalizeFact, normalizeGoal, normalizeRelationship, normalizeSkills,
@@ -330,6 +333,9 @@ export class World {
   }
 
   publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, locationId, durationGameMinutes, compensation, requirements, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility }) {
+    // createJob and createSystemJob always generate one, but a direct call without an
+    // id silently created a job keyed `undefined`, which nothing could ever reach.
+    requiredId(id, "job id");
     this.requireLocation(locationId);
     requiredText(title, "job title", 120);
     if (!Number.isFinite(compensation) || compensation <= 0) throw invalid("INVALID_COMPENSATION", "Compensation must be positive");
@@ -1898,7 +1904,39 @@ export class World {
     }
   }
 
-  getObservation(characterId) {
+  // Compact summaries of every catalog resource. `since` is the contextVersion the
+  // runtime last saw, so the delta needs no server-side memory of past deliveries.
+  getContextSummaries(characterId, since = 0) {
+    this.requireCharacter(characterId);
+    return contextSummaries(this, characterId, Number(since) || 0);
+  }
+
+  // An explicit decision-scoped catalog request. Read-only: it records telemetry and
+  // never reserves availability, so submission stays authoritative.
+  inspectContext(characterId, options = {}) {
+    const page = inspectCatalog(this, characterId, options);
+    this.record("DECISION_CONTEXT_REQUESTED", {
+      actorCharacterId: characterId,
+      data: {
+        characterId,
+        resource: page.resource,
+        filterKeys: page.appliedFilters,
+        pageSize: page.returned,
+        resultCount: page.count,
+        blockedCount: page.blockedCount,
+        blockedOmitted: page.blockedOmitted,
+        bytes: JSON.stringify(page.items).length,
+        catalogVersion: page.catalogVersion,
+        contextContractVersion: CONTEXT_CONTRACT_VERSION,
+      },
+    });
+    return page;
+  }
+
+  getObservation(characterId, { contextMode = "full", contextVersion = 0 } = {}) {
+    if (!CONTEXT_MODES.includes(contextMode)) {
+      throw invalid("INVALID_CONTEXT_MODE", `Context mode must be one of ${CONTEXT_MODES.join(", ")}`);
+    }
     const character = this.requireCharacter(characterId);
     const nearby = character.activity?.type === "moving" ? [] : [...this.state.characters.values()]
       .filter((other) => other.id !== characterId && other.locationId === character.locationId && other.activity?.type !== "moving")
@@ -1941,26 +1979,41 @@ export class World {
       .map((commitment) => structuredClone(commitment));
 
     const decision = this.getDecisionRequirement(characterId);
+    const stateVersion = this.characterStateVersion(characterId);
+    const progressive = contextMode === "progressive";
+    // Affordances are computed from the full sets either way: progressive mode
+    // changes what is shipped, never what the character is allowed to consider.
+    const availableActions = this.availableActions(
+      character, nearby, activeConversations, recentConversations, availableJobs, upcomingEvents,
+      invitations, commitments, { compactAffordances: progressive },
+    );
     return {
       worldTime: this.clock.now().toISOString(),
       rulesVersion: this.config.rules.version,
-      rules: this.getAgentRules(characterId),
-      stateVersion: this.characterStateVersion(characterId),
+      rulesDigest: this.agentRulesDigest(characterId),
+      // A stateless runtime keeps the manifest cached by version; progressive mode
+      // omits the body and expects the runtime to fetch it once per version.
+      ...(progressive ? {} : { rules: this.getAgentRules(characterId) }),
+      contextMode,
+      contextContractVersion: CONTEXT_CONTRACT_VERSION,
+      contextVersion: stateVersion,
+      summaries: this.getContextSummaries(characterId, contextVersion),
+      stateVersion,
       character: publicCharacter(character),
       nearby,
-      relationships: knownRelationships,
       activeConversations,
       recentConversations,
-      knowledge: [...(this.state.knowledge.get(characterId)?.values() ?? [])].map((item) => structuredClone(item)),
       pendingNotifications,
-      availableJobs,
-      upcomingEvents,
       invitations,
       commitments,
-      availableActions: this.availableActions(
-        character, nearby, activeConversations, recentConversations, availableJobs, upcomingEvents,
-        invitations, commitments,
-      ),
+      // Detail that a decision may not need becomes requestable rather than resident.
+      ...(progressive ? {} : {
+        relationships: knownRelationships,
+        knowledge: [...(this.state.knowledge.get(characterId)?.values() ?? [])].map((item) => structuredClone(item)),
+        availableJobs,
+        upcomingEvents,
+      }),
+      availableActions,
       decision,
       decisionRequiredAt: decision.decisionRequiredAt,
       nextScheduledDecisionAt: decision.decisionRequiredAt,
@@ -2031,7 +2084,32 @@ export class World {
       consequences: {
         instruction: "Accepted actions can change energy, credits, work state, commitments, and directional relationships. Kept and broken commitments affect trust.",
       },
+      // The context discipline is a stable rule, so it lives in the manifest rather
+      // than in each runtime's private prompt. A stateless model that receives only
+      // this manifest and a baseline must be able to work out that the baseline is
+      // deliberately incomplete and that asking for detail is its job.
+      context: {
+        contractVersion: CONTEXT_CONTRACT_VERSION,
+        requestable: [...CONTEXT_RESOURCES],
+        instruction: "The observation carries only what your current decision requires. Detailed catalogs are not included. Request one with the summary's requestAction when, and only when, your decision needs it.",
+        summaryReading: "A summary count includes items you cannot currently act on; feasibleCount says how many are possible. A low feasibleCount is not an empty world: request the catalog and read the blockers, because the blocker is often the real decision.",
+        caching: "This manifest is stable for its version. Cache it by rulesVersion and stop re-requesting it. Feasibility, energy, credits, capacity, and availability are never stable and always come from the current observation.",
+        authority: "A requested catalog reserves nothing. Submission is revalidated, so a disclosed item can still be rejected.",
+      },
     };
+  }
+
+  // The manifest is currently identical for every character, so its digest is
+  // computed once per rules version and reused. Runtimes compare it to validate a
+  // cached manifest without downloading the body again.
+  agentRulesDigest(characterId) {
+    if (this.cachedRulesDigest?.version !== this.config.rules.version) {
+      this.cachedRulesDigest = {
+        version: this.config.rules.version,
+        digest: createHash("sha256").update(JSON.stringify(this.getAgentRules(characterId))).digest("hex").slice(0, 16),
+      };
+    }
+    return this.cachedRulesDigest.digest;
   }
 
   recordAgentRulesRequested(characterId, manifest) {
@@ -2382,7 +2460,7 @@ export class World {
     return `${actorName} caused ${event.type.toLowerCase().replaceAll("_", " ")}.`;
   }
 
-  availableActions(character, nearby, conversations, recentConversations, jobs, upcomingEvents, invitations = [], commitments = []) {
+  availableActions(character, nearby, conversations, recentConversations, jobs, upcomingEvents, invitations = [], commitments = [], { compactAffordances = false } = {}) {
     const actions = [];
     if (!character.activity) {
       const locations = this.reachableLocations(character.locationId);
@@ -2405,46 +2483,27 @@ export class World {
       }
       for (const gathering of upcomingEvents) {
         if (gathering.locationId === character.locationId && new Date(gathering.startsAt) <= this.clock.now()) {
-          actions.push({ type: "attend_event", eventId: gathering.id, energyCost: this.config.energy.eventAttendanceCost });
+          actions.push({
+            type: "attend_event", eventId: gathering.id,
+            energyCost: this.config.energy.eventAttendanceCost,
+            feasibility: this.eventAttendanceFeasibility(character, gathering),
+          });
         }
       }
     }
     for (const job of jobs.filter((item) => item.status === "open")) {
-      const individualUnmetRequirements = Object.entries(job.requirements ?? {})
-        .filter(([skill, required]) => (character.skills?.[skill] ?? 0) < required)
-        .map(([skill, required]) => ({ skill, required, actual: character.skills?.[skill] ?? 0 }));
-      const teamSkillCoverageAfterJoin = job.teamSize > 1 && !job.workerIds.includes(character.id)
-        ? Object.entries(job.requirements ?? {}).filter(([, required]) => required > 0).map(([skill, required]) => ({
-          skill, required,
-          actual: Math.max(character.skills?.[skill] ?? 0, ...job.workerIds.map((id) => this.requireCharacter(id).skills[skill] ?? 0)),
-        }))
-        : [];
-      const unmetRequirements = job.teamSize > 1
-        ? teamSkillCoverageAfterJoin.filter((item) => item.actual < item.required)
-        : individualUnmetRequirements;
-      actions.push({
-        type: "accept_job",
-        jobId: job.id,
-        title: job.title,
-        locationId: job.locationId,
-        durationGameMinutes: job.durationGameMinutes,
-        compensation: job.compensation,
-        executionEnergyCost: job.energyCost,
-        requirements: structuredClone(job.requirements ?? {}),
-        requirementsMode: job.requirementsMode,
-        teamSize: job.teamSize,
-        workerIds: [...job.workerIds],
-        openTeamSlots: Math.max(0, job.teamSize - job.workerIds.length),
-        teamSkillCoverageAfterJoin,
-        unmetRequirements,
-        scheduledStartAt: job.scheduledStartAt,
-        startGraceUntil: job.startGraceUntil,
-        offerExpiresAt: job.offerExpiresAt,
-        feasibility: this.jobAcceptanceFeasibility(
-          character, job,
-          job.teamSize > 1 && job.workerIds.length + 1 < job.teamSize ? [] : unmetRequirements,
-        ),
-      });
+      const view = this.jobOpportunityView(character, job);
+      // In progressive mode the affordance keeps the target and whether it is
+      // possible; the requirements, schedule, and pay come from inspect_opportunities
+      // rather than being repeated on every unrelated decision.
+      actions.push(compactAffordances
+        ? {
+          type: "accept_job", jobId: view.jobId, locationId: view.locationId,
+          // The primary blocker is enough to decide whether to look; the full
+          // blocker list is in the catalog.
+          feasibility: { status: view.feasibility.status, blockingCode: view.feasibility.blockingCode },
+        }
+        : { type: "accept_job", ...view });
     }
     for (const job of jobs.filter((item) => item.fundingSourceId === character.id && ["open", "accepted"].includes(item.status))) {
       actions.push({ type: "cancel_job", jobId: job.id });
@@ -2588,6 +2647,65 @@ export class World {
     return existingTurnCount + 1 >= this.config.conversation.extendedCostStartsAtTurn
       ? this.config.energy.extendedConversationTurnCost
       : this.config.energy.conversationTurnCost;
+  }
+
+  // One description of an open opportunity for one character, used both by the
+  // accept_job affordance and by the requested opportunity catalog, so the two can
+  // never disagree about requirements, costs, or blockers.
+  jobOpportunityView(character, job) {
+    const individualUnmetRequirements = Object.entries(job.requirements ?? {})
+      .filter(([skill, required]) => (character.skills?.[skill] ?? 0) < required)
+      .map(([skill, required]) => ({ skill, required, actual: character.skills?.[skill] ?? 0 }));
+    const teamSkillCoverageAfterJoin = job.teamSize > 1 && !job.workerIds.includes(character.id)
+      ? Object.entries(job.requirements ?? {}).filter(([, required]) => required > 0).map(([skill, required]) => ({
+        skill, required,
+        actual: Math.max(character.skills?.[skill] ?? 0, ...job.workerIds.map((id) => this.requireCharacter(id).skills[skill] ?? 0)),
+      }))
+      : [];
+    const unmetRequirements = job.teamSize > 1
+      ? teamSkillCoverageAfterJoin.filter((item) => item.actual < item.required)
+      : individualUnmetRequirements;
+    return {
+      jobId: job.id,
+      title: job.title,
+      locationId: job.locationId,
+      durationGameMinutes: job.durationGameMinutes,
+      compensation: job.compensation,
+      executionEnergyCost: job.energyCost,
+      requirements: structuredClone(job.requirements ?? {}),
+      requirementsMode: job.requirementsMode,
+      teamSize: job.teamSize,
+      workerIds: [...job.workerIds],
+      openTeamSlots: Math.max(0, job.teamSize - job.workerIds.length),
+      teamSkillCoverageAfterJoin,
+      unmetRequirements,
+      scheduledStartAt: job.scheduledStartAt,
+      startGraceUntil: job.startGraceUntil,
+      offerExpiresAt: job.offerExpiresAt,
+      feasibility: this.jobAcceptanceFeasibility(
+        character, job,
+        job.teamSize > 1 && job.workerIds.length + 1 < job.teamSize ? [] : unmetRequirements,
+      ),
+    };
+  }
+
+  // attendEvent enforces energy, so the affordance and the catalog both disclose it
+  // as a blocker instead of letting the agent discover it only on rejection.
+  eventAttendanceFeasibility(character, gathering) {
+    const now = this.clock.now();
+    const blockingCodes = [];
+    if (character.activity) blockingCodes.push("ACTIVITY_CONFLICT");
+    if (character.locationId !== gathering.locationId) blockingCodes.push("WRONG_LOCATION");
+    if (now < new Date(gathering.startsAt)) blockingCodes.push("EVENT_NOT_STARTED");
+    if (now >= new Date(gathering.endsAt)) blockingCodes.push("EVENT_ENDED");
+    if (character.energy < this.config.energy.eventAttendanceCost) blockingCodes.push("INSUFFICIENT_ENERGY");
+    const uniqueBlockingCodes = [...new Set(blockingCodes)];
+    return {
+      status: uniqueBlockingCodes.length === 0 ? "eligible" : "blocked",
+      eligible: uniqueBlockingCodes.length === 0,
+      blockingCode: uniqueBlockingCodes[0] ?? null,
+      blockingCodes: uniqueBlockingCodes,
+    };
   }
 
   jobAcceptanceFeasibility(character, job, unmetRequirements) {
@@ -2751,6 +2869,11 @@ export class World {
   // rescan the whole history on every observation and every action.
   indexEvent(event) {
     this.state.eventsById.set(event.id, event);
+    for (const itemId of itemsTouchedByEvent(event)) {
+      if (event.sequence > (this.state.itemVersions.get(itemId) ?? 0)) {
+        this.state.itemVersions.set(itemId, event.sequence);
+      }
+    }
     if (event.type === "RELATIONSHIP_APPRAISAL_RECORDED" && event.data?.conversationId) {
       this.state.conversationAppraisals.add(
         conversationAppraisalKey(event.actorCharacterId, event.data.conversationId),

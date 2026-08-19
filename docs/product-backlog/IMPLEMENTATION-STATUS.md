@@ -9,9 +9,9 @@ This is the delivery inventory for the checked-in implementation. `Done` means t
 | Scope | Done | In progress | To do | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Release 0 | 26 | 0 | 0 | 26 |
-| Full product backlog | 40 | 12 | 46 | 98 |
+| Full product backlog | 40 | 14 | 44 | 98 |
 
-Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 73 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
+Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 96 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
 
 ## Epic progress
 
@@ -19,14 +19,14 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 | --- | ---: | ---: | ---: | --- |
 | E00 — Owner account and access | 0 | 0 | 3 | To do |
 | E01 — Character creation | 1 | 2 | 1 | In progress |
-| E02 — External brain connection | 6 | 0 | 1 | In progress |
+| E02 — External brain connection | 6 | 1 | 0 | In progress |
 | E03 — Persistent world, time, and presence | 4 | 0 | 0 | Done |
 | E04 — Authoritative decisions and actions | 3 | 0 | 1 | In progress |
 | E05 — Encounters and conversations | 4 | 0 | 1 | In progress |
 | E06 — Unexpected events and wake-ups | 4 | 0 | 0 | Done |
 | E07 — Relationships, knowledge, and consequences | 3 | 1 | 3 | In progress |
 | E08 — Owner return and storytelling | 2 | 2 | 0 | In progress |
-| E09 — Minimal economy and opportunities | 7 | 0 | 2 | In progress |
+| E09 — Minimal economy and opportunities | 7 | 1 | 1 | In progress |
 | E10 — Operations, security, and metrics | 2 | 3 | 2 | In progress |
 | E11 — Energy and recovery | 3 | 1 | 1 | In progress |
 | E12 — Skills, popularity, Domain Reputation, and score | 0 | 0 | 6 | To do |
@@ -34,7 +34,7 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 | E14 — Emergent city and agent-authored buildings | 0 | 0 | 7 | To do |
 | E15 — Experience and Happiness Engine | 0 | 0 | 9 | To do |
 | E16 — Building operations and contributor economy | 0 | 0 | 9 | To do |
-| **Total** | **40** | **12** | **46** | **In progress** |
+| **Total** | **40** | **14** | **44** | **In progress** |
 
 ## Release 0 evidence
 
@@ -72,7 +72,7 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 | Story | Delivery | Evidence |
 | --- | --- | --- |
 | AIT-204 | Done | Authenticated compatibility checks validate protocol/capabilities without mechanical mutation and recover a verified runtime; the local supervisor performs this check for every isolated character process. |
-| AIT-206 | Done | Handshake and observation expose `agent-rules-v1`; an authenticated manifest separates stable rules from contextual feasibility, every stateless model decision receives it, processed actions retain its version, and request size/count telemetry plus protocol tests are included. |
+| AIT-206 | Done | Handshake and observation expose `agent-rules-v2`; an authenticated manifest separates stable rules from contextual feasibility, every stateless model decision receives it, processed actions retain its version, and request size/count telemetry plus protocol tests are included. |
 | AIT-304 | Done | File-backed overdue notification and work deadlines recover once in causal order with processing-delay metrics. |
 | AIT-901 | Done | Known public opportunities remain visible across locations and while blocked, disclosing authoritative schedule, duration, execution energy, requirements, compensation, all known blockers, and viewing events; acceptance revalidates state. |
 | AIT-902 | Done | Public-protocol workers accept, start, socially interact during, complete, and receive work exactly once. |
@@ -90,6 +90,8 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 
 | Story | Delivery | Current evidence and remaining gap |
 | --- | --- | --- |
+| AIT-207 | In progress | A compact progressive baseline, per-resource summaries with a feasible/blocked split, a client-echoed delta with the twenty-identifier overflow guard, a cached manifest reduced to version plus digest, and the manifest `context` section under `agent-rules-v2`. Measured on the seven-character pilot world: 44.2 KB to 8.1 KB steady state and 9.3 KB cold, a 82% reduction. Pinned selection and its invalidation codes remain, as do the resources Increment D introduces. |
+| AIT-909 | In progress | `inspect_opportunities` returns every known opportunity with requirements, schedule, pay, energy, and all blockers, sharing one feasibility computation with the `accept_job` affordance so the two cannot disagree; `feasibleOnly` reports what it removed; ordering is deterministic and paging is lossless. Selection retention through travel and application remains. |
 | AIT-1102 | In progress | Movement, work, event, rest, and conversation costs are authoritative, disclosed, and applied once; training/study energy and interruption rules are not implemented yet. |
 | AIT-1302 | In progress | Accept, decline, expiry, known-conflict validation, and shared commitment visibility exist; cancellation and renegotiation remain. |
 | AIT-1303 | In progress | Travel-aware reminders are persisted and queued through the event channel; dedicated degraded-path coverage and richer incompatible-activity guidance remain. |
@@ -119,9 +121,9 @@ The seven-agent Azure Foundry pilot recorded a median of **31 KB** of decision c
 
 ## Remaining implementation priorities
 
-1. Implement the approved progressive decision-context contract in AIT-207 and AIT-909, and measure the reduction against the 31 KB baseline.
+1. Finish AIT-207 and AIT-909: the pinned-selection lifecycle and its invalidation codes, and a decision on the `send_invitation` cross-product, which the baseline budget cannot absorb once Increment D multiplies people and destinations.
 2. Implement the approved subjective claims and promises policy in AIT-705 and AIT-706, so a character retains what it heard, from whom, and what it believed was promised.
-3. Remove the scaling limits the two contracts depend on: an indexed character projection version instead of a full-history scan, event-log snapshots instead of complete replay at boot, and a decomposition of the single `World` class.
+3. Remove the remaining scaling limits: event-log snapshots instead of complete replay at boot. The projection-version and causal-lookup indexes are in place, and `World` is decomposed into the support, reducer, owner-projection, and context modules.
 4. Replace JSONL with a transactional event/outbox store and command locks before a multi-node shared environment.
 5. Finish operation-specific abuse/suspension telemetry and production delivery alerting in AIT-1003/AIT-1005.
 6. Finish commitment cancellation/renegotiation, lateness and public reputation consequences in AIT-1302–AIT-1304.

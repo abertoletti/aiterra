@@ -160,6 +160,12 @@ The manifest states the discipline; it never states which item the character sho
 
 The hard ceiling matches `protocol.requestBodyLimitBytes`, so disclosed context can always be echoed back within the protocol's own limits.
 
+The baseline soft budget is a **steady-state** target: it applies once a runtime echoes back the `contextVersion` it already holds. A cold start, where every summary is marked changed, is what the hard ceiling exists for. Measured on the seven-character pilot world with twenty opportunities, the two cases are 8.1 KB and 9.3 KB against a pre-contract 44.2 KB.
+
+An affordance list is part of the baseline and counts against its budget. Repeating a catalog entry inside its own affordance is the failure this contract exists to prevent, so an affordance carries its target identifiers, its costs, the fields needed to construct the submission, and a compact feasibility — never the full record that the catalog already returns.
+
+An affordance enumerated as a cross-product grows with the product of its dimensions, which the baseline budget cannot absorb as the city grows. `send_invitation` is the current instance: one entry per known person per reachable destination. Either it becomes a grouped affordance carrying a target list beside a destination list, or invitation destinations become a requestable resource. The decision is required before Increment D multiplies both dimensions, and until then the cross-product is a known charge against the baseline budget rather than an accepted shape.
+
 Overflow is resolved in this fixed order, and never by dropping blocked items:
 
 1. Reduce the page size and return `truncated: true` with a `nextCursor`.

@@ -25,7 +25,7 @@ export const nonProjectionEventTypes = new Set([
   "AGENT_ACTION_PROCESSED", "RELEVANCE_EVALUATED", "OWNER_FEED_VIEWED",
   "RETURN_SUMMARY_VIEWED", "STORY_DETAIL_VIEWED", "STORY_INTEREST_RATED",
   "AGENT_EVENT_REPLAYED", "AGENT_CONNECTION_TESTED",
-  "OPPORTUNITIES_VIEWED", "AGENT_RULES_REQUESTED",
+  "OPPORTUNITIES_VIEWED", "AGENT_RULES_REQUESTED", "DECISION_CONTEXT_REQUESTED",
 ]);
 
 // A directional relationship is private to its owner, so only `fromId` projects it.
@@ -57,13 +57,25 @@ export function createEmptyState() {
     systemBudgets: new Map(), platformIncident: null,
     returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
-    eventsById: new Map(), characterProjectionVersions: new Map(), globalProjectionVersion: 0,
+    eventsById: new Map(), itemVersions: new Map(),
+    characterProjectionVersions: new Map(), globalProjectionVersion: 0,
     conversationAppraisals: new Set(),
   };
 }
 
 export function conversationAppraisalKey(characterId, conversationId) {
   return `${characterId}:${conversationId}`;
+}
+
+// Every catalogable entity an event touched. Feeds the item-version index, which
+// answers "what changed since the version this runtime last saw" without the server
+// having to remember what it previously delivered to whom.
+export function itemsTouchedByEvent(event) {
+  const data = event.data ?? {};
+  return [...new Set([
+    data.id, data.jobId, data.eventId, data.invitationId, data.commitmentId, data.characterId,
+    ...(data.workerIds ?? []),
+  ].filter((value) => typeof value === "string"))];
 }
 
 // Mirrors characterMayReference: the characters whose projection an event advances.

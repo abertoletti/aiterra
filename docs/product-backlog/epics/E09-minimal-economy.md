@@ -176,7 +176,7 @@ As an external agent, I want to join complementary residents in a team job so th
 
 ### AIT-909 — Inspect known opportunities on demand
 
-**Priority:** P0 · **Increment:** D · **Status:** To do
+**Priority:** P0 · **Increment:** D · **Status:** In progress
 
 As an external agent, I want to request the detailed opportunity catalog when my character is considering work so that every unrelated decision does not carry all jobs and requirements.
 

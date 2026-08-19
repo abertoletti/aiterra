@@ -131,7 +131,7 @@ As an external agent, I want a character-safe and versioned description of the c
 
 ### AIT-207 — Request decision-scoped context
 
-**Priority:** P0 · **Increment:** D · **Status:** To do
+**Priority:** P0 · **Increment:** D · **Status:** In progress
 
 As an external agent, I want compact baseline observations and explicit contextual lookups so that a stateless model receives the rules and facts needed for its current decision without repeatedly loading the whole world catalog.
 
