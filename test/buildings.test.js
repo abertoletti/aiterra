@@ -413,3 +413,18 @@ test("a proprietor can see the upkeep coming and whether the place is idle", () 
   });
   assert.equal(offerFor().liveExperienceCount, 1);
 });
+
+test("nobody can buy the ground the town square stands on", () => {
+  const { world } = cityWorld();
+
+  // The commons sits at 10,10. Seeded places occupy their cells as surely as buildings
+  // do, and the first live run had a resident build a lounge on top of the town square.
+  assert.throws(() => world.acquirePlot("luca", 10, 10),
+    (error) => error instanceof DomainError && error.code === "CELL_OCCUPIED");
+  assert.equal(world.plotView(10, 10, "luca").available, false);
+  assert.equal(world.plotView(10, 10, "luca").standingLocationId, "commons");
+
+  // The cell beside it is still perfectly buyable.
+  assert.equal(world.plotView(11, 10, "luca").available, true);
+  assert.ok(world.acquirePlot("luca", 11, 10));
+});

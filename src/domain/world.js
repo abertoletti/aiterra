@@ -210,9 +210,11 @@ export class World {
     const id = plotKey(x, y);
     const plot = this.state.plots.get(id);
     const occupant = plot?.buildingId ? this.state.buildings.get(plot.buildingId) : null;
+    const standing = this.locationAtCell(x, y);
     const blockers = [];
     if (plot?.ownerId && plot.ownerId !== characterId) blockers.push("PLOT_OWNED");
     if (occupant) blockers.push("PLOT_OCCUPIED");
+    if (standing) blockers.push("CELL_OCCUPIED");
     if (characterId) {
       const character = this.state.characters.get(characterId);
       if (character && !plot?.ownerId && character.credits < this.config.city.plotPricePerCell) {
@@ -224,7 +226,8 @@ export class World {
       price: this.config.city.plotPricePerCell,
       ownerId: plot?.ownerId ?? null,
       buildingId: plot?.buildingId ?? null,
-      available: !plot?.ownerId && !occupant,
+      available: !plot?.ownerId && !occupant && !standing,
+      standingLocationId: standing?.id ?? null,
       ownedByMe: Boolean(characterId && plot?.ownerId === characterId),
       blockers,
     };
@@ -236,6 +239,10 @@ export class World {
       throw invalid("OFF_GRID", `A plot must sit inside the ${this.config.city.width}x${this.config.city.height} grid`);
     }
     const id = plotKey(x, y);
+    // A seeded place occupies its cell as surely as a building does, or a resident can
+    // buy the ground out from under the town square and put a club on it.
+    const standing = this.locationAtCell(x, y);
+    if (standing) throw conflict("CELL_OCCUPIED", `${standing.name} already stands on that cell`);
     const existing = this.state.plots.get(id);
     if (existing?.ownerId === characterId) throw conflict("PLOT_ALREADY_OWNED", "Character already owns that plot");
     if (existing?.ownerId) throw conflict("PLOT_OWNED", "Another resident owns that plot");
@@ -3692,6 +3699,10 @@ export class World {
     const now = this.clock.now();
     return [...this.state.gatherings.values()].filter((gathering) =>
       gathering.buildingId === building.buildingId && new Date(gathering.endsAt) >= now).length;
+  }
+
+  locationAtCell(x, y) {
+    return [...this.state.locations.values()].find((location) => location.x === x && location.y === y) ?? null;
   }
 
   reachableLocations(fromLocationId) {
