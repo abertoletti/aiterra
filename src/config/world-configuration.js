@@ -1,5 +1,12 @@
 import { readFileSync } from "node:fs";
 import { addGameMinutes } from "../domain/clock.js";
+import { defaultConfig } from "../domain/config.js";
+
+// The taxonomy and the price bounds have one owner. Validating against a local copy
+// would let a configuration pass here and be rejected by the domain half-way through
+// activation, which is exactly what this validator exists to prevent.
+const GRAMMAR = defaultConfig.grammar;
+const EXPERIENCE = defaultConfig.experience;
 
 export class WorldConfigurationError extends Error {
   constructor(message) {
@@ -62,6 +69,10 @@ export function validateWorldConfiguration(document) {
     const credits = character.credits ?? 0;
     nonNegativeNumber(credits, `character ${character.id} credits`);
     characterCredits.set(character.id, credits);
+    if (character.preferences !== undefined) {
+      profileVector(character.preferences, `character ${character.id} preferences`,
+        { budget: GRAMMAR.preferenceBudget });
+    }
   }
 
   const budget = document.bootstrapBudget ?? null;
@@ -102,6 +113,23 @@ export function validateWorldConfiguration(document) {
     nonNegativeNumber(event.startsInGameMinutes, `event ${event.id} startsInGameMinutes`);
     positiveNumber(event.durationGameMinutes, `event ${event.id} durationGameMinutes`);
     if (event.creatorId && !characterIds.has(event.creatorId)) fail(`Event ${event.id} has an unknown creator`);
+    // An experience without a profile delivers nothing and can produce no experiential
+    // value, so a configured world that wants the engine to run has to author one.
+    if (event.profile !== undefined && event.profile !== null) {
+      profileVector(event.profile, `event ${event.id} profile`);
+    }
+    if (event.accessPrice !== undefined && event.accessPrice !== null) {
+      const price = event.accessPrice;
+      if (!Number.isInteger(price) || price < EXPERIENCE.minimumAccessPrice || price > EXPERIENCE.maximumAccessPrice) {
+        fail(`Event ${event.id} accessPrice must be an integer between ${EXPERIENCE.minimumAccessPrice} and ${EXPERIENCE.maximumAccessPrice}`);
+      }
+    }
+    if (event.capacity !== undefined && event.capacity !== null) {
+      if (!Number.isInteger(event.capacity) || event.capacity < 1) {
+        fail(`Event ${event.id} capacity must be a positive integer`);
+      }
+    }
+    if (event.description !== undefined) text(event.description, `event ${event.id} description`, 500);
   }
   return structuredClone(document);
 }
@@ -122,6 +150,10 @@ export function activateWorldConfiguration(world, input) {
     world.createEvent({
       creatorId: event.creatorId ?? null, id: event.id, title: event.title, locationId: event.locationId,
       startsAt, endsAt: addGameMinutes(startsAt, event.durationGameMinutes),
+      profile: event.profile ?? null,
+      accessPrice: event.accessPrice ?? 0,
+      capacity: event.capacity ?? null,
+      description: event.description ?? null,
     });
   }
   for (const job of configuration.jobs) {
@@ -174,6 +206,34 @@ function nonNegativeNumber(value, label) {
 
 function locationReference(value, locationIds, label) {
   if (!locationIds.has(value)) fail(`${label} references unknown location ${value}`);
+}
+
+// A preference vector is budgeted and an experience profile is not, because caring is
+// scarce and delivering is not. Both are rejected for an unknown dimension rather than
+// having it ignored, since that is a taxonomy-version mismatch and not a typo.
+function profileVector(value, label, { budget = null } = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${label} must be an object of profile dimensions`);
+  }
+  for (const dimension of Object.keys(value)) {
+    if (!GRAMMAR.profileDimensions.includes(dimension)) {
+      fail(`${label} has unknown profile dimension ${dimension}`);
+    }
+  }
+  let total = 0;
+  for (const dimension of GRAMMAR.profileDimensions) {
+    const entry = value[dimension] ?? 0;
+    if (!Number.isInteger(entry) || entry < 0 || entry > 100) {
+      fail(`${label} ${dimension} must be an integer between 0 and 100`);
+    }
+    total += entry;
+  }
+  if (budget !== null && total !== budget) {
+    fail(`${label} must sum to exactly ${budget}, received ${total}`);
+  }
+  if (budget === null && total === 0) {
+    fail(`${label} must deliver at least one dimension above zero`);
+  }
 }
 
 function fail(message) {

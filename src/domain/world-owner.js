@@ -6,7 +6,8 @@ import { createHash } from "node:crypto";
 import {
   DomainError, buildDescendantIndex, collectActiveCharacterDays, conflict, decodeOwnerCursor,
   delaySummary, encodeOwnerCursor, invalid, metric, ownerFeedCategory, ownerFeedDetails,
-  ownerFeedTypes, projectStoryCandidates, requiredId, summaryPriority,
+  happinessFactorNames, ownerFeedTypes, projectStoryCandidates, requiredId, round2,
+  summaryPriority,
 } from "./world-support.js";
 
 export function getOwnerFeed(world, { ownerId, characterId, cursor = null, limit = world.config.ownerFeed.defaultPageSize, cursorSecret, realNow = new Date() }) {
@@ -233,6 +234,58 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
     if (viewed) returningOwners.add(available.data.summary.ownerId);
 }
   const eligibleOwners = new Set(events.filter((event) => event.type === "RETURN_SUMMARY_AVAILABLE").map((event) => event.data.summary.ownerId));
+  // Experience and Happiness. Nothing here can be calibrated by argument: the novelty
+  // reward and the interaction damping both govern exploration, so they need a run that
+  // actually recorded what residents chose and what it was worth to them.
+  const attendanceStarts = events.filter((event) => event.type === "EVENT_ATTENDANCE_STARTED");
+  const resolutions = events.filter((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED");
+  const accessPayments = events.filter((event) => event.type === "EXPERIENCE_ACCESS_PAID");
+  const decays = events.filter((event) => event.type === "HAPPINESS_DECAYED");
+  const workCosts = events.filter((event) => event.type === "HAPPINESS_CHANGED" && event.data.reason === "work_completed");
+  const deltas = resolutions.map((event) => event.data.rawDelta);
+  const distinctVenuesPerCharacter = new Map();
+  for (const event of resolutions) {
+    const seen = distinctVenuesPerCharacter.get(event.data.characterId) ?? new Set();
+    seen.add(event.data.locationId);
+    distinctVenuesPerCharacter.set(event.data.characterId, seen);
+  }
+  const factorTotals = Object.fromEntries(happinessFactorNames.map((factor) => [factor, 0]));
+  for (const event of resolutions) {
+    for (const factor of happinessFactorNames) {
+      const value = event.data.factors?.[factor];
+      if (typeof value === "number") factorTotals[factor] += value;
+    }
+  }
+  const experiences = {
+    attendances: attendanceStarts.length,
+    reEntries: attendanceStarts.filter((event) => event.data.reEntry).length,
+    resolutions: resolutions.length,
+    positiveResolutionRate: metric(deltas.filter((delta) => delta > 0).length, deltas.length),
+    negativeResolutionRate: metric(deltas.filter((delta) => delta < 0).length, deltas.length),
+    meanRealizedDelta: deltas.length ? round2(deltas.reduce((sum, delta) => sum + delta, 0) / deltas.length) : null,
+    // Mean contribution of each factor, which is what says whether a factor is doing
+    // any work at all or is dead weight in the formula.
+    meanFactorContribution: Object.fromEntries(Object.entries(factorTotals)
+      .map(([factor, total]) => [factor, round2(total / Math.max(1, resolutions.length))])
+      .sort(([left], [right]) => left.localeCompare(right))),
+    repeatedVenueResolutions: resolutions.filter((event) => (event.data.factors?.repetition ?? 0) < 0).length,
+    distinctVenuesPerAttendingCharacter: distinctVenuesPerCharacter.size
+      ? round2([...distinctVenuesPerCharacter.values()].reduce((sum, seen) => sum + seen.size, 0)
+        / distinctVenuesPerCharacter.size)
+      : null,
+    paidAttendances: accessPayments.length,
+    creditsSpentOnAccess: accessPayments.reduce((sum, event) => sum + event.data.price, 0),
+    happinessDecayEvents: decays.length,
+    workHappinessCosts: workCosts.length,
+    happinessByCharacter: [...world.state.characters.values()]
+      .map((character) => ({
+        characterId: character.id,
+        happiness: character.happiness,
+        livedHappiness: character.livedHappiness ?? 0,
+      }))
+      .sort((left, right) => left.characterId.localeCompare(right.characterId)),
+  };
+
   const dimensions = {
     metricDefinitionVersion: world.config.metrics.definitionVersion,
     environment,
@@ -260,6 +313,7 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
       explicitSilenceCount: events.filter((event) => event.type === "SILENCE_RESOLVED" && event.data.explicit).length,
       platformSuppressedDeadlineCount: events.filter((event) => event.type === "DEADLINE_SUPPRESSED_FOR_PLATFORM_INCIDENT").length,
     },
+    experiences,
     stories: {
       candidates: storyCandidates,
       candidatesPerActiveCharacterDay: metric(storyCandidates.length, activeCharacterDays.size),
@@ -273,10 +327,6 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
       ratingSampleCount: ratings.length,
     },
     operations: {
-      agentRulesRequests: events.filter((event) => event.type === "AGENT_RULES_REQUESTED").length,
-      maximumRulesManifestBytes: Math.max(0, ...events
-        .filter((event) => event.type === "AGENT_RULES_REQUESTED")
-        .map((event) => event.data.manifestBytes ?? 0)),
       agentRulesRequests: events.filter((event) => event.type === "AGENT_RULES_REQUESTED").length,
       maximumRulesManifestBytes: Math.max(0, ...events
         .filter((event) => event.type === "AGENT_RULES_REQUESTED")

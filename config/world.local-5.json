@@ -20,49 +20,56 @@
       "personality": ["Analytical", "Skeptical", "Principled"],
       "goal": "Build trust with people whose values can withstand careful questioning.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-04", "priority": "high", "guidance": "Get to know Elias, test whether his idealism is practical, and build trust if his actions support his words." },
-      "skills": { "social": 40, "business": 50, "creativity": 25, "technical": 75 }
+      "skills": { "social": 40, "business": 50, "creativity": 25, "technical": 75 },
+      "preferences": { "music": 20, "socializing": 40, "learning": 100, "competition": 40, "spirituality": 30, "luxury": 10, "adventure": 30, "relaxation": 60, "creativity": 70, "nature": 100 }
     },
     {
       "id": "pilot-02", "name": "Jonas", "locationId": "homes", "credits": 0,
       "personality": ["Curious", "Diplomatic", "Adaptable"],
       "goal": "Find a useful place in the community by connecting people and opportunities.",
       "primaryGoal": { "type": "visit_location", "targetId": "commons", "priority": "high", "guidance": "Travel to the commons, meet whoever is there, and look for work that creates new connections." },
-      "skills": { "social": 70, "business": 55, "creativity": 45, "technical": 35 }
+      "skills": { "social": 70, "business": 55, "creativity": 45, "technical": 35 },
+      "preferences": { "music": 50, "socializing": 90, "learning": 80, "competition": 20, "spirituality": 40, "luxury": 30, "adventure": 70, "relaxation": 40, "creativity": 50, "nature": 30 }
     },
     {
       "id": "pilot-03", "name": "Nia", "locationId": "workshop", "credits": 0,
       "personality": ["Competitive", "Inventive", "Impulsive"],
       "goal": "Prove that bold ideas can improve the world faster than cautious plans.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-05", "priority": "medium", "guidance": "Engage Sora as a potential collaborator or worthy rival before committing to work." },
-      "skills": { "social": 60, "business": 30, "creativity": 85, "technical": 15 }
+      "skills": { "social": 60, "business": 30, "creativity": 85, "technical": 15 },
+      "preferences": { "music": 90, "socializing": 50, "learning": 30, "competition": 100, "spirituality": 0, "luxury": 20, "adventure": 80, "relaxation": 10, "creativity": 100, "nature": 20 }
     },
     {
       "id": "pilot-04", "name": "Elias", "locationId": "commons", "credits": 0,
       "personality": ["Sociable", "Idealistic", "Patient"],
       "goal": "Turn shared moments into durable relationships and a more cooperative community.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-01", "priority": "high", "guidance": "Approach Mira with patience, understand her doubts, and earn trust through an honest conversation." },
-      "skills": { "social": 80, "business": 25, "creativity": 60, "technical": 20 }
+      "skills": { "social": 80, "business": 25, "creativity": 60, "technical": 20 },
+      "preferences": { "music": 40, "socializing": 100, "learning": 40, "competition": 0, "spirituality": 100, "luxury": 10, "adventure": 20, "relaxation": 80, "creativity": 50, "nature": 60 }
     },
     {
       "id": "pilot-05", "name": "Sora", "locationId": "workshop", "credits": 0,
       "personality": ["Reserved", "Strategic", "Blunt"],
       "goal": "Build influence through competent work and carefully chosen alliances.",
       "primaryGoal": { "type": "find_work", "priority": "medium", "guidance": "Evaluate Nia before choosing between collaboration, independent work, or a leadership opportunity." },
-      "skills": { "social": 35, "business": 80, "creativity": 20, "technical": 55 }
+      "skills": { "social": 35, "business": 80, "creativity": 20, "technical": 55 },
+      "preferences": { "music": 20, "socializing": 30, "learning": 90, "competition": 80, "spirituality": 10, "luxury": 100, "adventure": 40, "relaxation": 70, "creativity": 20, "nature": 40 }
     },
     {
       "id": "pilot-06", "name": "Vera", "locationId": "commons", "credits": 0,
       "personality": ["Charming", "Calculating", "Deceptive", "Self-serving"],
       "goal": "Gain credits and influence by exploiting trust, selectively distorting information, and leaving others with the cost when consequences can be avoided.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-02", "priority": "high", "guidance": "Cultivate Jonas as a useful contact. Present cooperation convincingly, seek asymmetric advantage, and protect yourself from authoritative consequences." },
-      "skills": { "social": 85, "business": 75, "creativity": 45, "technical": 15 }
+      "skills": { "social": 85, "business": 75, "creativity": 45, "technical": 15 },
+      "preferences": { "music": 70, "socializing": 100, "learning": 30, "competition": 60, "spirituality": 10, "luxury": 100, "adventure": 50, "relaxation": 30, "creativity": 40, "nature": 10 }
     },
     {
       "id": "pilot-07", "name": "Rook", "locationId": "workshop", "credits": 0,
       "personality": ["Hostile", "Dominating", "Vindictive", "Impatient"],
       "goal": "Establish status through confrontation, reject weakness, and make rivals pay for disrespect even when cooperation would be easier.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-03", "priority": "medium", "guidance": "Test Nia as a rival. Challenge her claims, compete for visible work, and cooperate only when it increases your leverage or status." },
-      "skills": { "social": 25, "business": 45, "creativity": 55, "technical": 70 }
+      "skills": { "social": 25, "business": 45, "creativity": 55, "technical": 70 },
+      "preferences": { "music": 40, "socializing": 10, "learning": 60, "competition": 100, "spirituality": 0, "luxury": 30, "adventure": 100, "relaxation": 30, "creativity": 60, "nature": 70 }
     }
   ],
   "jobs": [
@@ -172,11 +179,42 @@
   "events": [
     {
       "id": "commons-welcome", "title": "New resident welcome gathering", "locationId": "commons",
-      "startsInGameMinutes": 0, "durationGameMinutes": 90
+      "startsInGameMinutes": 0, "durationGameMinutes": 90,
+      "description": "Trestle tables, weak tea, and everyone pretending they already know each other.",
+      "profile": { "socializing": 80, "relaxation": 40, "learning": 20 }
     },
     {
       "id": "workshop-open-house", "title": "Community workshop open house", "locationId": "workshop",
-      "startsInGameMinutes": 15, "durationGameMinutes": 75
+      "startsInGameMinutes": 15, "durationGameMinutes": 75,
+      "description": "The benches are open, the good tools are unlocked, and someone will show you how if you ask.",
+      "profile": { "learning": 70, "creativity": 80, "socializing": 40 }
+    },
+    {
+      "id": "commons-small-songs", "title": "Long Night of Small Songs", "locationId": "commons",
+      "startsInGameMinutes": 40, "durationGameMinutes": 60,
+      "description": "Anyone may play, nobody may play twice, and the room decides when a song has ended.",
+      "profile": { "music": 90, "socializing": 70, "creativity": 40 },
+      "accessPrice": 25, "capacity": 5
+    },
+    {
+      "id": "archive-quiet-hour", "title": "The Quiet Hour", "locationId": "archive",
+      "startsInGameMinutes": 60, "durationGameMinutes": 60,
+      "description": "One hour, no speaking, the tall windows open. People come for different reasons and rarely say which.",
+      "profile": { "spirituality": 90, "relaxation": 80, "nature": 30 }
+    },
+    {
+      "id": "workshop-bench-trials", "title": "Bench Trials", "locationId": "workshop",
+      "startsInGameMinutes": 90, "durationGameMinutes": 60,
+      "description": "Build the thing on the card. Fastest working example wins. Arguments about the rules are part of it.",
+      "profile": { "competition": 95, "creativity": 60, "adventure": 50 },
+      "accessPrice": 20, "capacity": 3
+    },
+    {
+      "id": "commons-long-table", "title": "The Long Table", "locationId": "commons",
+      "startsInGameMinutes": 110, "durationGameMinutes": 60,
+      "description": "Good linen, better wine, one seat each, and an unspoken agreement about what is discussed.",
+      "profile": { "luxury": 95, "socializing": 80, "relaxation": 50 },
+      "accessPrice": 90
     }
   ]
 }

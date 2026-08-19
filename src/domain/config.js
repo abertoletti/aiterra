@@ -8,7 +8,6 @@ export const defaultConfig = Object.freeze({
     maximum: 100,
     movementCost: 2,
     workCost: 15,
-    eventAttendanceCost: 3,
     socialInteractionCost: 1,
     conversationTurnCost: 1,
     extendedConversationTurnCost: 2,
@@ -42,6 +41,9 @@ export const defaultConfig = Object.freeze({
     // Caring is the scarce resource; delivering is not. A profile has no budget so a
     // rich evening does not have to describe itself as a thin one.
     preferenceBudget: 500,
+    // A tag is not authored, it is the name of a dimension the item actually delivers at
+    // or above this value. An authored tag list could claim what the profile does not.
+    tagThreshold: 30,
   },
   // Experience and Happiness policy v1.
   happiness: {

@@ -10,9 +10,9 @@
 //      predicted usefulness would be the server deciding for the brain.
 //
 // See docs/product-backlog/rules/progressive-context-contract.md.
-import { DomainError, publicJob } from "./world-support.js";
+import { DomainError, derivedTags, profileAffinity, publicJob } from "./world-support.js";
 
-export const CONTEXT_CONTRACT_VERSION = 1;
+export const CONTEXT_CONTRACT_VERSION = 2;
 export const CONTEXT_RESOURCES = ["opportunities", "experiences", "people"];
 export const CONTEXT_MODES = ["full", "progressive"];
 
@@ -28,7 +28,10 @@ const CHANGE_KINDS = new Set([
 
 const FILTERS = {
   opportunities: ["locationId", "minimumCompensation", "feasibleOnly"],
-  experiences: ["locationId", "startsAfter", "startsBefore", "feasibleOnly"],
+  experiences: [
+    "locationId", "startsAfter", "startsBefore",
+    "tag", "minimumAffinity", "maximumPrice", "feasibleOnly",
+  ],
   people: ["locationId", "subjectCharacterId", "feasibleOnly"],
 };
 
@@ -58,11 +61,14 @@ export function inspectCatalog(world, characterId, {
         `${resource} accepts only ${FILTERS[resource].join(", ")}`, 400);
     }
   }
+  validateFilterValues(world, filters);
 
   const known = knownItems(world, characterId, resource);
+  // Two separate omissions, both reported. A criteria filter removes what the agent
+  // asked to exclude; feasibleOnly removes what the character cannot currently do. A
+  // short list must always be distinguishable from a quiet world.
   const matching = known.filter((entry) => matchesFilters(entry, resource, filters));
-  // feasibleOnly is the single filter that removes blocked items, and the count it
-  // removed is reported rather than hidden.
+  const filteredOmitted = known.length - matching.length;
   const feasibleOnly = filters.feasibleOnly === true || filters.feasibleOnly === "true";
   const visible = feasibleOnly ? matching.filter((entry) => entry.feasible) : matching;
   const blockedOmitted = feasibleOnly ? matching.length - visible.length : 0;
@@ -73,16 +79,41 @@ export function inspectCatalog(world, characterId, {
     resource,
     contextContractVersion: CONTEXT_CONTRACT_VERSION,
     catalogVersion: catalogVersion(world, known),
+    knownCount: known.length,
     count: matching.length,
     feasibleCount: matching.filter((entry) => entry.feasible).length,
     blockedCount: matching.filter((entry) => !entry.feasible).length,
     blockedOmitted,
+    filteredOmitted,
     returned: page.length,
     truncated: nextOffset < visible.length,
     nextOffset: nextOffset < visible.length ? nextOffset : null,
     appliedFilters: Object.keys(filters).sort(),
     items: page.map((entry) => entry.item),
   };
+}
+
+// An unknown dimension name is rejected rather than quietly matching nothing: it is a
+// taxonomy-version mismatch, and silently returning an empty page would read to the
+// agent as a city with nothing in it.
+function validateFilterValues(world, filters) {
+  const grammar = world.config.grammar;
+  if (filters.tag !== undefined && !grammar.profileDimensions.includes(filters.tag)) {
+    throw new DomainError("UNKNOWN_PROFILE_DIMENSION",
+      `tag must be one of ${grammar.profileDimensions.join(", ")}`, 400);
+  }
+  if (filters.minimumAffinity !== undefined) {
+    const value = Number(filters.minimumAffinity);
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      throw new DomainError("INVALID_FILTER_VALUE", "minimumAffinity must be between 0 and 100", 400);
+    }
+  }
+  if (filters.maximumPrice !== undefined) {
+    const value = Number(filters.maximumPrice);
+    if (!Number.isFinite(value) || value < 0) {
+      throw new DomainError("INVALID_FILTER_VALUE", "maximumPrice must be a non-negative number", 400);
+    }
+  }
 }
 
 // Free text is bounded rather than dropped, so an oversized description can never
@@ -164,9 +195,13 @@ function knownOpportunities(world, characterId) {
     });
 }
 
+// Every public experience in the city, for every resident. Discovery is not gated on a
+// prior visit or an invitation: a place someone built has to be findable by the people
+// it was built for, or nobody has a reason to build one.
 function knownExperiences(world, characterId) {
   const character = world.requireCharacter(characterId);
   const now = world.clock.now();
+  const grammar = world.config.grammar;
   return [...world.state.gatherings.values()]
     .filter((gathering) => new Date(gathering.endsAt) >= now)
     .sort((left, right) => {
@@ -176,9 +211,18 @@ function knownExperiences(world, characterId) {
     .map((gathering) => {
       const feasibility = world.eventAttendanceFeasibility(character, gathering);
       const description = boundDescription(gathering.description ?? "");
+      // Affinity is arithmetic over two vectors this character already holds, so
+      // withholding it would only force every runtime to recompute it. It is one of
+      // seven realized factors, not a prediction of the evening: the brain owns that.
+      const affinity = gathering.profile
+        ? Math.round(profileAffinity(character.preferences, gathering.profile, grammar))
+        : null;
       return {
         id: gathering.id,
         feasible: feasibility.eligible,
+        affinity,
+        accessPrice: gathering.accessPrice ?? 0,
+        tags: derivedTags(gathering.profile, grammar),
         changeKind: new Date(gathering.startsAt) > now ? "published" : "eligibility_changed",
         item: {
           id: gathering.id,
@@ -186,8 +230,21 @@ function knownExperiences(world, characterId) {
           locationId: gathering.locationId,
           startsAt: gathering.startsAt,
           endsAt: gathering.endsAt,
-          attendeeCount: gathering.attendees?.size ?? 0,
-          attendanceEnergyCost: world.config.energy.eventAttendanceCost,
+          plannedDurationWorldMinutes: Math.round(
+            (new Date(gathering.endsAt) - new Date(gathering.startsAt)) / 60_000),
+          // What the evening delivers, and what it costs to be there. Without these an
+          // agent could only learn them by standing at the door.
+          profile: gathering.profile ? structuredClone(gathering.profile) : null,
+          tags: derivedTags(gathering.profile, grammar),
+          affinity,
+          accessPrice: gathering.accessPrice ?? 0,
+          capacity: gathering.capacity ?? null,
+          // Who is present now, matching what capacity is gated on. `attendees` is
+          // cumulative and would report a long-empty room as full.
+          attendeeCount: world.currentAttendeeCount(gathering.id),
+          attendanceEnergyCost: world.config.experience.entryEnergyCost,
+          marginalEnergyPerWorldMinutes: world.config.experience.marginalEnergyPerWorldMinutes,
+          repetition: world.repetitionOutlook(characterId, gathering),
           ...(description.text ? { description: description.text } : {}),
           ...(description.truncated ? { descriptionTruncated: true } : {}),
           feasibility,
@@ -257,5 +314,12 @@ function matchesFilters(entry, resource, filters) {
   if (filters.startsAfter !== undefined && new Date(item.startsAt) <= new Date(filters.startsAfter)) return false;
   if (filters.startsBefore !== undefined && new Date(item.startsAt) >= new Date(filters.startsBefore)) return false;
   if (filters.subjectCharacterId !== undefined && item.id !== filters.subjectCharacterId) return false;
+  // Filtering by tag is filtering by what an experience delivers to this character,
+  // which is what a resident looking for a congenial evening is actually asking.
+  if (filters.tag !== undefined && !(entry.tags ?? []).includes(filters.tag)) return false;
+  if (filters.minimumAffinity !== undefined
+    && (entry.affinity === null || entry.affinity === undefined
+      || entry.affinity < Number(filters.minimumAffinity))) return false;
+  if (filters.maximumPrice !== undefined && Number(entry.accessPrice ?? 0) > Number(filters.maximumPrice)) return false;
   return true;
 }

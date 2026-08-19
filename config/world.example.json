@@ -19,7 +19,8 @@
       "credits": 0,
       "personality": ["Curious", "Sociable"],
       "primaryGoal": { "type": "find_work", "priority": "medium", "guidance": "Find useful work." },
-      "skills": { "social": 40, "business": 40, "creativity": 20, "technical": 20 }
+      "skills": { "social": 40, "business": 40, "creativity": 20, "technical": 20 },
+      "preferences": { "music": 60, "socializing": 90, "learning": 70, "competition": 20, "spirituality": 20, "luxury": 30, "adventure": 60, "relaxation": 50, "creativity": 60, "nature": 40 }
     },
     {
       "id": "pilot-02",
@@ -28,7 +29,8 @@
       "credits": 0,
       "personality": ["Direct", "Reliable"],
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-01", "priority": "medium" },
-      "skills": { "social": 40, "business": 40, "creativity": 20, "technical": 20 }
+      "skills": { "social": 40, "business": 40, "creativity": 20, "technical": 20 },
+      "preferences": { "music": 20, "socializing": 50, "learning": 60, "competition": 70, "spirituality": 30, "luxury": 40, "adventure": 40, "relaxation": 80, "creativity": 30, "nature": 80 }
     }
   ],
   "jobs": [
@@ -50,7 +52,10 @@
       "title": "Commons meetup",
       "locationId": "commons",
       "startsInGameMinutes": 60,
-      "durationGameMinutes": 120
+      "durationGameMinutes": 120,
+      "description": "An open evening on the green. No programme, which is the point.",
+      "profile": { "socializing": 80, "relaxation": 50, "music": 30 },
+      "accessPrice": 0
     }
   ]
 }

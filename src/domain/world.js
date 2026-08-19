@@ -249,6 +249,7 @@ export class World {
         credits,
         skills: normalizeSkills(skills),
         happiness: this.config.happiness.initial,
+        livedHappiness: 0,
         preferences: preferences
           ? normalizePreferences(preferences, this.config.grammar)
           : evenPreferences(this.config.grammar),
@@ -312,21 +313,18 @@ export class World {
   joinExperience(characterId, eventId) {
     const character = this.requireCharacter(characterId);
     const gathering = this.requireGathering(eventId);
+    const price = gathering.accessPrice ?? 0;
+    // Everything is decided by the one shared computation the affordance and the catalog
+    // also read, so this command can only refuse what they already disclosed.
     const feasibility = this.eventAttendanceFeasibility(character, gathering);
     if (!feasibility.eligible) {
       const code = feasibility.blockingCode;
       if (code === "ACTIVITY_CONFLICT") throw conflict("ACTIVITY_CONFLICT", `Cannot attend while ${character.activity.type}`);
       if (code === "INSUFFICIENT_ENERGY") throw invalid("INSUFFICIENT_ENERGY", `Attendance requires ${this.config.experience.entryEnergyCost} energy`);
       if (code === "WRONG_LOCATION") throw invalid("WRONG_LOCATION", "Character must be at the experience location");
+      if (code === "EXPERIENCE_FULL") throw conflict("EXPERIENCE_FULL", "The experience has reached its capacity");
+      if (code === "INSUFFICIENT_CREDITS") throw invalid("INSUFFICIENT_CREDITS", `Admission costs ${price} credits`);
       throw invalid("EVENT_NOT_ACTIVE", "Experience is not active");
-    }
-    const capacity = gathering.capacity ?? null;
-    if (capacity !== null && this.currentAttendeeCount(eventId) >= capacity) {
-      throw conflict("EXPERIENCE_FULL", "The experience has reached its capacity");
-    }
-    const price = gathering.accessPrice ?? 0;
-    if (price > 0 && character.credits < price) {
-      throw invalid("INSUFFICIENT_CREDITS", `Admission costs ${price} credits`);
     }
     // Re-entry inside the window does not repeat the initial participation cost.
     const previous = this.state.experienceAttendance.get(experienceAttendanceKey(eventId, characterId));
@@ -557,6 +555,20 @@ export class World {
       if (otherFrom < to && from < otherTo) others.push(other.characterId);
     }
     return [...new Set(others)];
+  }
+
+  // Repetition is the one realized factor derived from private history rather than from
+  // something visible in the world, so a brain that cannot see it would be surprised by
+  // a penalty it had no way to anticipate. Reuses the resolution's own count.
+  repetitionOutlook(characterId, gathering) {
+    const policy = this.config.happiness;
+    const priorSimilarAttendances = this.similarPriorAttendances(characterId, gathering, null);
+    return {
+      priorSimilarAttendances,
+      windowWorldDays: policy.repetitionWindowWorldDays,
+      factor: round2(Math.max(policy.repetitionMinimum,
+        -policy.repetitionPerPriorAttendance * priorSimilarAttendances)),
+    };
   }
 
   similarPriorAttendances(characterId, gathering, worldTime) {
@@ -2363,7 +2375,16 @@ export class World {
       .map((job) => publicJob(job, this.config.energy.workCost));
     const upcomingEvents = [...this.state.gatherings.values()]
       .filter((event) => new Date(event.endsAt) >= this.clock.now())
-      .map((event) => ({ id: event.id, title: event.title, locationId: event.locationId, startsAt: event.startsAt, endsAt: event.endsAt }));
+      // Price, capacity, and profile must survive this projection: the attend_event
+      // affordance is built from it, discloses all three, and has its feasibility
+      // decided on them.
+      .map((event) => ({
+        id: event.id, title: event.title, locationId: event.locationId,
+        startsAt: event.startsAt, endsAt: event.endsAt,
+        accessPrice: event.accessPrice ?? 0,
+        capacity: event.capacity ?? null,
+        profile: event.profile ? structuredClone(event.profile) : null,
+      }));
     const invitations = [...this.state.invitations.values()]
       .filter((invitation) => invitation.participantIds.includes(characterId))
       .map((invitation) => structuredClone(invitation));
@@ -2438,7 +2459,7 @@ export class World {
         maximum: this.config.energy.maximum,
         movementCost: this.config.energy.movementCost,
         workCost: this.config.energy.workCost,
-        eventAttendanceCost: this.config.energy.eventAttendanceCost,
+        eventAttendanceCost: this.config.experience.entryEnergyCost,
         conversationStartBaseCost: this.config.energy.socialInteractionCost,
         conversationTurnCost: this.config.energy.conversationTurnCost,
         extendedConversationTurnCost: this.config.energy.extendedConversationTurnCost,
@@ -2488,7 +2509,10 @@ export class World {
         instruction: "Happiness is what your lived experiences are worth. It is separate from Credits, which say what you can afford, and Energy, which says what you can sustain. You cannot set it; the world resolves it from what actually happened.",
         experienceValue: "An experience resolves once, when you leave or when it ends. Its value comes from how well its profile matches your own preferences, who was actually there and how you feel about them, how much of it you were present for, whether you actually talked to anyone, the size of the crowd, and how recently you did something similar.",
         pursuit: "Attending costs Credits and Energy and pays Happiness, so it is worth choosing deliberately. Going somewhere that matches nothing you care about, leaving after a minute, or repeating the same kind of gathering makes it worse, not neutral.",
-        neglect: `Going ${this.config.happiness.decayWindowWorldMinutes / 1440} world day(s) without a resolved experience costs ${this.config.happiness.decayPerWorldDay} Happiness, down to a floor of ${this.config.happiness.decayFloor}. Below ${this.config.happiness.lowThreshold} Happiness you recover less Energy from rest, so working without ever gathering makes you steadily less capable of working.`,
+        // No debuff: the approved policy deliberately has none, because a run is won on
+        // the lived total, so neglect already costs you the thing you are playing for.
+        // Charging it twice would be double-charging the same choice.
+        neglect: `Going ${this.config.happiness.decayWindowWorldMinutes / 1440} world day(s) without a resolved experience costs ${this.config.happiness.decayPerWorldDay} Happiness, down to a floor of ${this.config.happiness.decayFloor}, and every completed job costs ${this.config.happiness.completedWorkCost} more. Nothing punishes low Happiness directly. The cost is simply that you end with Credits and almost nothing lived, and the lived total is part of what a run is won on.`,
         livedTotal: "Happiness is two numbers. 'happiness' is how good your life is right now: bounded, and it saturates as it approaches either end. 'livedHappiness' is the unbounded total of everything you have actually lived, and together with Credits and relationships it is what a run is won on. A wonderful evening when you are already happy barely moves the first and counts in full toward the second, so there is never a point at which experiences stop being worth having.",
         privacy: "You see your own Happiness and preferences and never another character's.",
       },
@@ -2677,7 +2701,7 @@ export class World {
           .map((character) => character.id),
         status,
         durationGameMinutes: Math.round((endsAt - startsAt) / 60_000),
-        energyCost: this.config.energy.eventAttendanceCost,
+        energyCost: this.config.experience.entryEnergyCost,
       };
     });
     const locations = [...this.state.locations.values()].map((location) => {
@@ -2732,7 +2756,7 @@ export class World {
         maximumEnergy: this.config.energy.maximum,
         movementEnergyCost: this.config.energy.movementCost,
         workEnergyCost: this.config.energy.workCost,
-        eventAttendanceEnergyCost: this.config.energy.eventAttendanceCost,
+        eventAttendanceEnergyCost: this.config.experience.entryEnergyCost,
         conversationStartEnergyCost: this.config.energy.socialInteractionCost,
         conversationTurnEnergyCost: this.config.energy.conversationTurnCost,
         extendedConversationTurnEnergyCost: this.config.energy.extendedConversationTurnCost,
@@ -3103,8 +3127,9 @@ export class World {
     };
   }
 
-  // attendEvent enforces energy, so the affordance and the catalog both disclose it
-  // as a blocker instead of letting the agent discover it only on rejection.
+  // Every condition joinExperience enforces is decided here, so the affordance, the
+  // catalog, and the command cannot disagree about whether an evening is possible.
+  // An agent that reads an eligible experience can act on it.
   eventAttendanceFeasibility(character, gathering) {
     const now = this.clock.now();
     const blockingCodes = [];
@@ -3112,7 +3137,15 @@ export class World {
     if (character.locationId !== gathering.locationId) blockingCodes.push("WRONG_LOCATION");
     if (now < new Date(gathering.startsAt)) blockingCodes.push("EVENT_NOT_STARTED");
     if (now >= new Date(gathering.endsAt)) blockingCodes.push("EVENT_ENDED");
-    if (character.energy < this.config.energy.eventAttendanceCost) blockingCodes.push("INSUFFICIENT_ENERGY");
+    if (character.energy < this.config.experience.entryEnergyCost) blockingCodes.push("INSUFFICIENT_ENERGY");
+    // Capacity counts who is present now, not everyone who ever entered, because that
+    // is what admission is actually gated on.
+    const capacity = gathering.capacity ?? null;
+    if (capacity !== null && this.currentAttendeeCount(gathering.id) >= capacity) {
+      blockingCodes.push("EXPERIENCE_FULL");
+    }
+    const price = gathering.accessPrice ?? 0;
+    if (price > 0 && character.credits < price) blockingCodes.push("INSUFFICIENT_CREDITS");
     const uniqueBlockingCodes = [...new Set(blockingCodes)];
     return {
       status: uniqueBlockingCodes.length === 0 ? "eligible" : "blocked",

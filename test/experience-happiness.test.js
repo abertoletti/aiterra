@@ -453,3 +453,249 @@ test("an invented conversation topic is rejected, not ignored", () => {
     (error) => error instanceof DomainError && error.code === "TOO_MANY_TOPICS",
   );
 });
+
+// One feasibility computation feeds the affordance, the catalog, and the command, so an
+// agent can never be told an evening is possible and then refused it.
+function attendanceOffer(world, characterId, eventId) {
+  return world.getObservation(characterId).availableActions
+    .find((action) => action.type === "attend_event" && action.eventId === eventId);
+}
+
+test("an unaffordable experience is disclosed as unaffordable, not discovered on rejection", () => {
+  const { world, clock } = experienceWorld({ credits: 10 });
+  nightAtTheClub(world, clock, { id: "members-only", title: "Members only", accessPrice: 200 });
+
+  const offer = attendanceOffer(world, "jack", "members-only");
+  assert.equal(offer.feasibility.eligible, false,
+    "an evening Jack cannot pay for must not be advertised as eligible");
+  assert.ok(offer.feasibility.blockingCodes.includes("INSUFFICIENT_CREDITS"),
+    "and the reason has to be the actual one");
+
+  assert.throws(() => world.joinExperience("jack", "members-only"),
+    (error) => error instanceof DomainError && error.code === "INSUFFICIENT_CREDITS",
+    "the command refuses with exactly the code the affordance disclosed");
+});
+
+test("a full experience is disclosed as full, and opens up again when someone leaves", () => {
+  const { world, clock } = experienceWorld();
+  world.createCharacter({ id: "sara", name: "Sara", locationId: "club", personality: [], goal: "Dance." });
+  nightAtTheClub(world, clock, { capacity: 1 });
+  world.joinExperience("sara", "friday-night");
+
+  const full = attendanceOffer(world, "jack", "friday-night");
+  assert.equal(full.feasibility.eligible, false);
+  assert.ok(full.feasibility.blockingCodes.includes("EXPERIENCE_FULL"));
+  assert.equal(full.attendeeCount, 1);
+  assert.throws(() => world.joinExperience("jack", "friday-night"),
+    (error) => error instanceof DomainError && error.code === "EXPERIENCE_FULL");
+
+  // Capacity counts who is present, not everyone who ever entered, so a room that
+  // emptied is open again rather than permanently full.
+  world.leaveExperience("sara", "friday-night");
+  const reopened = attendanceOffer(world, "jack", "friday-night");
+  assert.equal(reopened.attendeeCount, 0, "the departed attendee no longer occupies a place");
+  assert.equal(reopened.feasibility.eligible, true);
+  assert.equal(world.joinExperience("jack", "friday-night").data.characterId, "jack",
+    "and the command agrees that it is now possible");
+});
+
+test("the experiences catalog reports what feasibleOnly removed", () => {
+  const { world, clock } = experienceWorld({ credits: 10 });
+  world.createCharacter({ id: "sara", name: "Sara", locationId: "club", personality: [], goal: "Dance." });
+  nightAtTheClub(world, clock, { id: "open-night", title: "Open night" });
+  nightAtTheClub(world, clock, { id: "members-only", title: "Members only", accessPrice: 200 });
+  nightAtTheClub(world, clock, { id: "one-in", title: "One in", capacity: 1 });
+  world.joinExperience("sara", "one-in");
+
+  const everything = world.inspectContext("jack", { resource: "experiences", limit: 50 });
+  assert.equal(everything.count, 3, "a catalog returns blocked items too");
+  assert.equal(everything.feasibleCount, 1);
+  assert.equal(everything.blockedCount, 2);
+  assert.equal(everything.blockedOmitted, 0, "nothing was removed, because nothing was filtered");
+
+  const codesFor = (id) => everything.items.find((item) => item.id === id).feasibility.blockingCodes;
+  assert.ok(codesFor("members-only").includes("INSUFFICIENT_CREDITS"));
+  assert.ok(codesFor("one-in").includes("EXPERIENCE_FULL"));
+  assert.equal(everything.items.find((item) => item.id === "one-in").attendeeCount, 1);
+
+  const feasible = world.inspectContext("jack", {
+    resource: "experiences", limit: 50, filters: { feasibleOnly: true },
+  });
+  assert.deepEqual(feasible.items.map((item) => item.id), ["open-night"]);
+  assert.equal(feasible.blockedOmitted, 2,
+    "a short list has to be distinguishable from a quiet world");
+});
+
+test("the run report measures what the evening was worth, per factor and per resident", () => {
+  const { world, clock } = experienceWorld({ credits: 100 });
+  world.createCharacter({ id: "sara", name: "Sara", locationId: "club", credits: 100, personality: [], goal: "Dance." });
+  nightAtTheClub(world, clock, { accessPrice: 20 });
+  world.joinExperience("jack", "friday-night");
+  world.joinExperience("sara", "friday-night");
+  clock.advanceGameMinutes(100);
+  world.leaveExperience("jack", "friday-night");
+
+  const experiences = world.getProductMetrics({ environment: "test", isTest: true, testRunId: "happiness-1" }).experiences;
+
+  assert.equal(experiences.attendances, 2);
+  assert.equal(experiences.resolutions, 1, "Sara has not left yet, so her evening is unresolved");
+  assert.equal(experiences.paidAttendances, 2);
+  assert.equal(experiences.creditsSpentOnAccess, 40, "Credits leaving circulation is the sink the pilot lacked");
+  assert.equal(typeof experiences.meanRealizedDelta, "number");
+
+  // Without a per-factor mean there is no way to tell a factor that is doing work from
+  // one that is dead weight, which is exactly what the open calibration needs.
+  assert.deepEqual(Object.keys(experiences.meanFactorContribution).sort(),
+    ["affinity", "crowd", "interaction", "participation", "presenceValue", "repetition", "variance"],
+    "only the factors that sum to the delta are contributions; the diagnostics beside them are not");
+  assert.ok(!("profileTaxonomyVersion" in experiences.meanFactorContribution),
+    "averaging a version number as a Happiness contribution is meaningless");
+  assert.ok(!("presenceMinutes" in experiences.meanFactorContribution));
+
+  const jack = experiences.happinessByCharacter.find((row) => row.characterId === "jack");
+  assert.equal(typeof jack.happiness, "number");
+  assert.equal(typeof jack.livedHappiness, "number");
+  assert.ok(experiences.happinessByCharacter.every((row) => row.livedHappiness !== undefined),
+    "a resident who never went anywhere still reports a lived total of zero");
+});
+
+function gardenNight(world, clock, overrides = {}) {
+  return world.createEvent({
+    id: overrides.id ?? "midnight-garden",
+    title: overrides.title ?? "Midnight meditation under synthetic trees",
+    locationId: "garden",
+    startsAt: clock.now(),
+    endsAt: new Date(clock.now().getTime() + 120 * 60_000),
+    profile: overrides.profile ?? { relaxation: 90, spirituality: 80, nature: 70 },
+    accessPrice: overrides.accessPrice ?? 15,
+    capacity: overrides.capacity ?? 4,
+  });
+}
+
+test("every public experience in the city is discoverable, with what it delivers and costs", () => {
+  const { world, clock } = experienceWorld({ credits: 500 });
+  nightAtTheClub(world, clock);
+  gardenNight(world, clock);
+
+  // Jack is at the club and has never been to the garden, never been invited, and knows
+  // nobody there. The garden is still his to find, or nobody would build one.
+  const catalog = world.inspectContext("jack", { resource: "experiences", limit: 50 });
+  assert.deepEqual(catalog.items.map((item) => item.id), ["friday-night", "midnight-garden"]);
+
+  const garden = catalog.items.find((item) => item.id === "midnight-garden");
+  assert.equal(garden.accessPrice, 15, "the price is known before travelling there");
+  assert.equal(garden.capacity, 4);
+  assert.equal(garden.profile.relaxation, 90, "and what the evening actually delivers");
+  assert.equal(garden.profile.music, 0, "an unmentioned dimension is zero, not absent");
+  assert.deepEqual(garden.tags, ["nature", "relaxation", "spirituality"],
+    "tags are derived from the profile, so they cannot claim what it does not deliver");
+  assert.equal(garden.attendanceEnergyCost, 3);
+  assert.deepEqual(garden.repetition, { priorSimilarAttendances: 0, windowWorldDays: 7, factor: 0 },
+    "repetition is private history, so it has to be disclosed or the penalty is a surprise");
+});
+
+test("a resident can narrow the city to what it cares about, and is told what was left out", () => {
+  const { world, clock } = experienceWorld({ credits: 500 });
+  nightAtTheClub(world, clock);
+  gardenNight(world, clock);
+  const ask = (filters) => world.inspectContext("jack", { resource: "experiences", limit: 50, filters });
+
+  // Jack cares about music and not about quiet, and the catalog lets him say so.
+  const loud = ask({ tag: "music" });
+  assert.deepEqual(loud.items.map((item) => item.id), ["friday-night"]);
+  assert.equal(loud.filteredOmitted, 1, "a short list is distinguishable from a quiet city");
+  assert.equal(loud.knownCount, 2);
+
+  const quiet = ask({ tag: "nature" });
+  assert.deepEqual(quiet.items.map((item) => item.id), ["midnight-garden"]);
+
+  const congenial = ask({ minimumAffinity: 70 });
+  assert.deepEqual(congenial.items.map((item) => item.id), ["friday-night"]);
+  assert.equal(congenial.filteredOmitted, 1);
+
+  const free = ask({ maximumPrice: 0 });
+  assert.deepEqual(free.items.map((item) => item.id), ["friday-night"]);
+
+  // An unknown dimension is a taxonomy mismatch, and an empty page would read as a
+  // city with nothing in it.
+  assert.throws(() => ask({ tag: "nightlife" }),
+    (error) => error instanceof DomainError && error.code === "UNKNOWN_PROFILE_DIMENSION");
+  assert.throws(() => ask({ minimumAffinity: 140 }),
+    (error) => error instanceof DomainError && error.code === "INVALID_FILTER_VALUE");
+});
+
+test("two residents see the same city in the same order and value it differently", () => {
+  const { world, clock } = experienceWorld({ credits: 500 });
+  world.createCharacter({
+    id: "sara", name: "Sara", locationId: "club", personality: [], goal: "Be still.",
+    // The inverse of Jack: quiet, not nightlife.
+    preferences: {
+      music: 0, socializing: 30, learning: 60, competition: 0, spirituality: 90,
+      luxury: 20, adventure: 10, relaxation: 100, creativity: 90, nature: 100,
+    },
+  });
+  nightAtTheClub(world, clock);
+  gardenNight(world, clock);
+
+  const seenBy = (id) => world.inspectContext(id, { resource: "experiences", limit: 50 }).items;
+  const jack = seenBy("jack");
+  const sara = seenBy("sara");
+
+  assert.deepEqual(jack.map((item) => item.id), sara.map((item) => item.id),
+    "ordering is neutral: ranking the catalog would be the server choosing for the brain");
+
+  const affinityOf = (items, id) => items.find((item) => item.id === id).affinity;
+  assert.ok(affinityOf(jack, "friday-night") > affinityOf(sara, "friday-night"),
+    "the club night is worth more to the resident who cares about music");
+  assert.ok(affinityOf(sara, "midnight-garden") > affinityOf(jack, "midnight-garden"),
+    "and the garden to the one who cares about quiet");
+});
+
+test("the affordance, the catalog, and the join command never disagree", () => {
+  // Every way an evening can be refused, plus the one where it cannot. The catalog and
+  // the command must always agree. The affordance is allowed to be absent instead of
+  // blocked, because affordances list what can be attempted now, while a catalog lists
+  // everything with its blockers — but it may never offer something the command refuses.
+  const scenarios = [
+    { name: "affordable and open", credits: 500, accessPrice: 0, capacity: null, expected: null },
+    { name: "cannot afford it", credits: 10, accessPrice: 200, capacity: null, expected: "INSUFFICIENT_CREDITS" },
+    { name: "already full", credits: 500, accessPrice: 0, capacity: 1, fill: true, expected: "EXPERIENCE_FULL" },
+    { name: "too tired", credits: 500, accessPrice: 0, capacity: null, drain: true, expected: "INSUFFICIENT_ENERGY" },
+    { name: "busy resting", credits: 500, accessPrice: 0, capacity: null, rest: true, expected: "ACTIVITY_CONFLICT" },
+  ];
+
+  for (const scenario of scenarios) {
+    const { world, clock } = experienceWorld({ credits: scenario.credits });
+    world.createCharacter({ id: "sara", name: "Sara", locationId: "club", personality: [], goal: "Dance." });
+    nightAtTheClub(world, clock, { accessPrice: scenario.accessPrice, capacity: scenario.capacity });
+    if (scenario.fill) world.joinExperience("sara", "friday-night");
+    if (scenario.drain) world.changeEnergy("jack", -100, "test_setup");
+    if (scenario.rest) {
+      // Rest refuses a resident already at full energy, so make room for it first.
+      world.changeEnergy("jack", -10, "test_setup");
+      world.startRest("jack");
+    }
+
+    const catalogued = world.inspectContext("jack", { resource: "experiences", limit: 50 })
+      .items.find((item) => item.id === "friday-night");
+    assert.ok(catalogued, `${scenario.name}: a blocked experience is still listed`);
+    assert.equal(catalogued.feasibility.eligible, scenario.expected === null,
+      `${scenario.name}: catalog eligibility`);
+
+    const offer = attendanceOffer(world, "jack", "friday-night");
+    if (scenario.expected === null) {
+      assert.equal(offer.feasibility.eligible, true, `${scenario.name}: affordance eligibility`);
+      assert.doesNotThrow(() => world.joinExperience("jack", "friday-night"),
+        `${scenario.name}: an eligible evening must be enterable`);
+      continue;
+    }
+
+    assert.equal(catalogued.feasibility.blockingCode, scenario.expected,
+      `${scenario.name}: the catalog must name the real reason`);
+    assert.ok(offer === undefined || offer.feasibility.eligible === false,
+      `${scenario.name}: an affordance must never offer what the command refuses`);
+    assert.throws(() => world.joinExperience("jack", "friday-night"),
+      (error) => error instanceof DomainError && error.code === scenario.expected,
+      `${scenario.name}: the command must refuse with the disclosed code`);
+  }
+});

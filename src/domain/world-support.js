@@ -14,6 +14,7 @@ export const ownerFeedTypes = new Set([
   "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ABANDONED", "SECONDARY_GOAL_EXPIRED",
   "JOB_CREATED", "JOB_ACCEPTED", "JOB_STARTED", "JOB_COMPLETED", "JOB_CANCELLED", "JOB_FAILED", "JOB_EXPIRED",
   "EVENT_CREATED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED",
+  "HAPPINESS_CHANGED", "HAPPINESS_DECAYED", "EXPERIENCE_HAPPINESS_RESOLVED", "EXPERIENCE_ACCESS_PAID",
   "INVITATION_SENT", "INVITATION_ACCEPTED", "INVITATION_DECLINED", "INVITATION_EXPIRED",
   "COMMITMENT_CREATED", "COMMITMENT_REMINDER_SENT", "COMMITMENT_WINDOW_OPENED", "COMMITMENT_KEPT", "COMMITMENT_MISSED",
   "JOB_TEAM_MEMBER_JOINED", "JOB_TEAM_MEMBER_LEFT",
@@ -136,6 +137,24 @@ function normalizeProfileVector(vector, grammar, label) {
     result[dimension] = value;
   }
   return result;
+}
+
+// The factors that sum to a resolution's raw delta. The recorded `factors` object also
+// carries diagnostics — affinityValue, presenceMinutes, plannedMinutes, coPresentCount,
+// the per-person breakdown, the taxonomy version — which explain an evening but are not
+// contributions. Averaging those as if they were reports a taxonomy version of 1 as a
+// Happiness contribution, so the summed set is named once and read from here.
+export const happinessFactorNames = Object.freeze([
+  "affinity", "presenceValue", "interaction", "participation", "crowd", "repetition", "variance",
+]);
+
+// Tags are derived, never submitted: the vocabulary is the ten dimensions, and a tag
+// means "this actually delivers that". Sorted, so a catalog page is deterministic.
+export function derivedTags(profile, grammar) {
+  if (!profile) return [];
+  return grammar.profileDimensions
+    .filter((dimension) => (profile[dimension] ?? 0) >= grammar.tagThreshold)
+    .sort();
 }
 
 export function evenPreferences(grammar) {
@@ -410,11 +429,37 @@ export function ownerFeedDetails(event) {
     goalId: data.goalId ?? data.goal?.id, goal: data.goal ?? null,
   };
   if (event.type === "DECISION_RECORDED") return { declaredDecision: data.summary };
+  // An evening is only explainable to the owner if the factors reach them. The feed is
+  // where "he expected a great night and it went badly" stops being a claim.
+  if (event.type === "EXPERIENCE_HAPPINESS_RESOLVED") return {
+    eventId: data.eventId, locationId: data.locationId, cause: data.cause,
+    rawDelta: data.rawDelta, factors: data.factors,
+    dominantDimension: data.dominantDimension,
+    happinessPolicyVersion: data.happinessPolicyVersion,
+  };
+  if (event.type === "HAPPINESS_CHANGED") return {
+    reason: data.reason, previous: data.previous, value: data.value,
+    rawDelta: data.rawDelta, appliedDelta: data.appliedDelta,
+    lived: data.lived, livedDelta: data.livedDelta,
+    happinessPolicyVersion: data.happinessPolicyVersion,
+  };
+  if (event.type === "HAPPINESS_DECAYED") return {
+    worldDays: data.worldDays, previous: data.previous, value: data.value,
+    delta: data.delta, floor: data.floor, lived: data.lived,
+    happinessPolicyVersion: data.happinessPolicyVersion,
+  };
+  if (event.type === "EXPERIENCE_ACCESS_PAID") return {
+    eventId: data.eventId, price: data.price,
+    experienceCommercePolicyVersion: data.experienceCommercePolicyVersion,
+  };
   return {};
 }
 
 export function summaryPriority(type) {
   if (type === "RELATIONSHIP_CHANGED") return 100;
+  // A resolved evening ranks with a completed job: it is the other thing a resident
+  // spent their day on, and the one an owner returns to read about.
+  if (type === "EXPERIENCE_HAPPINESS_RESOLVED") return 92;
   if (["JOB_FAILED", "JOB_COMPLETED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ADOPTED"].includes(type)) return 90;
   if (["AGENT_REACTION_TIMED_OUT", "CONVERSATION_TURN_EXPIRED", "SILENCE_RESOLVED"].includes(type)) return 85;
   if (type === "DECISION_RECORDED") return 80;
