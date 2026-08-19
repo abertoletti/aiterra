@@ -91,6 +91,25 @@ test("a character created after a world-visible event still sees that event's se
   );
 });
 
+test("eventById resolves every recorded event and nothing else", () => {
+  const { world } = buildWorld();
+
+  for (const event of world.history) {
+    assert.equal(world.eventById(event.id), world.history.find((item) => item.id === event.id),
+      `eventById disagrees with a history scan for ${event.id}`);
+  }
+  assert.equal(world.eventById("no-such-event"), null, "an unknown id resolves to null, not undefined");
+});
+
+test("eventById survives a restart rebuilt from the store", () => {
+  const { world, store, config } = buildWorld();
+  const restarted = new World({ store, config, clock: new ManualClock("2042-06-12T20:00:00.000Z") });
+
+  for (const event of world.history) {
+    assert.equal(restarted.eventById(event.id)?.id, event.id, `restart lost event ${event.id}`);
+  }
+});
+
 test("the projection version rebuilt from a restart matches the live world", () => {
   const { world, store, config } = buildWorld();
   const restarted = new World({

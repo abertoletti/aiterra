@@ -195,7 +195,7 @@ export class World {
     return this.record("AGENT_EVENT_REPLAYED", {
       actorCharacterId: characterId,
       causedByEventIds: [notificationEventId],
-      data: { characterId, notificationEventId, cursor: this.history.find((event) => event.id === notificationEventId)?.sequence },
+      data: { characterId, notificationEventId, cursor: this.eventById(notificationEventId)?.sequence },
     });
   }
 
@@ -1063,7 +1063,7 @@ export class World {
     }
     this.requireCharacter(beneficiaryId);
     this.requireCharacter(otherCharacterId);
-    const evidence = this.history.find((event) => event.id === evidenceEventId);
+    const evidence = this.eventById(evidenceEventId);
     if (!evidence || !this.characterMayReference(beneficiaryId, evidence)) {
       throw forbidden("INVALID_OUTCOME_EVIDENCE", "Objective relationship outcome requires visible authoritative evidence");
     }
@@ -1207,7 +1207,7 @@ export class World {
       throw invalid("MISSING_CAUSALITY", "A later decision must reference 1-12 permitted causal events");
     }
     for (const eventId of influencedByEventIds) {
-      const source = this.history.find((event) => event.id === eventId);
+      const source = this.eventById(eventId);
       if (!source || !this.characterMayReference(characterId, source)) {
         throw forbidden("HIDDEN_CAUSE", `Character may not reference event ${eventId}`);
       }
@@ -1222,7 +1222,7 @@ export class World {
   proposeSecondaryGoal(characterId, proposal) {
     const character = this.requireCharacter(characterId);
     if (!proposal || typeof proposal !== "object") throw invalid("INVALID_GOAL", "Secondary goal proposal is required");
-    const source = this.history.find((event) => event.id === proposal.sourceEventId);
+    const source = this.eventById(proposal.sourceEventId);
     if (!source || !this.characterMayReference(characterId, source)) throw forbidden("UNKNOWN_GOAL_SOURCE", "Secondary goal source was not perceived by the character");
     if (!this.config.goals.secondaryTypes.includes(proposal.type)) throw invalid("INVALID_GOAL_TYPE", "Secondary goal type is not allowed");
     const active = character.secondaryGoals.filter((goal) => goal.status === "active");
@@ -1298,7 +1298,7 @@ export class World {
     this.requireCharacter(characterId);
     const notification = this.state.notifications.get(notificationEventId);
     if (!notification || notification.characterId !== characterId) throw new DomainError("NOTIFICATION_NOT_FOUND", "Notification not found", 404);
-    if (notification.ackEventId) return this.history.find((event) => event.id === notification.ackEventId);
+    if (notification.ackEventId) return this.eventById(notification.ackEventId);
     if (notification.status === "queued") throw conflict("NOTIFICATION_NOT_DELIVERED", "Notification must be delivered before acknowledgement");
     if (isNotificationTerminal(notification.status)) throw conflict("NOTIFICATION_RESOLVED", "Notification is already resolved");
     return this.record("AGENT_NOTIFICATION_ACKNOWLEDGED", {
@@ -1355,7 +1355,7 @@ export class World {
   getNotificationEnvelope(notificationEventId) {
     const notification = this.state.notifications.get(notificationEventId);
     if (!notification) throw new DomainError("NOTIFICATION_NOT_FOUND", "Notification not found", 404);
-    const queuedEvent = this.history.find((event) => event.id === notificationEventId);
+    const queuedEvent = this.eventById(notificationEventId);
     return {
       id: notificationEventId,
       cursor: queuedEvent.sequence,
@@ -2293,7 +2293,7 @@ export class World {
   }
 
   viewStoryDetail(ownerId, characterId, eventId) {
-    const event = this.history.find((item) => item.id === eventId);
+    const event = this.eventById(eventId);
     if (!event || !this.characterMayReference(characterId, event)) throw new DomainError("STORY_DETAIL_NOT_FOUND", "Story detail not found", 404);
     this.record("STORY_DETAIL_VIEWED", {
       actorCharacterId: characterId,
@@ -3018,9 +3018,16 @@ export class World {
     return false;
   }
 
-  // Keeps characterStateVersion O(1). Without this every observation and every
-  // action would rescan the whole history to find its own latest projection.
-  indexProjectionVersion(event) {
+  // Causal lookups resolve an event by id. Holds references into history, not copies.
+  eventById(eventId) {
+    return this.state.eventsById.get(eventId) ?? null;
+  }
+
+  // Read indexes maintained on every applied event, so they survive replay and
+  // restart for free. Without them causal lookups and characterStateVersion
+  // rescan the whole history on every observation and every action.
+  indexEvent(event) {
+    this.state.eventsById.set(event.id, event);
     if (nonProjectionEventTypes.has(event.type)) return;
     if (event.type === "EVENT_CREATED") {
       // Perceivable by every character, including characters created later.
@@ -3101,7 +3108,7 @@ export class World {
   }
 
   apply(event) {
-    this.indexProjectionVersion(event);
+    this.indexEvent(event);
     const data = event.data;
     switch (event.type) {
       case "LOCATION_DEFINED":
@@ -3548,7 +3555,7 @@ function createEmptyState() {
     systemBudgets: new Map(), platformIncident: null,
     returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
-    characterProjectionVersions: new Map(), globalProjectionVersion: 0,
+    eventsById: new Map(), characterProjectionVersions: new Map(), globalProjectionVersion: 0,
   };
 }
 
