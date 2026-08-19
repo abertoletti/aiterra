@@ -6,6 +6,7 @@ import { ManualClock } from "../src/domain/clock.js";
 import { makeConfig } from "../src/domain/config.js";
 import { DomainError, World } from "../src/domain/world.js";
 import { InMemoryEventStore } from "../src/infra/event-store.js";
+import { buildDecisionMessages } from "../src/agents/decision-planner.js";
 
 const BASELINE_SOFT_BUDGET_BYTES = 20 * 1024;
 const BASELINE_HARD_CEILING_BYTES = 32 * 1024;
@@ -426,4 +427,38 @@ test("a progressive observation omits the manifest body but keeps it verifiable"
   assert.equal(progressive.rulesVersion, full.rulesVersion);
   assert.equal(progressive.rulesDigest, full.rulesDigest);
   assert.ok(progressive.rulesDigest.length > 0, "the digest lets a runtime validate its cache");
+});
+
+test("a full observation carries the job board, and both modes carry the city", () => {
+  const { world } = pilotWorld();
+  const characterId = "pilot-01";
+
+  // availableJobs was silently dropped from the full-mode block in one commit and only
+  // a downstream length assertion caught it, so it gets its own guard.
+  const full = world.getObservation(characterId);
+  assert.ok(Array.isArray(full.availableJobs), "full mode must embed the job board");
+  assert.equal(full.availableJobs.length, 20);
+  assert.ok(Array.isArray(full.upcomingEvents));
+
+  const progressive = world.getObservation(characterId, { contextMode: "progressive" });
+  assert.equal(progressive.availableJobs, undefined, "progressive makes it requestable instead");
+
+  // cityTonight is in both, because three runs showed nobody fetches what they must ask
+  // for, and it is what turns a room into a city.
+  for (const observation of [full, progressive]) {
+    assert.ok(Array.isArray(observation.cityTonight));
+  }
+});
+
+test("what the observation computes actually reaches the model", () => {
+  const { world } = pilotWorld();
+  const observation = world.getObservation("pilot-01", { contextMode: "progressive" });
+  const context = JSON.parse(buildDecisionMessages(observation)[1].content);
+
+  // cityTonight was computed into every observation, named three times in the prompt,
+  // and never copied into the context object. The model was told to consult a field it
+  // had never seen, and asked for the experiences catalog 65 times to grope for it.
+  assert.notEqual(context.cityTonight, undefined,
+    "a field the prompt names must survive prompt assembly");
+  assert.deepEqual(context.cityTonight, observation.cityTonight);
 });

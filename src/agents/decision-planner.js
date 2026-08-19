@@ -97,6 +97,11 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
     knowledge: observation.knowledge,
     availableJobs: observation.availableJobs ? observation.availableJobs.map(compactJob) : undefined,
     upcomingEvents: observation.upcomingEvents,
+    // The prompt names cityTonight three times as the way to find a night worth going
+    // to. It was computed into every observation and then dropped here, so the model was
+    // told to consult a field it had never seen - and asked for the experiences catalog
+    // 65 times, every one empty, at a full extra call each.
+    cityTonight: observation.cityTonight,
     pendingNotifications: observation.pendingNotifications,
     invitations: observation.invitations ?? [],
     commitments: observation.commitments ?? [],

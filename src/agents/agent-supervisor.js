@@ -280,9 +280,20 @@ export class AgentSupervisor {
 
       state.actionSequence += 1;
       const repeatedFailure = state.recentActionFailures.findLast((failure) =>
-        failure.stateVersion === observation.stateVersion && failure.actionIdentity === actionIdentity(action));
+        failure.stateVersion === observation.stateVersion && failure.actionFingerprint === actionFingerprint(action));
       if (repeatedFailure) {
         state.stats.suppressedRepeatedActions += 1;
+        // Without this the next prompt is byte-identical apart from worldTime and the
+        // model answers identically, so one suppression becomes a loop of full-price
+        // calls until the world happens to move.
+        state.recentActionFailures.push({
+          stateVersion: observation.stateVersion,
+          actionIdentity: actionIdentity(action),
+          actionFingerprint: actionFingerprint(action),
+          type: action.type,
+          code: "SUPPRESSED_DUPLICATE",
+          message: "This exact action was already refused at this state version. Choose a different action, or change a field the server objected to.",
+        });
         this.log("warn", agent.characterId, "action_retry_suppressed", null, {
           action,
           stateVersion: observation.stateVersion,
@@ -315,6 +326,7 @@ export class AgentSupervisor {
             stateVersion: observation.stateVersion,
             action: structuredClone(action),
             actionIdentity: actionIdentity(action),
+            actionFingerprint: actionFingerprint(action),
             code: error.code,
             message: error.message,
           });
@@ -520,6 +532,17 @@ function addUsage(target, usage) {
   target.completionTokens += finiteNumber(usage.completion_tokens ?? usage.output_tokens);
   target.totalTokens += finiteNumber(usage.total_tokens)
     || finiteNumber(usage.prompt_tokens ?? usage.input_tokens) + finiteNumber(usage.completion_tokens ?? usage.output_tokens);
+}
+
+// The suppressor asks "is this the same attempt again", which is a different question
+// from "which affordance was this" - and actionIdentity answers the second. For
+// acquire_plot, construct_building and rest it has no target at all, so one rejection
+// used to lock out the entire action type until the world moved. Kept separate because
+// actionIdentity still matches an accepted action to its affordance template to read
+// energyCost, and templates carry no free-text fields.
+function actionFingerprint(action) {
+  if (!action || typeof action !== "object") return "unknown";
+  return JSON.stringify(Object.keys(action).sort().map((key) => [key, action[key]]));
 }
 
 function actionIdentity(action) {

@@ -2799,6 +2799,7 @@ export class World {
       ...(progressive ? {} : {
         relationships: knownRelationships,
         knowledge: [...(this.state.knowledge.get(characterId)?.values() ?? [])].map((item) => structuredClone(item)),
+        availableJobs,
         upcomingEvents,
       }),
       // What the city is offering tonight, in both modes. Progressive disclosure made
