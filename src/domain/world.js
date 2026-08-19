@@ -24,11 +24,15 @@ import {
 export { DomainError };
 
 export class World {
-  constructor({ store, clock, config, idGenerator = randomUUID }) {
+  // `random` is injected for the same reason `idGenerator` is: the variance factor is
+  // drawn in the command path and recorded on the event, so a replay must never redraw
+  // it, and a test must be able to make it deterministic.
+  constructor({ store, clock, config, idGenerator = randomUUID, random = Math.random }) {
     this.store = store;
     this.clock = clock;
     this.config = config;
     this.idGenerator = idGenerator;
+    this.random = random;
     this.events = new EventEmitter();
     this.history = store.readAll();
     this.state = createEmptyState();
@@ -440,6 +444,11 @@ export class World {
     const repetition = Math.max(policy.repetitionMinimum,
       -policy.repetitionPerPriorAttendance * this.similarPriorAttendances(characterId, gathering, worldTime));
 
+    // Drawn once, here, and recorded below. Two residents with identical preferences at
+    // the identical gathering do not come away with identical evenings — but the
+    // breakdown still sums to the raw delta, so nothing becomes unexplainable.
+    const variance = round2((this.random() * 2 - 1) * policy.varianceBound);
+
     const factors = {
       affinity: round2(affinity),
       socialValue: round2(socialValue),
@@ -447,13 +456,14 @@ export class World {
       interaction,
       crowd,
       repetition: round2(repetition),
+      variance,
       affinityValue: round2(affinityValue),
       presenceMinutes,
       plannedMinutes,
       coPresentCount: others.length,
       profileTaxonomyVersion: grammar.profileTaxonomyVersion,
     };
-    const raw = affinity + socialValue + participation + interaction + crowd + repetition;
+    const raw = affinity + socialValue + participation + interaction + crowd + repetition + variance;
 
     const resolved = this.record("EXPERIENCE_HAPPINESS_RESOLVED", {
       actorCharacterId: characterId,

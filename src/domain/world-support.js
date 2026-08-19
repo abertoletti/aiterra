@@ -91,21 +91,33 @@ export function projectionCharactersForEvent(event) {
   ].filter(Boolean))];
 }
 
-// City grammar policy v1: the six shared dimensions describe what a place or a
-// gathering does to a person. The server never learns what it is called.
+// City grammar policy v1: the ten shared dimensions describe what a place or a
+// gathering delivers to a person. The server never learns what it is called.
 
-// A character's preferences must meet the approved budget, which is what stops a
-// resident from caring about everything and is why affinity discriminates at all.
+// Preferences are budgeted: caring is scarce, which is the only reason affinity
+// discriminates between one resident and another.
 export function normalizePreferences(preferences, grammar) {
-  return normalizeProfileVector(preferences, grammar, grammar.preferenceBudget, "preference");
+  const vector = normalizeProfileVector(preferences, grammar, "preference");
+  const total = Object.values(vector).reduce((sum, value) => sum + value, 0);
+  if (total !== grammar.preferenceBudget) {
+    throw invalid("INVALID_PROFILE_BUDGET",
+      `Preference dimensions must sum to exactly ${grammar.preferenceBudget}, received ${total}`);
+  }
+  return vector;
 }
 
-// An experience profile meets its own budget and is read as a distribution.
+// A profile is not budgeted: an experience that genuinely delivers music, socializing
+// and luxury says so without robbing an axis to pay for it. It only has to deliver
+// something, because a profile of nothing has no experiential value to measure.
 export function normalizeExperienceProfile(profile, grammar) {
-  return normalizeProfileVector(profile, grammar, grammar.experienceProfileBudget, "experience profile");
+  const vector = normalizeProfileVector(profile, grammar, "experience profile");
+  if (Object.values(vector).every((value) => value === 0)) {
+    throw invalid("EMPTY_EXPERIENCE_PROFILE", "An experience profile must deliver at least one dimension above zero");
+  }
+  return vector;
 }
 
-function normalizeProfileVector(vector, grammar, budget, label) {
+function normalizeProfileVector(vector, grammar, label) {
   if (!vector || typeof vector !== "object" || Array.isArray(vector)) {
     throw invalid("INVALID_PROFILE", `${label} must be an object of profile dimensions`);
   }
@@ -116,17 +128,12 @@ function normalizeProfileVector(vector, grammar, budget, label) {
     }
   }
   const result = {};
-  let total = 0;
   for (const dimension of grammar.profileDimensions) {
     const value = Number(vector[dimension] ?? 0);
     if (!Number.isInteger(value) || value < 0 || value > 100) {
       throw invalid("INVALID_PROFILE_VALUE", `${label} ${dimension} must be an integer between 0 and 100`);
     }
     result[dimension] = value;
-    total += value;
-  }
-  if (total !== budget) {
-    throw invalid("INVALID_PROFILE_BUDGET", `${label} dimensions must sum to exactly ${budget}, received ${total}`);
   }
   return result;
 }
@@ -137,12 +144,19 @@ export function evenPreferences(grammar) {
   return Object.fromEntries(grammar.profileDimensions.map((dimension) => [dimension, share]));
 }
 
-// affinity = the character's preferences weighted by what the experience offers.
+// The resident's preferences weighted by what the experience actually delivers. A
+// gathering that delivers only music is measured purely against how much this
+// resident cares about music; one that delivers music and luxury, against both in
+// proportion. That normalizes a free profile without constraining it.
 export function profileAffinity(preferences, profile, grammar) {
-  return grammar.profileDimensions.reduce(
-    (total, dimension) => total + ((profile[dimension] ?? 0) / grammar.experienceProfileBudget) * (preferences[dimension] ?? 0),
-    0,
-  );
+  let weighted = 0;
+  let delivered = 0;
+  for (const dimension of grammar.profileDimensions) {
+    const offers = profile?.[dimension] ?? 0;
+    weighted += offers * (preferences?.[dimension] ?? 0);
+    delivered += offers;
+  }
+  return delivered > 0 ? weighted / delivered : 0;
 }
 
 // Repetition similarity, deliberately the crudest defensible rule: the dimension an
@@ -163,7 +177,10 @@ export function experienceAttendanceKey(eventId, characterId) {
 }
 
 export function round2(value) {
-  return Math.round(value * 100) / 100;
+  const rounded = Math.round(value * 100) / 100;
+  // Normalize negative zero: a recorded factor of -0 reads as a penalty that was not
+  // applied, and it serializes into the event log that way too.
+  return rounded === 0 ? 0 : rounded;
 }
 
 export function relationshipKey(fromId, toId) {

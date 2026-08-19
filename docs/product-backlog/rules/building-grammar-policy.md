@@ -21,18 +21,24 @@ Districts, plots, building capabilities, capacity, quality derivation, naming ru
 
 ## Approved: the universal profile dimensions
 
-Six dimensions, `profileTaxonomyVersion: 1`. They describe what a place or a gathering *does to a person*, never what it is called. The same six describe a character's preferences, so affinity is a comparison of like with like.
+Ten dimensions, `profileTaxonomyVersion: 1`. They describe what a place or a gathering *delivers to a person*, never what it is called. The same ten describe a character's preferences, so affinity compares like with like.
 
 | Dimension | What it measures |
 | --- | --- |
-| `social` | being among other people |
-| `stimulation` | intensity, noise, novelty, excitement |
-| `calm` | quiet, rest, reflection |
-| `creation` | making, performing, building something |
+| `music` | sound, rhythm, performance to listen to |
+| `socializing` | being among people and talking to them |
 | `learning` | acquiring knowledge or skill |
-| `belonging` | ritual, shared identity, community membership |
+| `competition` | contest, stakes, winning or losing |
+| `spirituality` | ritual, meaning, reflection, the sacred |
+| `luxury` | comfort, refinement, expense as pleasure |
+| `adventure` | risk, the unfamiliar, physical daring |
+| `relaxation` | rest, quiet, decompression |
+| `creativity` | making or performing something yourself |
+| `nature` | open air, growth, the non-built world |
 
-The taxonomy is deliberately semantic-free. A nightclub is whatever profile its author gives it — plausibly high `social` and `stimulation`; a church might be high `belonging` and `calm`; a workshop high `creation` and `learning`. The server never learns those words, and two residents may author places with the same profile and completely different meaning.
+The taxonomy is deliberately semantic-free. A nightclub is whatever profile its author gives it — plausibly high `music` and `socializing`; a church might be high `spirituality` and `relaxation`; a private club high `luxury`. The server never learns those words.
+
+The point of naming them concretely rather than abstractly is authoring. A resident inventing *The Silent Garden — midnight meditation under synthetic trees* can write `relaxation 90, spirituality 80, nature 70` without translating anything, and two residents can author places with the same profile and entirely different meaning.
 
 Adding, removing, or renaming a dimension requires a new taxonomy version, because every stored preference vector and experience profile is expressed in it.
 
@@ -41,22 +47,26 @@ Adding, removing, or renaming a dimension requires a new taxonomy version, becau
 | Rule | Value |
 | --- | ---: |
 | Dimension value range | 0–100, integer |
-| Character preference budget | dimensions sum to exactly 300 |
-| Experience profile budget | dimensions sum to exactly 100 |
-| Missing dimension | treated as 0, but the budget must still be met |
+| Character preference budget | dimensions sum to exactly 500 |
+| Experience profile | no budget; at least one dimension above 0 |
+| Missing dimension | treated as 0 |
 | Unknown dimension name | rejected, never ignored |
 
-A character's preference budget of 300 over six dimensions means an average of 50: a resident can care intensely about two or three things, not about everything. That is what makes one experience better for Mira than for Rook, and it is why affinity discriminates at all.
+The two vectors are budgeted differently on purpose, because they mean different things.
 
-An experience profile sums to 100 and is therefore read as a distribution: an experience is a mix of what it offers, and `weight_d = profile_d / 100`.
+**Preferences are scarce.** 500 over ten dimensions means an average of 50: a resident can care intensely about three or four things and not about everything. Caring is the scarce resource, and it is the only reason affinity discriminates between residents at all.
 
-Affinity between a character and an experience is the weighted preference:
+**A profile is not scarce.** An experience that genuinely delivers music, socializing and luxury should be able to say so without robbing another axis to pay for it. Forcing a profile to sum to a constant would make a rich evening describe itself as a thin one.
+
+Affinity is therefore the character's preferences **weighted by what the experience actually delivers**, which normalizes a free profile without constraining it:
 
 ```text
-affinity = Σ_d ( profile_d / 100 ) × preference_d        → 0–100
+affinity = Σ_d ( profile_d × preference_d ) / Σ_d profile_d        → 0–100
 ```
 
-Both vectors are server-owned. A brain may author free description and may not submit, adjust, or opportunistically retune either vector; preference changes require the explicit versioned rules of the Happiness policy.
+A gathering that delivers only `music 90` is measured purely against how much that resident cares about music. One that delivers `music 90, luxury 80` is measured against both, in proportion. An empty profile has no affinity and no experiential value at all.
+
+Both vectors are server-owned. A brain authors free description and may not submit, adjust, or opportunistically retune either vector; preference changes require the explicit versioned rules of the Happiness policy.
 
 ## Still Draft: everything else
 

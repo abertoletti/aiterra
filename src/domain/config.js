@@ -35,9 +35,13 @@ export const defaultConfig = Object.freeze({
   // City, building, and experience grammar policy v1, shared-taxonomy scope.
   grammar: {
     profileTaxonomyVersion: 1,
-    profileDimensions: ["social", "stimulation", "calm", "creation", "learning", "belonging"],
-    preferenceBudget: 300,
-    experienceProfileBudget: 100,
+    profileDimensions: [
+      "music", "socializing", "learning", "competition", "spirituality",
+      "luxury", "adventure", "relaxation", "creativity", "nature",
+    ],
+    // Caring is the scarce resource; delivering is not. A profile has no budget so a
+    // rich evening does not have to describe itself as a thin one.
+    preferenceBudget: 500,
   },
   // Experience and Happiness policy v1.
   happiness: {
@@ -57,6 +61,7 @@ export const defaultConfig = Object.freeze({
     repetitionPerPriorAttendance: 1.5,
     repetitionMinimum: -5,
     repetitionWindowWorldDays: 7,
+    varianceBound: 1.5,
     decayPerWorldDay: 1,
     decayWindowWorldMinutes: 1440,
     decayFloor: 25,

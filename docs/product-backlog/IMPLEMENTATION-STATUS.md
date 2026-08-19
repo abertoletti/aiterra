@@ -11,7 +11,7 @@ This is the delivery inventory for the checked-in implementation. `Done` means t
 | Release 0 | 26 | 0 | 0 | 26 |
 | Full product backlog | 40 | 14 | 44 | 98 |
 
-Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 106 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
+Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 121 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
 
 ## Epic progress
 

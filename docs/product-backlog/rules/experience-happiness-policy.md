@@ -37,7 +37,7 @@ A resident at 90 gains a tenth of a raw improvement; one at 10 loses a tenth of 
 
 ## Preferences
 
-A character's preference vector uses the six approved dimensions with the approved budget of 300. It is initialized at creation, either from the character's configured preferences or, when none are configured, as an even spread of 50 across all six.
+A character's preference vector uses the ten approved dimensions with the approved budget of 500. It is initialized at creation, either from the character's configured preferences or, when none are configured, as an even spread of 50 across all ten.
 
 Preferences are stable: version 1 defines no mechanism that changes them. A later version may introduce one, and it must be explicit and versioned rather than opportunistic.
 
@@ -47,16 +47,17 @@ The observation exposes the character's own Happiness, its own preference vector
 
 Resolution happens **exactly once** per attendance, at whichever comes first: the character's departure, the experience's end, or its terminal cancellation. A resolution records every input, the raw delta, the applied delta, and the policy version.
 
-Version 1 uses six factors, each bounded, summed and then clamped to the −15..+15 raw range:
+Version 1 uses seven factors, each bounded, summed and then clamped to the −15..+15 raw range:
 
 | Factor | Range | Derived from |
 | --- | ---: | --- |
-| Profile affinity | −6 to +9 | `(affinity − 40) × 0.15`, where affinity is the approved weighted preference |
+| Profile affinity | −6 to +9 | `(affinity − 40) × 0.15`, where affinity is the approved delivery-weighted preference |
 | Social value | −5 to +5 | the character's own directional relationships with residents actually co-present |
 | Participation | −4 to +2 | actual presence against the experience's planned duration |
 | Verified interaction | 0 to +4 | conversation turns the character actually took while present, +1 each, capped |
 | Crowd context | −2 to +2 | count of other residents actually co-present, against capacity |
 | Repetition | −5 to 0 | the character's own recent resolutions at this place or this kind of experience |
+| Variance | −1.5 to +1.5 | drawn once per resolution and recorded as a factor |
 
 Nothing announced is ever an input. A contributor who was billed but never present contributes nothing; an attendee list is irrelevant unless those residents were actually there; a private RSVP never becomes a name.
 
@@ -94,6 +95,16 @@ repetition = max( −5, −1.5 × priorSimilarAttendances )
 Same-dominant-dimension is the crudest defensible similarity rule, and it is chosen on purpose: it is deterministic, needs no threshold to tune, and cannot be gamed by relabelling, because the dimensions are controlled. A finer similarity function belongs to the deferred novelty work.
 
 This is the anti-farming half of the novelty and repetition pair. The rewarding half — a bonus for a genuinely new kind of experience — is deliberately not implemented yet, because a penalty that is missing lets a resident farm one experience, while a bonus that is missing only makes the world stingier.
+
+### Variance
+
+A bounded unpredictable term, `variance`, in the range **−1.5 to +1.5**, is added before clamping. Two residents with identical preferences at the identical gathering do not come away with identical evenings, and an experience that looks the same twice is not the same twice.
+
+Variance is **recorded as an explicit factor**, exactly like the other six. This is the condition that makes it acceptable rather than corrosive: the product's own promise is that a story can be reconstructed from persisted facts, and an unexplained `+2` would break it. The resolution event carries the drawn value, so the factor breakdown always sums to the raw delta and an owner reading the feed sees `luck: +1.2` beside `argument with Luca: −2.4`.
+
+It is drawn once per resolution, in the command path only, and never recomputed. A replay reads the recorded value, so replaying history cannot produce a different world.
+
+Variance is deliberately small relative to every other factor: it makes outcomes less predictable, never less explainable, and it can never turn a well-chosen evening into a bad one on its own.
 
 ### What is deferred, and why it cannot be otherwise
 
