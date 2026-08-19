@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  AgentDecisionPlanner, buildDecisionMessages, DecisionValidationError, parseDecisionDocument,
-  safeFallbackAction, validateAction, validateContextRequest,
+  AgentDecisionPlanner, asContextRequest, buildDecisionMessages, DecisionValidationError,
+  parseDecisionDocument, safeFallbackAction, validateAction, validateContextRequest,
 } from "../src/agents/decision-planner.js";
 
 test("the decision parser accepts a fenced JSON object but returns only a currently available action", () => {
@@ -274,4 +274,35 @@ test("the prompt states what a run is judged on, and stays a spec rather than an
   const longest = Math.max(...lines.map((line) => line.length));
   assert.ok(lines.length > 40, "structure comes from lines, not from one joined paragraph");
   assert.ok(longest < 340, `no line should be a paragraph; longest was ${longest}`);
+});
+
+test("a catalog request is honoured whichever envelope the model reaches for", async () => {
+  // For three runs every request was wrapped inside `action`, because the output
+  // contract says to answer with one, and every one was rejected as an unavailable
+  // action type. From the outside that looked like agents never asking for anything.
+  const shapes = [
+    { requestContext: { resource: "experiences", filters: { tag: "music" } } },
+    { action: { type: "requestContext", resource: "experiences", filters: { tag: "music" } } },
+    { action: { type: "request_context", resource: "experiences", filters: { tag: "music" } } },
+  ];
+
+  for (const document of shapes) {
+    const planner = new AgentDecisionPlanner({
+      modelClient: { async complete() { return { content: JSON.stringify(document), responseId: "r", usage: {} }; } },
+    });
+    const decision = await planner.decide({
+      observation: observation({
+        contextMode: "progressive",
+        summaries: [{ resource: "experiences", count: 3, feasibleCount: 1 }],
+      }),
+      contextRequestsRemaining: 1,
+    });
+    assert.deepEqual(decision.contextRequest, { resource: "experiences", filters: { tag: "music" } },
+      `the ${JSON.stringify(document).slice(0, 40)} envelope must be read as a request`);
+  }
+});
+
+test("an action that merely looks like a request is still an action", () => {
+  assert.equal(asContextRequest({ type: "move", destinationId: "commons" }), null);
+  assert.equal(asContextRequest({ type: "requestContext" }), null, "a request needs a resource");
 });

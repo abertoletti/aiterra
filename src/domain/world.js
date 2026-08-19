@@ -3296,11 +3296,24 @@ export class World {
       // footprints would cost the product of two domains for no information.
       const city = this.config.city;
       const ownedPlots = [...this.state.plots.values()].filter((plot) => plot.ownerId === character.id);
+      // Which cells are gone. Twelve of nineteen rejections in the first resident-only
+      // run were PLOT_OWNED: residents were guessing coordinates because the affordance
+      // named a grid and never said what was taken. Occupied cells are few, so listing
+      // them costs almost nothing and removes the guessing entirely.
+      const takenCells = [
+        ...[...this.state.plots.values()]
+          .filter((plot) => plot.ownerId)
+          .map((plot) => ({ x: plot.x, y: plot.y, why: plot.ownerId === character.id ? "yours" : "owned" })),
+        ...[...this.state.locations.values()]
+          .filter((location) => Number.isInteger(location.x))
+          .map((location) => ({ x: location.x, y: location.y, why: "occupied" })),
+      ].sort((left, right) => left.x - right.x || left.y - right.y);
       actions.push({
         type: "acquire_plot",
         gridWidth: city.width, gridHeight: city.height,
         pricePerPlot: city.plotPricePerCell,
         ownedPlotIds: ownedPlots.map((plot) => plot.id),
+        takenCells,
         credits: character.credits,
       });
       const freeOwnedPlots = ownedPlots.filter((plot) => !plot.buildingId);

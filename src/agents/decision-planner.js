@@ -45,8 +45,14 @@ export class AgentDecisionPlanner {
       // The brain may answer a decision with a request for detail instead of an
       // action, but only while requests remain: past the budget it must decide on
       // what it has, so a runtime cannot loop on asking.
-      if (contextRequestsRemaining > 0 && document.requestContext) {
-        return { ...common, contextRequest: validateContextRequest(document.requestContext, observation) };
+      //
+      // Both envelopes are accepted. Models overwhelmingly wrap the request inside
+      // `action`, because the output contract says to answer with an action - and for
+      // three runs every one of those was rejected as an unavailable action type, which
+      // read from the outside as agents never asking for anything.
+      const requested = document.requestContext ?? asContextRequest(document.action);
+      if (contextRequestsRemaining > 0 && requested) {
+        return { ...common, contextRequest: validateContextRequest(requested, observation) };
       }
       return { ...common, action: validateAction(document.action ?? document, observation, history) };
     } catch (error) {
@@ -58,6 +64,17 @@ export class AgentDecisionPlanner {
       throw error;
     }
   }
+}
+
+// A request wearing an action's clothes. `resource` is the only field that matters, and
+// the shape a model reaches for varies, so all the plausible ones are read.
+export function asContextRequest(action) {
+  if (!action || typeof action !== "object") return null;
+  const type = typeof action.type === "string" ? action.type.toLowerCase().replace(/[_-]/g, "") : "";
+  if (!["requestcontext", "inspectcontext", "requestcatalog", "inspect"].includes(type)) return null;
+  const resource = action.resource ?? action.requestContext?.resource ?? action.catalog;
+  if (typeof resource !== "string") return null;
+  return { resource, filters: action.filters ?? action.requestContext?.filters ?? {} };
 }
 
 export function buildDecisionMessages(observation, history = [], recentActionFailures = [], {
@@ -165,7 +182,12 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         ...(contextProtocol.length > 0 ? ["", "## Asking for detail", ...contextProtocol.map((line) => `- ${line}`)] : []),
         "",
         "## Output",
-        "JSON only, no markdown: {\"action\":{...},\"rationale\":\"one short sentence\"}",
+        "JSON only, no markdown. Either act:",
+        "{\"action\":{...},\"rationale\":\"one short sentence\"}",
+        ...(contextProtocol.length > 0
+          ? ["or ask for a catalog first, which is a different top-level key and NOT an action:",
+            "{\"requestContext\":{\"resource\":\"experiences\",\"filters\":{}},\"rationale\":\"why you need it\"}"]
+          : []),
       ].join("\n"),
     },
     { role: "user", content: JSON.stringify(context) },
