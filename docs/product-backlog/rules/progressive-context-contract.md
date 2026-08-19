@@ -154,9 +154,11 @@ The manifest states the discipline; it never states which item the character sho
 
 | Projection | Soft budget | Hard ceiling |
 | --- | ---: | ---: |
-| Baseline observation | 8 KB | 16 KB |
+| Baseline observation | 20 KB | 32 KB |
 | Catalog page | 32 KB | 64 KB |
 | Entity detail | 8 KB | 16 KB |
+
+The baseline budget started at 8 KB soft and 16 KB hard, chosen before anything had been measured. It was raised once the first pilot showed what cutting a published opportunity down to fit it actually cost: agents accepted work without knowing its pay or duration. A budget is a constraint on how the world is described, never a reason to describe it wrongly, so the budget yielded to the notice.
 
 The hard ceiling matches `protocol.requestBodyLimitBytes`, so disclosed context can always be echoed back within the protocol's own limits.
 
@@ -167,6 +169,8 @@ An affordance list is part of the baseline and counts against its budget. Repeat
 ## When an affordance enumerates, and when it declares
 
 An affordance enumerates its instances **only when the instances differ in something the agent needs and cannot obtain elsewhere in the same projection.** Otherwise it declares its envelope once and the agent supplies the parameters, because an agent that has decided to act already knows what it wants to act on.
+
+Where an affordance does enumerate, it carries the whole item, not a chosen half of it. A published opportunity is a notice on a public board: a resident considering work reads the entire notice — pay, duration, requirements, schedule, Energy — because those are precisely what distinguish one notice from another. Splitting a single notice between the affordance and the catalog was tried and produced agents that accepted work without knowing what it paid; the first pilot recorded four such acceptances and not one catalog request, because an affordance that is sufficient to act on removes the reason to ask. Compressing an enumeration is legitimate only for fields that do not vary or do not inform, and escrow and funding internals are the example: they belong to the catalog.
 
 | Affordance | Instances differ in | Form |
 | --- | --- | --- |

@@ -1985,7 +1985,7 @@ export class World {
     // changes what is shipped, never what the character is allowed to consider.
     const availableActions = this.availableActions(
       character, nearby, activeConversations, recentConversations, availableJobs, upcomingEvents,
-      invitations, commitments, { compactAffordances: progressive },
+      invitations, commitments,
     );
     return {
       worldTime: this.clock.now().toISOString(),
@@ -2460,7 +2460,7 @@ export class World {
     return `${actorName} caused ${event.type.toLowerCase().replaceAll("_", " ")}.`;
   }
 
-  availableActions(character, nearby, conversations, recentConversations, jobs, upcomingEvents, invitations = [], commitments = [], { compactAffordances = false } = {}) {
+  availableActions(character, nearby, conversations, recentConversations, jobs, upcomingEvents, invitations = [], commitments = []) {
     const actions = [];
     if (!character.activity) {
       const locations = this.reachableLocations(character.locationId);
@@ -2492,18 +2492,11 @@ export class World {
       }
     }
     for (const job of jobs.filter((item) => item.status === "open")) {
-      const view = this.jobOpportunityView(character, job);
-      // In progressive mode the affordance keeps the target and whether it is
-      // possible; the requirements, schedule, and pay come from inspect_opportunities
-      // rather than being repeated on every unrelated decision.
-      actions.push(compactAffordances
-        ? {
-          type: "accept_job", jobId: view.jobId, locationId: view.locationId,
-          // The primary blocker is enough to decide whether to look; the full
-          // blocker list is in the catalog.
-          feasibility: { status: view.feasibility.status, blockingCode: view.feasibility.blockingCode },
-        }
-        : { type: "accept_job", ...view });
+      // A published opportunity is a notice on a public board: a character considering
+      // work reads the whole notice, not half of it. Splitting one notice between the
+      // affordance and the catalog produced agents that accepted work without knowing
+      // its pay or duration, so the full view stays here in both context modes.
+      actions.push({ type: "accept_job", ...this.jobOpportunityView(character, job) });
     }
     for (const job of jobs.filter((item) => item.fundingSourceId === character.id && ["open", "accepted"].includes(item.status))) {
       actions.push({ type: "cancel_job", jobId: job.id });

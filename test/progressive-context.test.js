@@ -7,8 +7,8 @@ import { makeConfig } from "../src/domain/config.js";
 import { DomainError, World } from "../src/domain/world.js";
 import { InMemoryEventStore } from "../src/infra/event-store.js";
 
-const BASELINE_SOFT_BUDGET_BYTES = 8 * 1024;
-const BASELINE_HARD_CEILING_BYTES = 16 * 1024;
+const BASELINE_SOFT_BUDGET_BYTES = 20 * 1024;
+const BASELINE_HARD_CEILING_BYTES = 32 * 1024;
 
 // The checked-in seven-character pilot world: 7 residents, 4 locations, 20 jobs.
 // The point of using it rather than a fixture is that the budget assertions below
@@ -74,8 +74,32 @@ test("a progressive baseline fits the budget while a catalog of blocked items ex
   const steadyAverage = Math.round(steadyTotal / characterIds.length);
   assert.ok(steadyAverage < BASELINE_SOFT_BUDGET_BYTES,
     `steady-state baseline averages ${steadyAverage} bytes, over the ${BASELINE_SOFT_BUDGET_BYTES} soft budget`);
-  assert.ok(steadyAverage < Math.round(fullTotal / characterIds.length) / 4,
+  assert.ok(steadyAverage < Math.round(fullTotal / characterIds.length) / 2,
     "the whole point is a large reduction, not a marginal one");
+});
+
+test("an offered opportunity carries the whole notice, so work is never chosen blind", () => {
+  const { world } = pilotWorld();
+  const characterId = world.getPublicState().characters[0].id;
+
+  for (const contextMode of ["full", "progressive"]) {
+    const offers = world.getObservation(characterId, { contextMode })
+      .availableActions.filter((action) => action.type === "accept_job");
+    assert.ok(offers.length >= 10, `${contextMode} must offer the open board`);
+    for (const offer of offers) {
+      // The first pilot accepted four jobs and requested no catalog, because an
+      // affordance sufficient to act on removes the reason to ask. These are the
+      // fields that distinguish one notice from another.
+      for (const field of ["title", "compensation", "durationGameMinutes", "executionEnergyCost", "requirements", "offerExpiresAt"]) {
+        assert.notEqual(offer[field], undefined,
+          `${contextMode}: accept_job must disclose ${field} or the choice is uninformed`);
+      }
+      assert.ok(offer.feasibility.status, "and whether it can be acted on");
+    }
+    // Pay genuinely varies across the board, which is why it has to be disclosed.
+    assert.ok(new Set(offers.map((offer) => offer.compensation)).size > 1,
+      "the pilot board pays different amounts for different work");
+  }
 });
 
 test("progressive and full disclose the same known items for the same world state", () => {
