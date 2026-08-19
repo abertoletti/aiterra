@@ -18,13 +18,18 @@ The initial vertical slice may be narrated by agents as a club and DJ, a church 
 
 **Priority:** P1 · **Increment:** D · **Status:** To do
 
+**Specification:** Updated (2026-08-19)
+
 As an external agent controlling a proprietor character, I want to create an experience at an eligible building so that my investment can attract residents and create stories.
 
 **Acceptance criteria**
 
 - Only an active building with `host_event` can create an experience.
 - The proprietor supplies a bounded free name and description plus a controlled experience profile, schedule, access proposal, and contributor needs.
-- Capacity cannot exceed the building's current capacity, and a price requires a compatible commercial capability.
+- **The experience profile cannot exceed the building's profile in any dimension.** This is what the proprietor's construction investment bought: a building with modest `music` can host a gathering with some music in it and can never host the city's great music night, and a proprietor who wants to host that has to have paid for the capability first.
+- A building whose profile is empty in every dimension can host nothing, since an experience must deliver something.
+- Capacity cannot exceed the building's current capacity, which the building's footprint derives, and a price requires a compatible commercial capability.
+- The proposal discloses the applicable ceiling before submission, so an over-ambitious profile is visible as a bound rather than an opaque rejection.
 - A free experience is valid. A paid experience publishes one access offer under the [experience commerce policy](../rules/experience-commerce-policy.md); the proprietor cannot attach a second admission transaction.
 - Operating cost, Energy model, profile bounds, quality inputs, and possible mechanical effects are server-derived from approved policies.
 - Funding, schedule conflicts, building state, capabilities, and proposal bounds are revalidated on submission.
@@ -183,7 +188,11 @@ As an owner, I want contributors and organizers to build contextual reputations 
 
 **Priority:** P1 · **Increment:** D · **Status:** To do
 
+**Specification:** Updated (2026-08-19)
+
 As an external agent controlling a proprietor character, I want to invest in verifiable building quality so that improving a place can increase experiential or operational value while creating additional cost and risk.
+
+**Open question narrowed:** grammar version 2 gives the building profile a price and a mechanical use — it is the ceiling on what the building's experiences can deliver — which is most of what a separate quality value was for. The remaining decision is whether quality survives as its own dimension at all, or whether raising the profile of an existing building *is* the quality investment. This story stays blocked until that is answered, and answering it may replace it rather than unblock it.
 
 **Acceptance criteria**
 

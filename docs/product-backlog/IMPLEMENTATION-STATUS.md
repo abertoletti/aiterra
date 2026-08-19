@@ -9,9 +9,9 @@ This is the delivery inventory for the checked-in implementation. `Done` means t
 | Scope | Done | In progress | To do | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Release 0 | 26 | 0 | 0 | 26 |
-| Full product backlog | 40 | 14 | 44 | 98 |
+| Full product backlog | 40 | 22 | 37 | 99 |
 
-Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 121 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
+Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 126 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
 
 ## Epic progress
 
@@ -32,9 +32,9 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 | E12 — Skills, popularity, Domain Reputation, and score | 0 | 0 | 6 | To do |
 | E13 — Invitations and social commitments | 1 | 3 | 0 | In progress |
 | E14 — Emergent city and agent-authored buildings | 0 | 0 | 7 | To do |
-| E15 — Experience and Happiness Engine | 0 | 0 | 9 | To do |
+| E15 — Experience and Happiness Engine | 0 | 8 | 2 | In progress |
 | E16 — Building operations and contributor economy | 0 | 0 | 9 | To do |
-| **Total** | **40** | **14** | **44** | **In progress** |
+| **Total** | **40** | **22** | **37** | **In progress** |
 
 ## Release 0 evidence
 
@@ -96,24 +96,117 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 | AIT-1302 | In progress | Accept, decline, expiry, known-conflict validation, and shared commitment visibility exist; cancellation and renegotiation remain. |
 | AIT-1303 | In progress | Travel-aware reminders are persisted and queued through the event channel; dedicated degraded-path coverage and richer incompatible-activity guidance remain. |
 | AIT-1304 | In progress | Kept/missed outcomes apply directional promise rules; lateness, communicated cancellation, and public reputation effects remain. |
+| AIT-1501 | In progress | Ten-dimension preference vectors with the 500 budget, bounded `happiness` with saturation on write, and unbounded `livedHappiness` exist and are exposed to the owning brain with the manifest's policy version; another character's Happiness is withheld and tested. `livedHappiness` is never initialized in the `CHARACTER_CREATED` reducer and relies on `?? 0` defaults, and no Happiness event reaches the owner feed. |
+| AIT-1502 | In progress | The experiences catalog returns ordered, paged detail. It omits `profile`, `accessPrice`, and `capacity`, so those reach a progressive-mode agent only through the `attend_event` affordance, which requires already standing at the location. Own affinity and own repetition state are not disclosed. |
+| AIT-1504 | In progress | Join charges access price and creates presence atomically or does neither; entry Energy, marginal presence Energy, partial attendance, and the no-refund early exit are implemented and tested. Price, capacity, and Energy blockers are now disclosed before entry by the one shared feasibility computation. The command is still named `attend_event` rather than `experience_join`, and the re-entry window is implemented but untested. |
+| AIT-1505 | In progress | All seven factors resolve exactly once per attendance at departure or natural end, the breakdown sums to the raw delta, and variance is drawn once and is replay-stable. The resolution never reaches the owner feed, and no declared expectation is recorded to compare against. |
+| AIT-1506 | In progress | Presence and interaction are separate factors with the approved importance, outcome, first-meeting novelty, and topic-fit terms, and their sign and relative weight are tested. Cross-occasion damping with the same counterpart remains. |
+| AIT-1507 | In progress | Venue and dominant-dimension repetition over the 7-day window is implemented and tested. The novelty reward and a finer similarity function remain. |
+| AIT-1509 | In progress | Passive decay with its floor and the per-job Happiness cost are implemented and tested. The `livedHappiness` Score component does not exist, so the cost of neglect is not yet realized. |
+| AIT-1510 | In progress | The experiences catalog is already world-wide rather than location-gated, and is ordered and paged. Filtering is limited to location and time: no tag, profile, affinity, or price filter exists, no affinity is disclosed per item, and no filter reports what it removed. |
 
 The local experiment infrastructure now also includes an Azure Foundry Chat Completions adapter, strict model-action validation, seven isolated HTTP/SSE workers, inference concurrency and temporal call caps, stale-projection recovery, rejection memory, a persistent seven-character fast-cycle configuration with twenty jobs, and a versioned pilot report. Vera and Rook deliberately add deceptive and hostile motivations while remaining subject to server authority.
 
+## Reaching the Happiness engine: done on 2026-08-19
+
+The engine had been implemented, tested, and unreachable. The world-configuration schema accepted only `id`, `title`, `locationId`, `startsInGameMinutes`, `durationGameMinutes`, and `creatorId` for an event, so every shipped world created experiences with `profile: null` and resolution short-circuited immediately. Character `preferences` were absent too, so all seven pilot residents took the even 50-across-ten default and shared an identical affinity for everything. Eight substantially implemented stories were unreachable from any runnable pilot, and the last seven-agent run recorded 1,384 events, two experiences, five attendances, and no Happiness event of any kind.
+
+Three changes closed it:
+
+1. **The configuration carries the world's content.** The schema accepts and forwards `profile`, `accessPrice`, `capacity`, and `description` on an experience, and `preferences` on a character. Both vectors are validated at the configuration layer rather than only by the domain, because a profile rejected half-way through activation would leave a partly-seeded world and break the invariant that an invalid configuration mutates nothing.
+2. **Discovery.** The experiences catalog was already city-wide but disclosed neither what an evening delivers nor what it costs. Items now carry `profile`, derived `tags`, the character's own `affinity`, `accessPrice`, `capacity`, present `attendeeCount`, both Energy costs, and the character's own repetition outlook. Filters accept `tag`, `minimumAffinity`, and `maximumPrice` over the controlled ten dimensions, an unknown dimension is rejected rather than matching nothing, and `filteredOmitted` reports what any criteria filter removed. Ordering stays neutral: ranking would be the server choosing for the brain. Contract version 2.
+3. **Measurement.** The run report gained an `experiences` section: attendances, re-entries, resolutions, positive and negative resolution rates, mean realized delta, **mean contribution per factor**, repeated-venue resolutions, distinct venues per attending resident, paid attendances, Credits spent on access, decay and work-cost counts, and both Happiness quantities per resident. `HAPPINESS_CHANGED`, `HAPPINESS_DECAYED`, `EXPERIENCE_HAPPINESS_RESOLVED`, and `EXPERIENCE_ACCESS_PAID` reach the owner feed with their factor breakdowns, and a resolved evening ranks with a completed job in summary priority.
+
+The pilot world now seeds six profiled experiences across four locations, three of them priced and two capacity-limited, and seven distinct preference vectors drawn from the personalities already written. Affinity spread per resident runs from 7 to 95 where every cell would previously have been near 50, which is the only reason affinity discriminates at all.
+
+The per-factor mean is the measurement that matters for what is still open: it is what distinguishes a factor doing real work from dead weight in the formula, and AIT-1506 and AIT-1507 both need it. The deterministic twenty-agent harness already reports `livedHappiness: -1.5` for every reference agent, since each completes one job and none goes anywhere — the work-only strategy made visible as data rather than asserted.
+
+### Measured: the first two runs against the reachable engine
+
+A twelve-minute verification run produced **7 attendances against the previous run's 5** in less than half the world time, and **no resolutions**. The missing resolutions were a setup error, not a defect: the run covered 83 world minutes and the earliest experience ends at world minute 90, so nothing had ended and nobody left early. A run has to outlast at least one experience before the engine can be measured at all.
+
+The full thirty-minute run then produced the first end-to-end evidence: **8 attendances, 8 resolutions, 75% positive, 25% negative, mean realized delta +3.97.**
+
+The engine does the thing it was designed for. At the same gathering, at the same time:
+
+| Resident | Experience | Raw delta | Affinity factor |
+| --- | --- | ---: | ---: |
+| Elias, `socializing` 100 | welcome gathering | **+9.67** | +6.86 |
+| Rook, `socializing` 10 | welcome gathering | **−1.73** | −2.57 |
+
+Two residents in one room came away with opposite evenings, entirely from their own preferences. The work-versus-life split is visible in the same run: the two residents who only worked ended at `livedHappiness` −1.53 and −1.73, against +9.67 and +8.02 for the two who also lived.
+
+#### What the factor means say
+
+Mean contribution per resolution, over the seven factors that sum to the delta:
+
+| Factor | Mean | Reading |
+| --- | ---: | --- |
+| `affinity` | **+2.84** | the workhorse, spread −2.57 to +6.86 |
+| `crowd` | **+1.00** | a coarse ±2 step, and it outweighs interaction more than twofold |
+| `interaction` | +0.42 | weak; four of eight resolutions had exactly 0, from residents who attended and never spoke |
+| `variance` | +0.39 | as designed, small |
+| `presenceValue` | **0.00** | zero in every single resolution |
+| `repetition` | −0.19 | fired once in the whole run |
+| `participation` | −0.50 | biting hard, with −4 and −2 values from late arrivals and early exits |
+
+Four findings follow, and none of them could have been reached by argument:
+
+1. **`presenceValue` is dead weight.** It is exactly 0.00 in all eight resolutions. Its divisor of 200 means a full ±2 needs the character's outgoing affinity minus tension to total ±400 across everyone present, which new relationships never approach. The factor whose purpose was "being in a room with people you like is worth something" currently never fires.
+2. **`crowd` outweighs `interaction` by more than two to one.** This is the same class of defect as the original co-presence-beats-interaction problem, reappearing between a different pair: a resident currently gains more from the room being full than from talking to anyone in it.
+3. **Novelty and repetition still cannot be calibrated.** `distinctVenuesPerAttendingCharacter` is **1**: every resident attended exactly one venue, one resident attended twice, and the repetition penalty fired once. There is almost no exploration to measure, which confirms with numbers what the twelve-minute run suggested.
+4. **Passive decay never fires in a pilot.** Its window is one world day, 1,440 world minutes, and a full run is 180. The mandatory neglect pressure is therefore unobservable at pilot timescale, so nothing in a run can validate it.
+
+#### The exploration gap
+
+Every attendance in both runs was at an experience where the resident already stood, or one they were already travelling to. Nobody travelled to the archive, and only one paid admission at all — 20 Credits, once.
+
+The reference runtime's prompt has detailed guidance for conversations, appraisals, goals, invitations, and team jobs, and nothing that connects finding a congenial gathering to travelling to it. The `attend_event` affordance appears only when already co-located, so attending anything elsewhere requires a multi-step plan no instruction suggests. This has the same shape as the goal problem already recorded in the planner's own comment: the first pilot adopted zero goals in 165 actions because nothing asked it to want anything.
+
+This is a candidate intervention, deliberately not applied before these baselines existed, so that a later change in exploration can be attributed to the change rather than to run length.
+
+## Known defects
+
+| Defect | Where | Effect |
+| --- | --- | --- |
+| `livedHappiness` is not initialized on character creation | `src/domain/world-reducer.js:19-26` | Correct only because two downstream readers default it to zero. |
+| Feasibility gates entry Energy on the full cost even for a re-entry that is charged nothing | `eventAttendanceFeasibility` against the re-entry discount in `joinExperience` | A resident re-entering inside the window with less than 3 Energy is refused an entry that would have cost nothing. The approved policy states a separate "minimum Energy to enter" of 3, which the current behaviour satisfies, so this is left alone until that row is confirmed as a floor rather than a duplicate of the cost. |
+
+### Fixed on 2026-08-19: the attendance disclosure divergences
+
+Four defects in the same family, all of them one surface disagreeing with another about whether an evening was possible.
+
+| Defect | Fix |
+| --- | --- |
+| Feasibility omitted the price and capacity blockers that the join enforced inline, so the affordance advertised an experience the resident could not afford or that was full, and `feasibleOnly` misclassified it | `eventAttendanceFeasibility` now decides every condition, appended after the existing codes so the error a multiply-blocked resident receives is unchanged. `joinExperience` throws from that one result instead of re-checking. |
+| The observation's `upcomingEvents` projection dropped `accessPrice`, `capacity`, and `profile`, so the `attend_event` affordance advertised **every** experience as free, uncapped, and profile-less, despite a comment claiming it disclosed all three | The projection carries the three fields. This was the larger defect and it was found only because the feasibility test exercised the affordance rather than the catalog. |
+| Two config keys held the same entry cost: `energy.eventAttendanceCost` gated feasibility while `experience.entryEnergyCost` was charged | `energy.eventAttendanceCost` is removed. Every site reads `experience.entryEnergyCost`, which the approved experience Energy policy owns. The disclosed field names are unchanged, since they are a published contract. |
+| The catalog reported `gathering.attendees.size`, which is cumulative because attendance end never removes anyone, so a long-empty room read as full | The catalog uses `currentAttendeeCount`, the same count capacity is gated on. The cumulative set is left alone for the observer view that wants it. |
+
+Covered by four tests in `test/experience-happiness.test.js`, including a table-driven one that checks the affordance, the catalog, and the command against each other for every way an entry can be refused. The suite is now 130 tests.
+
+An affordance may legitimately be **absent** where a catalog entry is **blocked**: affordances state what can be attempted now, so a resident who is resting is offered nothing, while the catalog still lists the experience with its `ACTIVITY_CONFLICT`. The test asserts the weaker, correct invariant — an affordance must never offer what the command refuses.
+
 ## Newly specified and not yet implemented
 
-The 28 additional `To do` stories introduced by the emergent-city review do not change the delivery state of the existing code. They cover:
+The emergent-city review introduced 29 stories. Eight of them turned out to be substantially implemented once the code was mapped and are now `In progress` above; the delivery state of the existing Release 0 code is unchanged either way. Together they cover:
 
 - decision-scoped rule and opportunity context instead of repeatedly sending complete catalogs;
 - private brain-authored assessments of claims, suspected lies, and perceived promises;
 - evidence-safe version-2 deception and formal-promise consequences without rewriting Release 0 history;
-- versioned city grammar, districts, plots, agent-authored buildings, upkeep, failure, and repurposing;
+- a versioned 20 × 20 city grid, plots, agent-authored buildings with a chosen footprint and a convexly priced profile, upkeep, failure, and repurposing;
+- city-wide discovery of what the city is offering, filtered by the same ten dimensions that carry preferences;
 - partial experience attendance and participation-plus-duration Energy;
-- bounded Expected and Realized Happiness with social value, contributors, novelty, repetition, and real low-Happiness consequences;
+- brain-owned expectation against server-owned Realized Happiness, with presence and interaction separated, novelty, repetition, and neglect pressure;
 - generic resident-created experiences, roles, access, services, donations, settlement, and Domain Reputation;
 - verifiable building-quality investment with a bounded operational or experiential effect;
 - dense run-level observability for plots, buildings, experiences, Happiness, economics, reputation, interactions, and stories.
 
-The remaining cross-story contracts and numerical mechanics stay blocked from Ready status until their draft policies receive approved schemas or values in their first applicable version and gain acceptance tests. The [progressive decision-context contract](rules/progressive-context-contract.md) and the [subjective claims and promises policy](rules/subjective-memory-policy.md) were approved at version 1 on 2026-08-19, so AIT-207, AIT-909, AIT-705, and AIT-706 are now Ready and were raised to P0.
+The remaining cross-story contracts and numerical mechanics stay blocked from Ready status until their draft policies receive approved schemas or values in their first applicable version and gain acceptance tests.
+
+Approved on 2026-08-19: the [progressive decision-context contract](rules/progressive-context-contract.md) at version 1 and then version 2, the [subjective claims and promises policy](rules/subjective-memory-policy.md) at version 1, the [grammar policy](rules/building-grammar-policy.md) at version 2, the [Experience and Happiness policy](rules/experience-happiness-policy.md) at version 2, and the [experience Energy](rules/experience-energy-policy.md) and [experience commerce](rules/experience-commerce-policy.md) policies at version 1. AIT-207, AIT-909, AIT-705, and AIT-706 are Ready and were raised to P0; AIT-1401 through AIT-1404, AIT-1501 through AIT-1505, and AIT-1510 are now Ready on the grammar, Happiness, Energy, commerce, and context versions they depend on.
+
+Four E15 stories remain blocked on named remaining decisions rather than whole policies: AIT-1506 on cross-occasion interaction damping, AIT-1507 on the novelty reward, AIT-1508 on contributor value, and AIT-1509 on the `livedHappiness` Score weight.
 
 ## Measured baseline before the context work
 
@@ -121,11 +214,13 @@ The seven-agent Azure Foundry pilot recorded a median of **31 KB** of decision c
 
 ## Remaining implementation priorities
 
-1. Finish AIT-207 and AIT-909: the pinned-selection lifecycle and its invalidation codes.
-2. Implement the approved subjective claims and promises policy in AIT-705 and AIT-706, so a character retains what it heard, from whom, and what it believed was promised.
-3. Remove the remaining scaling limits: event-log snapshots instead of complete replay at boot. The projection-version and causal-lookup indexes are in place, and `World` is decomposed into the support, reducer, owner-projection, and context modules.
-4. Replace JSONL with a transactional event/outbox store and command locks before a multi-node shared environment.
-5. Finish operation-specific abuse/suspension telemetry and production delivery alerting in AIT-1003/AIT-1005.
-6. Finish commitment cancellation/renegotiation, lateness and public reputation consequences in AIT-1302–AIT-1304.
-7. Approve the first Increment D policy versions for city grammar, courses and skills, Score, building economy/lifecycle, commerce, Experience/Happiness, experience Energy, evidence-safe relationships, Domain Reputation, and emergent-city metrics.
-8. Implement the Increment D vertical slice: plot acquisition, agent-authored building, upkeep and quality investment, generic experience and contributor job, independent attendance, Expected versus Realized Happiness, settlement, and failure or recovery.
+1. Settle the open calibration in AIT-1506 and AIT-1507 against the per-factor means a seven-agent run produces, not against argument.
+2. Record a declared `expectedHappiness` on join (AIT-1503), which is the last piece of the Happiness slice with no implementation at all.
+4. Finish AIT-207 and AIT-909: the pinned-selection lifecycle and its invalidation codes.
+5. Implement the approved subjective claims and promises policy in AIT-705 and AIT-706, so a character retains what it heard, from whom, and what it believed was promised.
+6. Remove the remaining scaling limits: event-log snapshots instead of complete replay at boot. The projection-version and causal-lookup indexes are in place, and `World` is decomposed into the support, reducer, owner-projection, and context modules.
+7. Replace JSONL with a transactional event/outbox store and command locks before a multi-node shared environment.
+8. Finish operation-specific abuse/suspension telemetry and production delivery alerting in AIT-1003/AIT-1005.
+9. Finish commitment cancellation/renegotiation, lateness and public reputation consequences in AIT-1302–AIT-1304.
+10. Approve the remaining Increment D policy versions: courses and skills, Score component normalization and the `livedHappiness` weight, building economy and lifecycle, commerce beyond paid access, Experience Energy beyond attendance, evidence-safe relationships, Domain Reputation, and emergent-city metrics.
+11. Implement the rest of the Increment D vertical slice: plot acquisition on the grid, agent-authored building with footprint and profile, upkeep, generic experience and contributor job, settlement, and failure or recovery.

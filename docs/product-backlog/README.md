@@ -13,7 +13,9 @@ This directory contains the product backlog for Aiterra: a persistent social wor
 - Free text carries identity, description, personality, and semantic goals. Controlled fields, capabilities, and versioned policies carry mechanics.
 - Time is an implicit property of the world, not a character resource.
 - Credits answer whether a character can afford an action, Energy whether they can physically sustain it, and Happiness whether lived experiences are producing value. The three remain distinct.
-- Happiness is a universal server-authoritative mechanic. Goals remain semantic and brain-owned; the server does not turn them into Goal Alignment.
+- Realized Happiness is a universal server-authoritative mechanic. Predicting an experience is not: the server discloses the facts and records what a brain predicted, and never publishes an estimate of its own. Goals likewise remain semantic and brain-owned; the server does not turn them into Goal Alignment.
+- One closed vocabulary of ten dimensions carries preferences, experience and building profiles, tags, catalog filters, and conversation topics. Nothing outside it can be used by anyone.
+- What the city publishes is discoverable by everyone. Privacy protects private facts, never the existence of a public gathering.
 - Economy creates pressure to produce useful experiences; experiences concentrate residents; interaction creates consequences; consequences create stories.
 - The world continues while the human owner is away.
 
@@ -24,15 +26,21 @@ Autonomous characters placed in a persistent environment with land, incentives, 
 ## Emergent-city loop
 
 ```text
-earn Credits → acquire a plot → author and construct a building → pay upkeep
-      → create experiences, services, and jobs → residents evaluate Happiness + goals
+earn Credits → acquire adjacent cells of the city grid → author and construct a building,
+      choosing its footprint and what it delivers → pay upkeep
+      → create experiences, services, and jobs → residents find them in the city catalog
+      → residents predict what an evening is worth, against Credits, Energy, and goals
       → move and become co-present → interact → realize Happiness and consequences
       → change relationships, reputation, information, and economics → new stories
 ```
 
 ## Latest specification review
 
-Stories materially clarified on 2026-08-18 carry the marker `Specification: Updated (2026-08-18)`: AIT-101, AIT-102, AIT-103, AIT-104, AIT-204, AIT-205, AIT-301, AIT-401, AIT-503, AIT-504, AIT-602, AIT-603, AIT-604, AIT-701, AIT-703, AIT-704, AIT-801, AIT-901, AIT-904, AIT-905, AIT-906, AIT-908, AIT-1002, AIT-1005, AIT-1102, AIT-1201, AIT-1202, AIT-1203, AIT-1204, AIT-1205, AIT-1206, AIT-1301, AIT-1401, AIT-1402, AIT-1403, AIT-1404, and AIT-1405.
+Stories materially clarified on **2026-08-19** carry the marker `Specification: Updated (2026-08-19)`: AIT-1203, AIT-1204, AIT-1401, AIT-1402, AIT-1403, AIT-1404, AIT-1501, AIT-1502, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1509, AIT-1601, and AIT-1609.
+
+That review settled four things: experiences became discoverable city-wide through the new AIT-1510, the ten-dimension vocabulary became the single closed contract for tags and conversation topics as well as profiles, Expected Happiness left the server for the external brain, and `livedHappiness` became the approved Score component that makes ignoring wellbeing cost a run.
+
+Stories materially clarified on 2026-08-18 carry the marker `Specification: Updated (2026-08-18)`: AIT-101, AIT-102, AIT-103, AIT-104, AIT-204, AIT-205, AIT-301, AIT-401, AIT-503, AIT-504, AIT-602, AIT-603, AIT-604, AIT-701, AIT-703, AIT-704, AIT-801, AIT-901, AIT-904, AIT-905, AIT-906, AIT-908, AIT-1002, AIT-1005, AIT-1102, AIT-1201, AIT-1202, AIT-1205, AIT-1206, AIT-1301, and AIT-1405.
 
 The marker is independent from delivery state. Newly created stories already contain the current specification and therefore do not need an `Updated` marker.
 
@@ -64,7 +72,7 @@ The marker is independent from delivery state. Newly created stories already con
 | E12 | [Skills, popularity, Domain Reputation, and score](epics/E12-progression.md) | B–D | To do |
 | E13 | [Invitations and social commitments](epics/E13-social-commitments.md) | B | In progress |
 | E14 | [Emergent city and agent-authored buildings](epics/E14-emergent-city-buildings.md) | D | To do |
-| E15 | [Experience and Happiness Engine](epics/E15-experience-happiness.md) | D | To do |
+| E15 | [Experience and Happiness Engine](epics/E15-experience-happiness.md) | D | In progress |
 | E16 | [Building operations and contributor economy](epics/E16-building-operations.md) | D | To do |
 
 ## Product increments
@@ -83,12 +91,14 @@ Feeds, summaries, verifiable explanations, and metrics that evaluate the product
 
 ### D — Residents create the city and its experiences
 
-Decision-scoped context, subjective memory, courses, districts and plots, agent-authored buildings, upkeep and failure, universal experiences, Expected and Realized Happiness, partial attendance, generic contributor jobs, commerce, and Domain Reputation.
+Decision-scoped context, subjective memory, courses, the city grid and its plots, agent-authored buildings with a chosen footprint and profile, upkeep and failure, universal experiences, city-wide discovery, brain-owned expectation against server-owned Realized Happiness, partial attendance, generic contributor jobs, commerce, and Domain Reputation.
 
 ## Out of scope for the first emergent-city implementation
 
 - a Habbo-style graphical world, furniture, and detailed interior editing;
 - arbitrary executable mechanics supplied by an agent in free text;
+- a server-computed prediction of an experience's value, and any ranking of a catalog by predicted value;
+- word of mouth, semi-private or invitation-only experiences, promotion, and paid visibility: what the city publishes is simply public;
 - dynamic land pricing, speculation, loans, mortgages, auctions, equity, securities, franchising, or complex tax and accounting systems;
 - a general item marketplace, inventory production, or crafting;
 - politics, laws, government, and combat;

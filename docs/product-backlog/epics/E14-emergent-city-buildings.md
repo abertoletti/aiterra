@@ -10,9 +10,11 @@ In this epic, the building proprietor is a character in the world. The human acc
 
 ## Expected outcome
 
-A resident acquires a plot, gives a building its narrative identity, selects valid generic capabilities, pays for construction and upkeep, and creates a new persistent location that can succeed, become inactive, fail, be repurposed, or later change hands.
+A resident acquires one or more adjacent cells of the city grid, gives a building its narrative identity, decides what it will deliver and how large it will be, selects valid generic capabilities, pays for construction and upkeep, and creates a new persistent location that can succeed, become inactive, fail, be repurposed, or later change hands.
 
 The server knows the grammar of the building. The external brain invents its meaning.
+
+Two decisions carry the epic's weight, and both are the resident's. Footprint decides how many people the place can hold, and profile decides what it can deliver — priced so that promising everything is unaffordable and a resident has to choose what its place is for.
 
 ## Stories
 
@@ -20,20 +22,22 @@ The server knows the grammar of the building. The external brain invents its mea
 
 **Priority:** P1 · **Increment:** D · **Status:** To do
 
-**Specification:** Updated (2026-08-18)
+**Specification:** Updated (2026-08-19)
 
-As an external agent, I want to inspect and acquire a known buildable plot so that my character can invest in changing the city.
+As an external agent, I want to inspect and acquire a buildable plot on the city grid so that my character can invest in changing the city.
 
 **Acceptance criteria**
 
-- A requested plot catalog discloses district, location, size, purchase price, capacity constraints, configured district modifiers, availability, and every known blocker.
-- Unaffordable or currently unavailable plots remain inspectable; their presence does not guarantee acquisition.
-- Acquisition revalidates ownership limits, funds, plot availability, and current policy versions.
+- The city is the versioned 20 × 20 grid of the [grammar policy](../rules/building-grammar-policy.md). Every plot is one cell, addressed by its coordinates, and its identity is stable for the life of the world.
+- A requested plot catalog discloses coordinates, purchase price, current owner or availability, whether a building occupies it, which footprints the character could legally build there given its own adjacent holdings, and every known blocker.
+- Adjacency is disclosed factually. A resident can see which neighbouring cells are free or owned, which is what makes assembling a larger footprint a decision rather than a guess.
+- Unaffordable or unavailable plots remain inspectable; their presence does not guarantee acquisition.
+- Acquisition revalidates funds, plot availability, and current policy versions. A resident may hold any number of plots.
 - Payment and ownership transfer are atomic and idempotent; rejection creates no partial charge or ownership change.
-- The external brain cannot declare price, ownership, district properties, or a mechanical land benefit.
-- Initial district and plot properties are configured and versioned according to the [building grammar policy](../rules/building-grammar-policy.md); dynamic land-value speculation remains future scope.
+- The external brain cannot declare price, ownership, coordinates, or a mechanical land benefit.
+- Price is uniform per cell in grammar version 2. Positional pricing, district modifiers, dynamic land value, and resale remain future scope, and the grid is what makes them addable later without moving anything.
 
-**Events and metrics:** `plots_viewed`, `plot_acquired`, `plot_acquisition_rejected`, plots acquired by district.
+**Events and metrics:** `plots_viewed`, `plot_acquired`, `plot_acquisition_rejected`, occupancy and clustering across the grid.
 
 **Dependencies:** AIT-301, AIT-402, AIT-904, AIT-1006.
 
@@ -41,21 +45,24 @@ As an external agent, I want to inspect and acquire a known buildable plot so th
 
 **Priority:** P1 · **Increment:** D · **Status:** To do
 
-**Specification:** Updated (2026-08-18)
+**Specification:** Updated (2026-08-19)
 
-As an external agent controlling a plot-owning character, I want to name and describe a building and select valid generic capabilities so that its narrative purpose comes from the resident rather than a developer-authored building type.
+As an external agent controlling a plot-owning character, I want to name and describe a building, choose its footprint, and decide what it delivers, so that its narrative purpose comes from the resident rather than a developer-authored building type.
 
 **Acceptance criteria**
 
 - The brain may freely propose a bounded name and description, including an invented kind of place.
-- It selects tags, profile dimensions, and capabilities only from controlled, versioned catalogs.
-- Mechanical profiles use budgets, bounds, prerequisites, and compatibility rules; selecting every positive dimension or capability at maximum is impossible.
+- It chooses a footprint from the approved set of 1 × 1, 1 × 2, 2 × 1, and 2 × 2 over contiguous cells it already owns, and the server derives capacity from that footprint alone.
+- It sets the building's **profile** over the ten controlled dimensions. The profile is what the building delivers, priced convexly rather than capped by a budget: a building can in principle promise everything, and no plausible run of wages can pay for it.
+- Because cost is convex in the total promised and neutral about its distribution, a resident must decide **which** dimensions to bet on. Focus is not enforced by a rule; it is what a limited budget buys the most value with, since affinity rewards a profile that matters intensely to some residents over one that mildly suits everyone.
+- Tags are derived from the profile, never submitted. Capabilities come from the controlled versioned catalog.
 - Free text never creates a mechanical effect, bypasses a requirement, or causes the server to classify the building as a nightclub, church, restaurant, or any other semantic type.
-- The brain cannot declare quality, capacity, revenue, attendance, construction cost, upkeep, or future Happiness.
-- Invalid combinations return actionable blockers without acquiring the plot again, charging the character, or creating a partial building.
+- The brain cannot declare capacity, revenue, attendance, construction cost, upkeep, or future Happiness.
+- Before confirmation the proposal discloses the derived construction cost, capacity, and recurring upkeep, so an unaffordable ambition is visible as a number rather than a rejection.
+- Invalid footprints, unowned or occupied cells, unknown dimensions, and incompatible capabilities return actionable blockers without re-acquiring a plot, charging the character, or creating a partial building.
 - The proposal persists both the free narrative identity and the structured mechanical profile, with their schema and policy versions.
 
-**Events and metrics:** `building_proposed`, `building_proposal_rejected`, selected capability and profile distribution.
+**Events and metrics:** `building_proposed`, `building_proposal_rejected`, footprint distribution, profile concentration, and how the two relate to later attendance.
 
 **Dependencies:** AIT-401, AIT-402, AIT-1401.
 
@@ -63,21 +70,22 @@ As an external agent controlling a plot-owning character, I want to name and des
 
 **Priority:** P1 · **Increment:** D · **Status:** To do
 
-**Specification:** Updated (2026-08-18)
+**Specification:** Updated (2026-08-19)
 
 As an external agent, I want to confirm construction after seeing its authoritative consequences so that my character's investment creates a persistent and mechanically valid place.
 
 **Acceptance criteria**
 
-- Before confirmation, the proposal discloses the server-derived construction cost, duration, capacity, initial quality, recurring upkeep, and resulting affordances.
-- Confirmation revalidates plot ownership, funds, construction limits, and the current validity of the structured proposal.
-- Construction payment, building creation, and plot occupation change atomically; a rejected command creates no partial state.
-- Completion creates one persistent, reachable world location with its proprietor, plot, status, profile, capabilities, and rule versions.
-- Quality derives from verified investment and policy inputs, never from promotional text or a client-submitted quality value.
+- Before confirmation, the proposal discloses the server-derived construction cost, duration, capacity, recurring upkeep, and resulting affordances.
+- Construction cost derives from the approved formula over footprint and profile, and upkeep derives from that cost, so ambition is both a large purchase and a recurring risk.
+- Confirmation revalidates ownership of every cell in the footprint, that no other building occupies them, funds, and the current validity of the structured proposal.
+- Construction payment, building creation, and occupation of every cell in the footprint change atomically; a rejected command creates no partial state.
+- Completion creates one persistent, reachable world location spanning its cells, with its proprietor, footprint, status, profile, derived tags, capabilities, capacity, and rule versions.
+- Capacity derives from footprint and the profile from paid investment, never from promotional text or a client-submitted value.
 - Restart and retry cannot create a duplicate building, location, or charge.
 - The first capability catalog contains `host_event`, `create_job`, `sell_access`, `sell_service`, and `accept_donation`; later capabilities remain additive and versioned.
 
-**Events and metrics:** `building_construction_started`, `building_activated`, `building_construction_rejected`, construction credits spent.
+**Events and metrics:** `building_construction_started`, `building_activated`, `building_construction_rejected`, construction credits spent against footprint and profile ambition.
 
 **Dependencies:** AIT-301, AIT-302, AIT-402, AIT-403, AIT-1402.
 
@@ -85,13 +93,15 @@ As an external agent, I want to confirm construction after seeing its authoritat
 
 **Priority:** P1 · **Increment:** D · **Status:** To do
 
-**Specification:** Updated (2026-08-18)
+**Specification:** Updated (2026-08-19)
 
-As an external agent, I want to inspect a known building and what is possible there so that I can decide how it relates to my character's preferences and semantic goals.
+As an external agent, I want to inspect a building and what is possible there so that I can decide how it relates to my character's preferences and semantic goals.
 
 **Acceptance criteria**
 
-- A resident can inspect the building's public name, description, proprietor character, district, capacity, quality, status, controlled profile, tags, and currently usable affordances.
+- Every **public** building is discoverable by any resident without a prior visit or invitation, under the [progressive decision-context contract](../rules/progressive-context-contract.md).
+- A resident can inspect the building's public name, description, proprietor character, grid position and footprint, capacity, status, controlled profile, derived tags, the character's own affinity with that profile, and currently usable affordances.
+- The disclosed profile is also the ceiling on what any experience hosted there can deliver, so a resident can tell what kind of evening the place is capable of before anything is scheduled.
 - Public experiences, jobs, services, access conditions, and occupancy are discoverable on demand without embedding all detail in every unrelated decision.
 - Affordances describe what can be attempted, not what the brain should choose.
 - Financial details remain private to the proprietor and authorized operator unless intentionally published by an allowed action.

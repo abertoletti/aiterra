@@ -22,7 +22,7 @@ const epicFiles = fs
 
 const epics = new Map();
 const stories = new Map();
-const specificationUpdated = new Set();
+const specificationUpdated = new Map();
 
 for (const epicFile of epicFiles) {
   const relativePath = path.join("docs", "product-backlog", "epics", epicFile);
@@ -77,8 +77,17 @@ for (const epicFile of epicFiles) {
     stories.set(storyId, story);
     epicStories.push(story);
 
-    if (section.includes("**Specification:** Updated (2026-08-18)")) {
-      specificationUpdated.add(storyId);
+    const reviewMarkers = [
+      ...section.matchAll(/\*\*Specification:\*\* Updated \((\d{4}-\d{2}-\d{2})\)/g),
+    ];
+    if (reviewMarkers.length > 1) {
+      fail(
+        `${relativePath}: ${storyId} carries ${reviewMarkers.length} specification-review markers; `
+          + "a story records only its most recent review.",
+      );
+    }
+    if (reviewMarkers.length === 1) {
+      specificationUpdated.set(storyId, reviewMarkers[0][1]);
     }
   }
 
@@ -217,13 +226,33 @@ if (!snapshotMatch) {
   fail("IMPLEMENTATION-STATUS full-backlog snapshot does not match parsed stories.");
 }
 
-const reviewLine = backlogReadme
-  .split(/\r?\n/)
-  .find((line) => line.startsWith("Stories materially clarified on 2026-08-18"));
-const reviewedIds = new Set(reviewLine?.match(/AIT-\d+/g) ?? []);
-for (const storyId of new Set([...reviewedIds, ...specificationUpdated])) {
-  if (reviewedIds.has(storyId) !== specificationUpdated.has(storyId)) {
-    fail(`README specification-review index disagrees with the marker on ${storyId}.`);
+const reviewIndex = new Map();
+for (const line of backlogReadme.split(/\r?\n/)) {
+  const indexedDate = line.match(/^Stories materially clarified on \*{0,2}(\d{4}-\d{2}-\d{2})\*{0,2} /);
+  if (!indexedDate) continue;
+  if (reviewIndex.has(indexedDate[1])) {
+    fail(`README indexes the ${indexedDate[1]} specification review more than once.`);
+    continue;
+  }
+  reviewIndex.set(indexedDate[1], new Set(line.match(/AIT-\d+/g) ?? []));
+}
+
+for (const [storyId, markerDate] of specificationUpdated) {
+  if (!reviewIndex.has(markerDate)) {
+    fail(`${storyId} is marked Updated (${markerDate}) but README indexes no ${markerDate} review.`);
+  } else if (!reviewIndex.get(markerDate).has(storyId)) {
+    fail(`${storyId} is marked Updated (${markerDate}) but is absent from that review's README index.`);
+  }
+}
+
+for (const [indexedDate, indexedIds] of reviewIndex) {
+  for (const storyId of indexedIds) {
+    const markerDate = specificationUpdated.get(storyId) ?? "no marker";
+    if (markerDate !== indexedDate) {
+      fail(
+        `README indexes ${storyId} under the ${indexedDate} review, but the story carries ${markerDate}.`,
+      );
+    }
   }
 }
 

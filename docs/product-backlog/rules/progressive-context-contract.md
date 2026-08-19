@@ -1,14 +1,18 @@
 # Progressive decision-context contract
 
-**Version:** 1 · **Updated:** 2026-08-19 · **Applies to:** AIT-207, AIT-909, AIT-1404, AIT-1502
+**Version:** 2 · **Updated:** 2026-08-19 · **Applies to:** AIT-207, AIT-909, AIT-1404, AIT-1502, AIT-1510
 
-Version 1 replaces the draft of 2026-08-18. It resolves the six decisions that blocked approval: baseline and delta schemas, catalog resources and pagination, selected-context lifecycle, caching and version compatibility, size budgets and overflow behavior, and telemetry.
+Version 1 replaced the draft of 2026-08-18. It resolved the six decisions that blocked approval: baseline and delta schemas, catalog resources and pagination, selected-context lifecycle, caching and version compatibility, size budgets and overflow behavior, and telemetry.
+
+Version 2 makes one word do real work. Version 1 promised that a catalog returns every **known** item without ever defining what makes an experience known, which left city-wide discovery resting on an undefined term. It defines public discoverability, adds the affinity value and its filter so a resident can find congenial gatherings among hundreds, and requires any filter that removes items to say how many it removed. Version 2 is additive: no version 1 field changes meaning, and a client that sends no new filter sees the version 1 response.
 
 ## Invariants
 
 - A routine observation does not carry every known job, course, experience, building, person, and rule in full.
 - Progressive disclosure is a transport and inference optimization. It is never a server-side judgement about what the character should consider.
 - A requested catalog returns every known matching item, including infeasible items with their stable blockers. `blocked` is never silently rendered as `unknown` or `absent`.
+- A **public** experience or building is known to every resident. Knowledge is a constraint on private facts, never a hidden gate on things the city publishes.
+- Any filter that removes matching items reports how many it removed. A short list is always distinguishable from an empty world.
 - Submission-time validation is always authoritative. Disclosed context reserves nothing.
 - Every projection remains limited to what the character can know.
 - A stateless model still receives the applicable rule subset and the exact current constraints for the decision it is making.
@@ -66,9 +70,9 @@ Each entry in `summaries` describes one catalog resource:
 | Resource | Request action | Item detail |
 | --- | --- | --- |
 | `opportunities` | `inspect_opportunities` | jobs and team jobs with requirements, schedule, duration, Energy cost, compensation, employer or building context, every known blocker |
-| `experiences` | `inspect_experiences` | profile, tags, price, window, planned duration, organizer, capacity, announced contributors, authorized attendee information |
-| `buildings` | `inspect_buildings` | district, profile, capabilities, quality when defined, proprietor character, operating state |
-| `plots` | `inspect_plots` | district, size, price, capacity constraints, district modifiers, availability |
+| `experiences` | `inspect_experiences` | profile, derived tags, own affinity, price, window, planned duration, capacity, present attendee count, entry and marginal Energy costs, own repetition outlook, feasibility with every blocker; later, organizer and announced contributors |
+| `buildings` | `inspect_buildings` | grid position, footprint, profile, derived tags, capabilities, proprietor character, capacity, operating state |
+| `plots` | `inspect_plots` | grid coordinates, price, adjacency and occupancy, buildable footprints, availability |
 | `courses` | `inspect_courses` | subject, prerequisites, duration, cost, effect declared by the applicable progression policy |
 | `people` | `inspect_people` | known residents, directional relationship, last known location when legitimately known |
 | `memory` | `inspect_memory` | governed by the [subjective claims and promises policy](subjective-memory-policy.md) |
@@ -90,7 +94,38 @@ Catalog requests reuse the scoped HMAC keyset cursor already approved in the [ow
 
 Ordering is deterministic and semantically neutral: time-bounded resources order by `startsAt` ascending then `id` ascending; every other resource orders by `id` ascending. The server does not rank a catalog by predicted usefulness, because ranking would be the server deciding what the character should consider.
 
-Filters are agent-selected only, and restricted to controlled fields: `locationId`, `districtId`, `profile`, `tag`, `startsAfter`, `startsBefore`, `maximumPrice`, `minimumCompensation`, `feasibleOnly`, `subjectCharacterId`. `feasibleOnly` is the single filter that removes blocked items; it must be requested explicitly by the brain, and the response then reports `blockedOmitted` with the excluded count.
+Filters are agent-selected only, and restricted to controlled fields per resource:
+
+| Resource | Filters |
+| --- | --- |
+| `opportunities` | `locationId`, `minimumCompensation`, `feasibleOnly` |
+| `experiences` | `locationId`, `startsAfter`, `startsBefore`, `tag`, `minimumAffinity`, `maximumPrice`, `feasibleOnly` |
+| `people` | `locationId`, `subjectCharacterId`, `feasibleOnly` |
+
+`tag` accepts only the ten dimension names owned by the [grammar policy](building-grammar-policy.md); an unknown name is rejected rather than silently matching nothing, because it is a taxonomy-version mismatch and an empty page would read as a city with nothing in it. `minimumAffinity` is bounded 0–100 and `maximumPrice` is non-negative; a value outside those is rejected rather than clamped.
+
+There is deliberately no separate `profile` filter. Tags **are** the dimensions, so `tag` already filters by what an item delivers, and a second spelling of one query is a second thing to keep consistent. `districtId` is not accepted at all until districts exist, since the grid carries no regions in grammar version 2.
+
+Every filter that removes matching items reports what it removed, in the same response:
+
+| Filter | Removes | Reports |
+| --- | --- | ---: |
+| `feasibleOnly` | items the character currently cannot do | `blockedOmitted` |
+| `tag`, `minimumAffinity`, `maximumPrice`, location and window filters | items outside the requested criteria | `filteredOmitted` |
+
+A response also carries `knownCount`, the size of the catalog before any filter, so the two omission counts can always be reconciled against the whole.
+
+Version 1 required this of `feasibleOnly` alone, which was enough while a catalog held twenty items and a brain could ask for all of them. It is not enough for a city: a resident filtering to `spirituality` and receiving two results has to be able to tell a quiet city from a narrow question, and only the omitted count distinguishes them.
+
+### Discoverability and affinity
+
+A **public** experience or building is discoverable by every resident from the moment it is published, with no prior contact, invitation, or visit. This makes the plain listing possible — a resident can ask for everything happening in the city — and it is what lets a proprietor's investment in a contributor or a profile reach an audience at all. A world where nobody can find out that a gathering exists has no reason for anyone to host one.
+
+The consequence is deliberate and worth stating: version 2 has **no word of mouth**. Publishing is city-wide and instantaneous, and privacy applies to attendee identities, financial detail, and private commitments rather than to the existence of a public gathering. Semi-private experiences, invitation-only access, and information that spreads through conversation are all later work, and none of them is presupposed by anything here.
+
+`affinity` is disclosed per experience, computed from the requesting character's own preference vector and the experience's profile under the grammar policy's delivery-weighted formula. Disclosing it is not server ranking: it is arithmetic over two vectors the character already holds, it is one of seven Realized-Happiness factors rather than a prediction of the evening, and the [Happiness policy](experience-happiness-policy.md) leaves the prediction itself to the brain. Withholding it would only force every runtime to recompute the same number from data it was already given.
+
+Ordering never uses it. The catalog stays sorted by `startsAt` and `id`, because sorting by affinity would be the server deciding what the character should consider, which is exactly what `minimumAffinity` leaves to the agent instead.
 
 ## Selected-context lifecycle
 
@@ -198,7 +233,7 @@ A response that cannot be produced within the ceiling without removing a known i
 
 ## Telemetry
 
-`decision_context_requested` records `characterId`, `resource`, `filterKeys`, `pageSize`, `resultCount`, `blockedCount`, `blockedOmitted`, `bytes`, `estimatedInputTokens`, `cacheHit`, `catalogVersion`, and `contextContractVersion`.
+`decision_context_requested` records `characterId`, `resource`, `filterKeys`, `pageSize`, `resultCount`, `blockedCount`, `blockedOmitted`, `filteredOmitted`, `bytes`, `estimatedInputTokens`, `cacheHit`, `catalogVersion`, and `contextContractVersion`.
 
 `decision_context_invalidated` records `characterId`, `resource`, `itemId`, `code`, and `wasPinned`.
 
@@ -210,6 +245,7 @@ Run-level metrics: baseline bytes per decision (p50 and p90), catalog bytes per 
 - `contextMode=progressive` becomes the default once every reference runtime has migrated.
 - AIT-202's `known opportunities` requirement is satisfied by the opportunity summary, its changed identifiers, and the selected or active opportunity.
 - Removing a field from the baseline requires a new contract version; adding one does not.
+- Version 2 adds response fields and filters without changing any version 1 field's meaning. A client that sends no new filter receives the version 1 response shape plus `affinity` and `filteredOmitted`, so runtimes migrate when they choose to and the twenty-agent gate keeps passing untouched.
 
 ## Required acceptance tests
 
@@ -224,3 +260,6 @@ Run-level metrics: baseline bytes per decision (p50 and p90), catalog bytes per 
 9. Overflow reduces page size and truncates free text without ever dropping a known item or a blocker.
 10. A cached catalog never suppresses a feasibility or blocker change.
 11. `contextMode=full` and `contextMode=progressive` expose the same set of known item identifiers for the same character and world state.
+12. An unfiltered experiences request returns every public experience in the city for a resident who has never visited or been invited anywhere.
+13. A `tag` or `minimumAffinity` filter reports `filteredOmitted`, and an unknown dimension name is rejected rather than matching nothing.
+14. Two residents with different preference vectors receive different `affinity` values for the same experience, and the same ordering.

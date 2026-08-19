@@ -18,6 +18,7 @@ Autonomous residents earn Credits, create a place that the developers did not se
 | Birth | creates identity, personality, preferences, and semantic goals | — | creates valid initial state |
 | Connection | connects a brain | authenticates and discovers rule versions | limits access to the authorized character |
 | Observation | follows the character | observes compact knowable state | returns a limited projection, summaries, and invalidations |
+| Discovery | — | lists what the city is offering, filtered by what the character cares about | publishes every public experience and building to every resident |
 | Investigation | — | requests relevant jobs, experiences, buildings, people, or memory | returns authorized details, including blocked choices, on demand |
 | Decision | — | interprets context and proposes an intention | validates and applies mechanical consequences |
 | Presence | — | chooses where to go and how long to remain | manages travel, duration, partial attendance, and co-presence |
@@ -27,7 +28,7 @@ Autonomous residents earn Credits, create a place that the developers did not se
 | Progression | follows outcomes and growth | chooses activities, courses, and strategies | updates skills, popularity, Domain Reputation, and score |
 | City making | follows the character's impact | acquires a plot and authors a building's meaning | validates land, profile, capabilities, cost, quality, and lifecycle |
 | Experience creation | follows what residents create | proposes experiences, services, jobs, and contributor roles | exposes affordances and validates funding, access, staffing, and capacity |
-| Participation | follows emergent gatherings | weighs Expected Happiness, Goals, Credits, Energy, and relationships | tracks actual attendance, interactions, contributors, and Realized Happiness |
+| Participation | follows emergent gatherings | predicts what an evening is worth, against Goals, Credits, Energy, and relationships | discloses the facts, records the prediction, and tracks actual attendance, interactions, contributors, and Realized Happiness |
 | Settlement | follows success or failure | funds, adapts, distributes, repurposes, or exits | settles transactions, upkeep, reputation, failure, and history |
 | Return | discovers what happened | — | reconstructs stories from persisted facts and attributed interpretations |
 
@@ -87,19 +88,20 @@ Expansion stories:
 - city, observability, and Energy enablers: AIT-1006, AIT-1007, AIT-1105;
 - deliberate progression: AIT-1205, AIT-1206;
 - land and buildings: AIT-1401–AIT-1407;
-- Experience and Happiness Engine: AIT-1501–AIT-1509;
+- Experience and Happiness Engine: AIT-1501–AIT-1510;
 - resident-created operations: AIT-1601–AIT-1609.
 
 The core vertical flow is:
 
 ```text
 earn and choose to invest
-  → inspect and acquire a plot
-  → author free meaning + select valid mechanical capabilities
+  → inspect the grid and acquire adjacent cells
+  → author free meaning + choose footprint, profile, and valid capabilities
   → construct a persistent building and pay recurring upkeep
-  → create a structured experience and funded contributor job
-  → independently apply, hire, travel, enter, interact, perform, and leave
-  → compare Expected with Realized Happiness
+  → create a structured experience within what the building can deliver, and a funded contributor job
+  → other residents find it in the city catalog, unfiltered or filtered by what they care about
+  → independently predict its worth, apply, hire, travel, enter, interact, perform, and leave
+  → compare the recorded prediction with Realized Happiness
   → settle revenue, wages, costs, reputation, and building health
   → expose factual and subjective consequences as a new story
 ```
@@ -125,6 +127,7 @@ The first Increment D vertical slice is complete when independent agents can, wi
 - experience at least one upkeep charge and one explicit failure or recovery transition;
 - publish and fill a generic contributor role between independently controlled characters;
 - create an experience whose attendees decide independently whether and how long to participate;
-- produce explainable Expected and Realized Happiness values that differ because of actual events;
+- have that experience found and attended by a resident who was never invited to it;
+- produce a Realized Happiness that differs from the attending brain's own recorded prediction because of actual events, with every factor explained;
 - generate verified economic, social, and Domain Reputation consequences without duplicate rewards;
 - reconstruct the complete plot-to-story causal chain from persisted events and policy versions.

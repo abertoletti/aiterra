@@ -60,7 +60,7 @@ As an owner, I want reliability and relevant public outcomes to affect general a
 
 **Priority:** P1 · **Increment:** C · **Status:** To do
 
-**Specification:** Updated (2026-08-18)
+**Specification:** Updated (2026-08-19)
 
 As an owner, I want to see an overall score and its components so that I can follow progression without confusing it with spendable wealth.
 
@@ -69,28 +69,32 @@ Formula ownership, component aggregation, and compatibility follow the [score po
 **Acceptance criteria**
 
 - Credits and score are distinct and non-interchangeable values.
-- Score comes from a versioned, configurable formula based at least on available wealth, relationships, skills, popularity, reputation, and achievements.
-- Happiness is always displayed separately; whether it contributes to Score and with what bounded weight is an explicit decision shared by the approved Happiness and score policies, not an implicit formula assumption.
+- Score comes from a versioned, configurable formula based at least on available wealth, relationships, skills, popularity, reputation, achievements, and `livedHappiness`.
+- **`livedHappiness` is the Happiness component, and the bounded `happiness` state is not.** A run is scored on the total a resident actually lived, which cannot be recovered late, rather than on how they happen to feel at the moment of counting.
+- `livedHappiness` enters through a bounded, concave, monotonic transform: more lived experience always scores more and each additional unit scores less, so an unbounded total cannot swamp the bounded components beside it.
+- Both Happiness quantities remain visible independently of Score, so an owner can see wellbeing without reading it off a ranking.
+- This component is load-bearing rather than decorative: the Happiness policy carries no low-Happiness debuff and relies on Score to make neglect cost something, so removing it reopens AIT-1509.
 - The view shows total score, each component, any Domain Reputation aggregation, and the formula version.
 - Diminishing returns prevent one dimension from dominating without limit.
 - Changing the formula does not alter underlying historical facts.
 
-**Events and metrics:** `score_viewed`, component distribution.
+**Events and metrics:** `score_viewed`, component distribution, `livedHappiness` share of total score.
 
-**Dependencies:** AIT-701, AIT-1201, AIT-1202.
+**Dependencies:** AIT-701, AIT-1201, AIT-1202, AIT-1501.
 
 ### AIT-1204 — Compare progression transparently
 
 **Priority:** P2 · **Increment:** C/post-MVP · **Status:** To do
 
-**Specification:** Updated (2026-08-18)
+**Specification:** Updated (2026-08-19)
 
 As an owner, I want to compare the character with others using public components so that I can experiment with different strategies and brains.
 
 **Acceptance criteria**
 
 - The leaderboard identifies metric, interval, and formula version.
-- The owner can distinguish wealth, social, career, popularity, Happiness when selected by policy, and general or Domain Reputation components.
+- The owner can distinguish wealth, social, career, popularity, `livedHappiness`, and general or Domain Reputation components.
+- A comparison makes the work-versus-life tradeoff legible: a resident who only worked and one who also lived are distinguishable by component, not only by total.
 - Private data and other agents' motivations are not exposed.
 - Suspended and test characters follow explicit inclusion rules.
 

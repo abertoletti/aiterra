@@ -24,7 +24,7 @@ Version 1 approves the costs an attendance actually incurs today: entry, duratio
 | Re-entry window | 60 world minutes |
 | `experienceEnergyPolicyVersion` | 1 |
 
-The initial cost matches the existing `energy.eventAttendanceCost`, so attendance does not silently become more expensive than it was before this policy existed. The marginal cost is deliberately lower per unit of time than work: two hours at a gathering costs 3 + 4 = 7 Energy, against 15 for a work shift.
+The initial cost is 3, matching what attendance cost before this policy existed, so attendance did not silently become more expensive. That earlier `energy.eventAttendanceCost` key has since been removed: it had been left in place beside `experience.entryEnergyCost` and was gating feasibility while the other was charged, so this policy's value is now the only one. The marginal cost is deliberately lower per unit of time than work: two hours at a gathering costs 3 + 4 = 7 Energy, against 15 for a work shift.
 
 Re-entering the same experience within the re-entry window does not repeat the initial cost; marginal presence keeps accruing across the visits. Beyond the window a fresh entry pays the initial cost again.
 

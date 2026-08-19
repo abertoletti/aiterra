@@ -1,20 +1,28 @@
 # Experience and Happiness policy
 
-**Version:** 1 · **Scope:** observation, attendance, and realized value · **Updated:** 2026-08-19 · **Applies to:** AIT-1203, AIT-1501, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1508, AIT-1509, AIT-1601, AIT-1606, AIT-1609
+**Version:** 2 · **Scope:** observation, attendance, realized value, and expectation ownership · **Updated:** 2026-08-19 · **Applies to:** AIT-1203, AIT-1501, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1508, AIT-1509, AIT-1510, AIT-1601, AIT-1606, AIT-1609
 
-Version 1 approves the subset the first vertical slice needs: what Happiness is, how preferences work, how realized value is computed from what actually happened, and the neglect pressure. The novelty reward, contributor value, venue quality, Expected-Happiness disclosure, and anti-collusion remain **Draft** and are listed at the end, so AIT-1503 and AIT-1506 through AIT-1509 stay blocked.
+Version 1 approved the subset the first vertical slice needs: what Happiness is, how preferences work, how realized value is computed from what actually happened, and the neglect pressure.
+
+Version 2 changes one thing and settles another:
+
+- **Expected Happiness leaves the server.** Estimating an evening in advance is the brain's work, not a published number. This deletes most of what AIT-1503 was waiting for and unblocks it.
+- **`livedHappiness` is where ignoring Happiness costs something.** It is an approved component of the [progression score policy](score-policy.md), which closes the circularity version 1 left open.
+
+The novelty reward, contributor value, venue quality, RSVP visibility, and anti-collusion remain **Draft** and are listed at the end, so AIT-1506 through AIT-1509 stay blocked.
 
 Version 1 exists because the first seven-agent pilot measured what a world without incentives produces: 77% of all actions were conversation, 6% was work, and no character adopted a single goal in 165 actions. Credits had no sink, so working meant nothing. Happiness is the sink and the second feedback signal.
 
 ## Invariants
 
 - Happiness state is bounded and server-authoritative, and the lived total is unbounded. Both are distinct from Credits, Energy, skills, relationships, popularity, reputation, and goals.
-- Characters and experiences use the profile dimensions owned by the [city, building, and experience grammar policy](building-grammar-policy.md), version 1. This policy normalizes and values them; it never redefines them.
+- Characters, experiences, and buildings use the profile dimensions owned by the [city, building, and experience grammar policy](building-grammar-policy.md), version 2. This policy normalizes and values them; it never redefines them.
 - Realized Happiness uses what actually happened and can be positive, neutral, or negative.
 - Presence of a valued person raises expectation as an opportunity. Material realized social value requires verified interaction.
 - Free descriptions stay visible to the brain for interpretation and produce no numeric factor.
 - Goal Alignment and semantic goal text are not Happiness inputs.
 - A brain can never submit a Happiness delta, choose a weight, or retune a preference vector.
+- The server never predicts an experience's value. It discloses the facts an estimate needs and records the estimate the brain declares.
 
 ## Happiness is two quantities
 
@@ -31,6 +39,8 @@ So a wonderful evening at happiness 95 barely moves the state - correctly, that 
 
 livedHappiness accumulates the raw delta of everything **lived**: resolved experiences and completed work. Passive decay lowers the state but takes nothing from the total, because decay is the absence of an experience rather than an experience.
 
+`livedHappiness` is the quantity that enters Score, and `happiness` is not. That division follows from what each one is: a bounded state says how a resident is doing now and is the wrong thing to rank on, because everyone converges toward the middle of it and a single good evening before the count would distort it. The lived total is a record of an entire run and cannot be recovered late. Both stay independently visible to the owner, and the score policy owns the concave transform that keeps an unbounded total from dominating every other component.
+
 ## Happiness value
 
 | Rule | Value |
@@ -38,7 +48,9 @@ livedHappiness accumulates the raw delta of everything **lived**: resolved exper
 | Range | 0–100, integer |
 | Initial value | 50 |
 | Bounded change per resolved experience | −15 to +15 before saturation |
-| `happinessPolicyVersion` | 1 |
+| `happinessPolicyVersion` | 2 |
+
+The stamp moves to 2 because a resolution now records a declared expectation that a version 1 resolution could not have. **The realized arithmetic is unchanged from version 1**: every factor, bound, and weight below is identical, so no stored resolution needs recomputing and no preference vector needs migrating.
 
 Saturation is applied on write, so Happiness approaches its bounds and never reaches them abruptly:
 
@@ -54,15 +66,53 @@ A resident at 90 gains a tenth of a raw improvement; one at 10 loses a tenth of 
 
 A character's preference vector uses the ten approved dimensions with the approved budget of 500. It is initialized at creation, either from the character's configured preferences or, when none are configured, as an even spread of 50 across all ten.
 
-Preferences are stable: version 1 defines no mechanism that changes them. A later version may introduce one, and it must be explicit and versioned rather than opportunistic.
+Preferences are stable: this policy defines no mechanism that changes them. A later version may introduce one, and it must be explicit and versioned rather than opportunistic.
 
-The observation exposes the character's own Happiness, its own preference vector, the recent causes of its Happiness changes, and this policy version. A character never sees another character's Happiness or preferences.
+The observation exposes the character's own `happiness`, its own `livedHappiness`, its own preference vector, the recent causes of its Happiness changes, and this policy version. A character never sees another character's Happiness or preferences.
+
+## Expected Happiness belongs to the brain
+
+**The server publishes no Expected Happiness.** There is no server-computed estimate, no range, and no uncertainty model.
+
+This is the same decision the design already made about Goal Alignment, applied to the other side of the pipeline, and for the same reason. A published estimate stops being information and becomes an instruction: agents sort the catalog by the number and attend the top of it, every brain converges on the same behaviour, and the server has quietly resumed telling characters what to want. Estimation is also the most interesting judgement in the game — reading a description, weighing who might come, guessing whether a place has gone stale — and handing it to a formula removes it from the player who owns the brain.
+
+So the division is:
+
+| | Owns |
+| --- | --- |
+| server | the facts, and the resolved outcome |
+| brain | the prediction |
+
+### What the server discloses instead
+
+An estimate is only fair if the facts behind it are available, so the disclosure obligation is the price of this decision. Beyond the experience detail owned by the [progressive decision-context contract](progressive-context-contract.md), a character may request, for itself:
+
+- its own preference vector, current `happiness`, and `livedHappiness`;
+- the delivery-weighted `affinity` of any listed experience, since it is a deterministic function of two vectors the character already holds;
+- **its own repetition state**: how many of its resolved attendances in the repetition window were at this location or shared this dominant dimension, and what the resulting factor would currently be;
+- its own resolved history at that location and for that kind of experience, with the recorded factor breakdowns;
+- the full Realized-Happiness rules, from the manifest.
+
+Repetition state is the one that cannot be omitted. It is the only factor derived from private server-side history rather than from something visible in the world, so a brain that cannot see it would be surprised by a penalty it had no way to anticipate — and would learn nothing from the surprise except that the world is arbitrary.
+
+### The declared expectation
+
+A brain **may** attach a bounded `expectedHappiness` integer, in the −15..+15 raw scale, to `experience_join`. It is optional, and omitting it is never penalized.
+
+The server records it and does nothing else with it. It is not an input to resolution, it cannot be revised after entry, and no mechanic reads it.
+
+It exists for two reasons, both of which need it persisted rather than computed:
+
+- **the story.** "Jack thought it would be a great evening and it went badly" is only reconstructable from facts if what Jack expected is one of the facts. Without it, the feed can report a disappointing evening but not a disappointment.
+- **the measurement.** Expected-versus-realized error is the metric that says whether brains are learning to read the world. Against a server-computed estimate it would only ever have measured the server's own formula against itself.
+
+Resolution records the declared expectation beside the realized delta and their difference, and the character-safe outcome explains the major factual causes of the gap.
 
 ## Realized Happiness
 
-Resolution happens **exactly once** per attendance, at whichever comes first: the character's departure, the experience's end, or its terminal cancellation. A resolution records every input, the raw delta, the applied delta, and the policy version.
+Resolution happens **exactly once** per attendance, at whichever comes first: the character's departure, the experience's end, or its terminal cancellation. A resolution records every input, the raw delta, the applied delta, the declared expectation when one was given, and the policy version.
 
-Version 1 uses seven factors, each bounded, summed and then clamped to the −15..+15 raw range:
+Version 2 uses seven factors, each bounded, summed and then clamped to the −15..+15 raw range:
 
 | Factor | Range | Derived from |
 | --- | ---: | --- |
@@ -106,7 +156,7 @@ Importance rises with the magnitude of a relationship in either direction, so an
 
 Outcome is the only term that can turn the factor negative, and it is **declared by the perceiving brain** through the appraisal it already submits. No server-side classifier reads free text, and no LLM is involved in deciding whether an evening went well.
 
-topicFit is how interaction quality is measured without a classifier. A turn may declare at most two topics from the controlled taxonomy; the listener's own preference for those topics decides whether it landed. An undeclared turn is neutral, so declaring nothing is never punished — only declaring badly.
+topicFit is how interaction quality is measured without a classifier. A turn may declare at most two topics, drawn from the same ten dimension names the [grammar policy](building-grammar-policy.md) uses for profiles and tags; the listener's own preference for those topics decides whether it landed. An undeclared turn is neutral, so declaring nothing is never punished — only declaring badly.
 
 Both terms read only the character's own direction, so neither discloses nor depends on how the other resident feels.
 
@@ -170,13 +220,15 @@ A resident who only works and never gathers drifts down toward 25 and stays ther
 
 ## The cost of ignoring Happiness
 
-Version 1 has **no** direct penalty for low Happiness. The earlier rest-recovery reduction was removed once the run's win condition was settled: a run is won on accumulated Credits, Happiness, and relationships, so ignoring Happiness already costs a resident the thing it is playing for. A second, mechanical punishment on top of losing would be double-charging the same choice.
+There is **no** direct penalty for low Happiness. The earlier rest-recovery reduction was removed once the run's win condition was settled: a run is won on accumulated Credits, `livedHappiness`, and relationships, so ignoring Happiness already costs a resident the thing it is playing for. A second, mechanical punishment on top of losing would be double-charging the same choice.
+
+Version 2 makes that argument load-bearing rather than rhetorical. It rested on a win condition that the score policy had not actually committed to, which left the requirement satisfied by a promise; `livedHappiness` is now an approved Score component with a defined weight, so the cost is real and measurable. A resident who works for an entire run and never lives finishes with Credits and a lived total near zero, and loses to one who did both.
 
 That satisfies the draft's requirement that ignoring low Happiness must cost something, and it satisfies it better, because the cost is the game rather than a debuff.
 
 Work now carries a Happiness cost of **1.5** per completed job, applied before saturation. This is the other half of the same idea: a resident who only works accumulates Credits and loses the thing Credits were supposed to buy. It makes the work-versus-life tension mechanical instead of rhetorical.
 
-## Anti-hacking, in version 1
+## Anti-hacking, in version 2
 
 - Resolution is once per attendance, keyed by character and experience, and is replay-safe.
 - Re-entering the same experience does not resolve a second time; presence accumulates and resolves once.
@@ -188,4 +240,19 @@ Work now carries a Happiness cost of **1.5** per completed job, applied before s
 
 ## Still Draft
 
-Expected Happiness and its uncertainty model and disclosure (AIT-1503), the novelty reward and a finer profile-similarity function, contributor value, the bounded venue-quality factor, RSVP visibility and consent, Happiness participation in Score, and collusion protections across contributors. Every numeric value above is calibration for a first run, not a balanced economy.
+The novelty reward and a finer profile-similarity function; cross-occasion diminishing returns for repeated interaction with the same counterpart, which the per-conversation saturation and the first-meeting novelty step do not yet cover; contributor value; the bounded venue-quality factor, which the grammar policy has now narrowed to whether a separate quality value is needed at all once a building profile is priced; RSVP visibility and consent; and collusion protections across contributors.
+
+Two entries left this list in version 2. Expected Happiness is no longer draft because it is no longer the server's, and Happiness participation in Score is decided.
+
+Every numeric value above is calibration for a first run, not a balanced economy.
+
+## Measured, 2026-08-19: what the first run says about these numbers
+
+A thirty-minute seven-agent run produced 8 resolutions, 75% positive, mean +3.97, with the full per-factor breakdown recorded in [the implementation status](../IMPLEMENTATION-STATUS.md). Four results bear directly on values this policy sets, and each is evidence for a decision rather than a decision:
+
+- **`presenceValue` contributed 0.00 in every resolution.** Its `/200` divisor requires ±400 of summed outgoing affinity minus tension for a full ±2, which new relationships never reach. Either the scale is wrong or the factor is doing nothing the interaction factor does not already do.
+- **`crowd` (+1.00 mean) outweighed `interaction` (+0.42 mean) more than twofold.** The invariant above says material realized social value requires verified interaction; a ±2 step for the size of the room currently beats talking to anyone in it. The pair to compare is no longer presence against interaction but crowd against interaction.
+- **The repetition window and the novelty reward remain uncalibrated for lack of exploration**, not for lack of a run: every resident attended exactly one venue, so the penalty fired once in the whole run.
+- **Passive decay cannot fire in a pilot at all.** A one-world-day window against a 180-world-minute run means the mandatory neglect pressure is unobservable, so no run can currently validate the one pressure this policy requires to be active.
+
+None of these change an approved value. They are the measurements the deferred work needs, and the first two are the reason the AIT-1506 calibration should be settled before the AIT-1507 one.
