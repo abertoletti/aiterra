@@ -259,7 +259,7 @@ test("repeating the same venue makes the evening worse", () => {
   assert.ok(factors[2].affinity === factors[0].affinity, "the venue did not change, only the repetition");
 });
 
-test("neglect decays happiness toward a floor, and low happiness costs rest", () => {
+test("neglect decays happiness, and working costs it too", () => {
   const { world, clock } = experienceWorld();
   // A resident who never gathers drifts down, one world day at a time.
   clock.advanceGameMinutes(1440 * 3);
@@ -268,16 +268,22 @@ test("neglect decays happiness toward a floor, and low happiness costs rest", ()
   assert.ok(decayed.length >= 1, "neglect is applied by the world, not by the agent");
   assert.equal(world.getObservation("jack").character.happiness, 47, "three world days without an experience");
 
-  // Below the threshold, rest recovers less. Push Jack down and compare.
-  world.changeHappiness("jack", -15, "test");
-  world.changeHappiness("jack", -15, "test");
-  world.changeHappiness("jack", -15, "test");
-  const low = world.getObservation("jack").character.happiness;
-  assert.ok(low < 30, `expected a listless resident, got ${low}`);
+  // Working pays Credits and costs Happiness, so the tension is real.
+  world.createSystemJob({
+    id: "shift", title: "A shift", locationId: "club",
+    durationGameMinutes: 20, compensation: 40,
+  });
+  world.acceptJob("jack", "shift");
+  world.startJob("jack", "shift");
+  const before = world.getObservation("jack").character.happiness;
+  clock.advanceGameMinutes(21);
+  world.advanceTo(clock.now());
 
-  world.changeEnergy("jack", -60, "test");
-  const rest = world.getObservation("jack").availableActions.find((action) => action.type === "rest");
-  assert.equal(rest.expectedRecovery, 20, "25 base recovery, reduced by 20% while listless");
+  const jack = world.getObservation("jack").character;
+  assert.ok(jack.credits > 500, "the shift paid");
+  assert.ok(jack.happiness < before, "and cost happiness");
+  assert.ok(world.history.some((event) => event.type === "HAPPINESS_CHANGED"
+    && event.data.reason === "work_completed"), "recorded with its cause");
 });
 
 test("a character sees its own happiness and never another's", () => {

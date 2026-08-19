@@ -54,7 +54,7 @@ Version 1 uses seven factors, each bounded, summed and then clamped to the −15
 | Profile affinity | −6 to +9 | `(affinity − 40) × 0.15`, where affinity is the approved delivery-weighted preference |
 | Social value | −5 to +5 | the character's own directional relationships with residents actually co-present |
 | Participation | −4 to +2 | actual presence against the experience's planned duration |
-| Verified interaction | 0 to +4 | conversation turns the character actually took while present, +1 each, capped |
+| Verified interaction | 0 to +4 | conversation turns the character actually took while present, saturating |
 | Crowd context | −2 to +2 | count of other residents actually co-present, against capacity |
 | Repetition | −5 to 0 | the character's own recent resolutions at this place or this kind of experience |
 | Variance | −1.5 to +1.5 | drawn once per resolution and recorded as a factor |
@@ -131,15 +131,19 @@ The mandatory pressure is passive decay, chosen over an overwork cost because it
 
 A resident who only works and never gathers drifts down toward 25 and stays there. The floor keeps the pressure bounded: neglect makes a character listless, never destroys them.
 
-## Low-Happiness consequence
+## The cost of ignoring Happiness
 
-Below **30**, rest recovers **20% less** Energy, rounded down. A listless character sleeps worse, so it has less Energy for work and conversation, which is a material cost that blocks nothing and needs no new mechanic. Recovery is immediate: the reduction applies only while Happiness is under 30.
+Version 1 has **no** direct penalty for low Happiness. The earlier rest-recovery reduction was removed once the run's win condition was settled: a run is won on accumulated Credits, Happiness, and relationships, so ignoring Happiness already costs a resident the thing it is playing for. A second, mechanical punishment on top of losing would be double-charging the same choice.
+
+That satisfies the draft's requirement that ignoring low Happiness must cost something, and it satisfies it better, because the cost is the game rather than a debuff.
+
+Work now carries a Happiness cost of **1.5** per completed job, applied before saturation. This is the other half of the same idea: a resident who only works accumulates Credits and loses the thing Credits were supposed to buy. It makes the work-versus-life tension mechanical instead of rhetorical.
 
 ## Anti-hacking, in version 1
 
 - Resolution is once per attendance, keyed by character and experience, and is replay-safe.
 - Re-entering the same experience does not resolve a second time; presence accumulates and resolves once.
-- Interaction value counts only turns the character itself took while actually present.
+- Interaction value counts only turns the character itself took while actually present, and saturates as `4 × (1 − e^(−0.55·turns))`: a flat cap invites hitting the cap exactly, while saturation has no threshold to aim at.
 - Crowd context counts authoritative co-presence, never announced or private RSVPs.
 - Repeating the same place or the same kind of experience is penalized by the repetition factor, so a resident cannot farm one profile-matched gathering. What remains open is the reward for genuine novelty, which makes the world stingy rather than exploitable.
 

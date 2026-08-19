@@ -431,10 +431,11 @@ export class World {
     const share = presenceMinutes / plannedMinutes;
     const participation = share < 0.10 ? -4 : share < 0.40 ? -2 : share < 0.75 ? 0 : 2;
 
-    const interaction = Math.min(
-      policy.interactionValueMaximum,
-      (attendance?.conversationTurns ?? 0) * policy.interactionValuePerTurn,
-    );
+    // Saturating rather than capped: with a flat cap the exploit is to hit the cap
+    // exactly, and there is no threshold to aim at here.
+    const turns = attendance?.conversationTurns ?? 0;
+    const interaction = round2(policy.interactionValueMaximum
+      * (1 - Math.exp(-policy.interactionSaturationK * turns)));
 
     const capacity = gathering.capacity ?? null;
     const crowd = capacity === null
@@ -2128,6 +2129,11 @@ export class World {
             processingDelayWorldMilliseconds: Math.max(0, this.clock.now() - new Date(activity.expectedEndAt)),
           },
         });
+        for (const workerId of workerIds) {
+          this.changeHappiness(workerId, -this.config.happiness.completedWorkCost, "work_completed", {
+            causedByEventIds: [completed.id], worldTime: activity.expectedEndAt,
+          });
+        }
         this.record("JOB_ESCROW_SETTLED", {
           actorCharacterId: job.creatorId,
           subjectCharacterId: character.id,
@@ -2169,18 +2175,12 @@ export class World {
     this.applyHappinessDecay(target);
   }
 
-  // The mandatory neglect pressure. A resident who only works and never gathers
-  // drifts toward the floor and stays there; the floor keeps it bounded.
-  // The low-Happiness consequence: a listless resident sleeps worse, so it has less
-  // Energy for work and conversation. Material, bounded, and it blocks nothing.
   restRecoveryFor(character) {
-    const base = this.config.energy.restRecovery;
-    const reduced = character.happiness !== undefined && character.happiness < this.config.happiness.lowThreshold
-      ? Math.floor(base * (1 - this.config.happiness.lowRestRecoveryPenalty))
-      : base;
-    return Math.min(reduced, this.config.energy.maximum - character.energy);
+    return Math.min(this.config.energy.restRecovery, this.config.energy.maximum - character.energy);
   }
 
+  // The neglect pressure. A resident who only works and never gathers drifts toward
+  // the floor and stays there; the floor keeps it bounded.
   applyHappinessDecay(targetWorldTime) {
     const policy = this.config.happiness;
     const target = new Date(targetWorldTime);

@@ -65,8 +65,11 @@ export const defaultConfig = Object.freeze({
     decayPerWorldDay: 1,
     decayWindowWorldMinutes: 1440,
     decayFloor: 25,
-    lowThreshold: 30,
-    lowRestRecoveryPenalty: 0.2,
+    // Work pays Credits and costs Happiness, so the work/play tension is real rather
+    // than rhetorical: a resident who only works is choosing Credits over a life.
+    completedWorkCost: 1.5,
+    // Interaction value saturates per person: MaxReward x (1 - e^(-k x turns)).
+    interactionSaturationK: 0.55,
   },
   // Experience Energy policy v1 and experience commerce policy v1.
   experience: {
