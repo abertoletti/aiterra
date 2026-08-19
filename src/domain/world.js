@@ -3143,6 +3143,7 @@ export class World {
       rules: {
         version: this.config.rules.version,
         realHoursPerGameDay: this.config.clock.realHoursPerGameDay,
+        unavailableAfterMissedResponses: this.config.timing.unavailableAfterMissedResponses,
         maximumEnergy: this.config.energy.maximum,
         movementEnergyCost: this.config.energy.movementCost,
         workEnergyCost: this.config.energy.workCost,

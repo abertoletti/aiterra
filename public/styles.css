@@ -279,7 +279,6 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
   cursor: default;
 }
 
-.city-map .cell.owned { background: rgba(207, 139, 40, .28); }
 .city-map .cell.seeded { background: var(--blue); color: var(--paper); }
 .city-map .cell.building { background: var(--green); color: var(--paper); }
 .city-map .cell.rising {
@@ -310,7 +309,7 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 .city-legend .swatch.building { background: var(--green); }
 .city-legend .swatch.rising { background: var(--amber); }
 .city-legend .swatch.delinquent { background: var(--coral); }
-.city-legend .swatch.owned { background: rgba(207, 139, 40, .28); }
+.city-legend .swatch.free { background: rgba(104, 115, 110, .09); border: 1px solid var(--line); }
 
 .building-list {
   display: flex;
@@ -555,3 +554,96 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 .built-badge { font-size: 10.5px; color: var(--green); white-space: nowrap; }
 
 .standings-note { margin: 10px 0 0; font-size: 11px; color: var(--muted); max-width: 62ch; }
+
+/* Pages. One long scroll made the map, the jobs and the resident detail compete for the
+   same attention; each page now answers one question. */
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 clamp(16px, 4vw, 40px);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  overflow-x: auto;
+}
+
+.tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 13px 16px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--green); }
+.tab:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+
+.tab-badge:empty { display: none; }
+.tab-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(104, 115, 110, .18);
+  font-size: 10.5px;
+  font-weight: 700;
+  display: inline-grid;
+  place-items: center;
+}
+.tab-badge.alert { background: var(--coral); color: var(--paper); }
+
+.page {
+  padding: clamp(18px, 3vw, 30px) clamp(16px, 4vw, 40px) 60px;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(16px, 2.4vw, 26px);
+}
+
+.page[hidden] { display: none; }
+
+.page-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: clamp(14px, 2vw, 22px); align-items: start; }
+.page-column { display: flex; flex-direction: column; gap: clamp(14px, 2vw, 22px); }
+.city-grid { grid-template-columns: minmax(340px, 1.15fr) minmax(300px, 1fr); }
+.economy-grid { grid-template-columns: minmax(340px, 1.4fr) minmax(280px, 1fr); }
+
+@media (max-width: 860px) {
+  .city-grid, .economy-grid { grid-template-columns: 1fr; }
+}
+
+.brain-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.brain-chip.good { background: var(--mint); color: #0b4a37; }
+.brain-chip.poor { background: var(--coral); color: var(--paper); }
+.residents-table tr.brain-down { background: rgba(229, 104, 79, .06); }
+
+/* A building card shows what the place delivers, not just what it is called: the profile
+   is what it was priced on and the ceiling on every night hosted there. */
+.meters.compact { margin: 10px 0 12px; gap: 3px; }
+.meters.compact .meter { grid-template-columns: 74px 1fr 26px; font-size: 10.5px; }
+.meters.compact .meter-track { height: 5px; }
+
+.building-capacity { text-align: right; line-height: 1.1; }
+.building-capacity strong { font-size: 17px; display: block; }
+.building-capacity span { font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+
+.location-signals .positive { color: var(--green); }
+.location-signals .negative { color: var(--coral); }
+.live-now { color: var(--green); font-weight: 600; }

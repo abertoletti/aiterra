@@ -18,15 +18,36 @@ test("the world observer declares every dashboard mount point used by its script
   assert.match(script, /conversationTurnEnergyCost/);
 });
 
-test("world operations and selected resident are separate observer sections", () => {
+test("the observer is paged, and every tab has a page to show", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
-  const worldSection = html.indexOf('class="observer-section world-section"');
-  const residentSection = html.indexOf('class="observer-section resident-section"');
+  const script = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+
+  // One long scroll made the map, the job board and one resident's life compete for the
+  // same attention. Each page now answers a single question.
+  const tabs = [...html.matchAll(/data-page="([a-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(tabs, ["overview", "residents", "city", "economy", "health"]);
+  for (const page of tabs) {
+    assert.match(html, new RegExp(`id="page-${page}"`), `missing the ${page} page`);
+  }
+  assert.match(script, /const pages = \["overview", "residents", "city", "economy", "health"\]/,
+    "the router and the tab bar must agree on the page list");
+
+  // World operations and one resident's detail stay separate sections, in that order.
+  const worldSection = html.indexOf("observer-section world-section");
+  const residentSection = html.indexOf("observer-section resident-section");
   const residentTitle = html.indexOf(">Selected Resident<");
   const picker = html.indexOf('id="character-select"');
-
   assert.ok(worldSection >= 0);
   assert.ok(residentSection > worldSection);
   assert.ok(residentTitle > residentSection);
   assert.ok(picker > residentTitle, "the resident picker should sit beside the selected-resident heading");
+});
+
+test("the health page exists, because a run once stalled in silence", () => {
+  const script = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+  // Four of seven brains stopped answering for two hours while the dashboard showed a
+  // busy world. Availability is now a first-class page with its own tab badge.
+  assert.match(script, /agentAvailability/);
+  assert.match(script, /consecutiveMissedResponses/);
+  assert.match(script, /healthBadge/);
 });

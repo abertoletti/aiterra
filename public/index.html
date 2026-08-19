@@ -20,92 +20,52 @@
       </div>
     </header>
 
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Observer pages">
+      <button class="tab" role="tab" data-page="overview" aria-selected="true">Overview</button>
+      <button class="tab" role="tab" data-page="residents" aria-selected="false">Residents</button>
+      <button class="tab" role="tab" data-page="city" aria-selected="false">City</button>
+      <button class="tab" role="tab" data-page="economy" aria-selected="false">Economy</button>
+      <button class="tab" role="tab" data-page="health" aria-selected="false">Health<span class="tab-badge" id="health-badge"></span></button>
+    </nav>
+
     <main>
-      <section class="observer-section world-section" aria-label="World operations">
-        <div class="world-overview" aria-live="polite">
-          <div class="summary-grid" id="world-summary">
-            <p class="loading">Measuring the world…</p>
-          </div>
+      <!-- OVERVIEW: the world in one screen. Who is ahead, what just happened, is
+           anything wrong. Everything else is one tab away. -->
+      <section class="page observer-section world-section" id="page-overview" aria-label="World operations">
+        <div class="summary-grid" id="world-summary">
+          <p class="loading">Measuring the world…</p>
+        </div>
 
-          <div class="world-layout">
-            <section class="overview-panel locations-panel">
-              <div class="section-heading compact">
-                <div><p class="eyebrow">Spatial pulse</p><h2>Places</h2></div>
-                <span class="section-meta" id="location-meta"></span>
-              </div>
-              <div class="location-grid" id="location-grid"></div>
-            </section>
-
-            <section class="overview-panel standings-panel">
-              <div class="section-heading compact">
-                <div><p class="eyebrow">Who is ahead</p><h2>Standings</h2></div>
-                <span class="section-meta" id="standings-meta"></span>
-              </div>
-              <div class="standings" id="standings"></div>
-              <p class="standings-note" id="standings-note"></p>
-            </section>
-
-            <section class="overview-panel residents-panel">
-              <div class="section-heading compact">
-                <div><p class="eyebrow">Everyone, at a glance</p><h2>Residents</h2></div>
-                <span class="section-meta" id="residents-meta"></span>
-              </div>
-              <div class="residents-table" id="residents-table"></div>
-            </section>
-
-            <section class="overview-panel city-panel">
-              <div class="section-heading compact">
-                <div><p class="eyebrow">The city as built</p><h2>Map</h2></div>
-                <span class="section-meta" id="city-meta"></span>
-              </div>
-              <div class="city-map" id="city-map"></div>
-              <div class="city-legend">
-                <span><i class="swatch seeded"></i>seeded place</span>
-                <span><i class="swatch building"></i>building</span>
-                <span><i class="swatch rising"></i>under construction</span>
-                <span><i class="swatch delinquent"></i>delinquent</span>
-                <span><i class="swatch owned"></i>owned plot</span>
-              </div>
-              <div class="building-list" id="building-list"></div>
-            </section>
-
-            <section class="overview-panel economy-panel">
-              <div class="section-heading compact">
-                <div><p class="eyebrow">System health</p><h2>Economy & rules</h2></div>
-              </div>
-              <div id="economy-overview"></div>
-            </section>
-          </div>
-
-          <section class="overview-panel jobs-panel">
+        <div class="page-grid">
+          <section class="overview-panel standings-panel">
             <div class="section-heading compact">
-              <div><p class="eyebrow">Opportunity market</p><h2>Jobs</h2></div>
-              <span class="section-meta" id="job-meta"></span>
+              <div><p class="eyebrow">Who is ahead</p><h2>Standings</h2></div>
+              <span class="section-meta" id="standings-meta"></span>
             </div>
-            <div class="job-list" id="job-list"></div>
+            <div class="standings" id="standings"></div>
+            <p class="standings-note" id="standings-note"></p>
           </section>
 
-          <div class="world-layout lower-layout">
-            <section class="overview-panel events-panel">
-              <div class="section-heading compact">
-                <div><p class="eyebrow">Shared moments</p><h2>World events</h2></div>
-                <span class="section-meta" id="event-meta"></span>
-              </div>
-              <div class="event-list" id="event-list"></div>
-            </section>
-
-            <section class="overview-panel activity-panel">
-              <div class="section-heading compact">
-                <div><p class="eyebrow">Global history</p><h2>Latest activity</h2></div>
-                <span class="section-meta" id="world-event-count"></span>
-              </div>
-              <ol class="world-activity" id="world-activity"></ol>
-            </section>
-          </div>
+          <section class="overview-panel activity-panel">
+            <div class="section-heading compact">
+              <div><p class="eyebrow">Global history</p><h2>Latest activity</h2></div>
+              <span class="section-meta" id="world-event-count"></span>
+            </div>
+            <ol class="world-activity" id="world-activity"></ol>
+          </section>
         </div>
       </section>
 
-      <section class="observer-section resident-section" aria-labelledby="resident-section-title">
+      <!-- RESIDENTS: everyone at a glance, then one life in full. -->
+      <section class="page observer-section resident-section" id="page-residents" aria-labelledby="resident-section-title" hidden>
+        <section class="overview-panel residents-panel">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">Everyone, at a glance</p><h2>Residents</h2></div>
+            <span class="section-meta" id="residents-meta"></span>
+          </div>
+          <div class="residents-table" id="residents-table"></div>
+        </section>
+
         <div class="character-section-heading">
           <div class="resident-heading-copy">
             <p class="eyebrow">Resident detail</p>
@@ -138,6 +98,79 @@
             </ol>
           </section>
         </div>
+      </section>
+
+      <!-- CITY: the grid as it actually stands, the places on it, and what is on. -->
+      <section class="page" id="page-city" aria-label="The city" hidden>
+        <div class="page-grid city-grid">
+          <section class="overview-panel city-panel">
+            <div class="section-heading compact">
+              <div><p class="eyebrow">The city as built</p><h2>Map</h2></div>
+              <span class="section-meta" id="city-meta"></span>
+            </div>
+            <div class="city-map" id="city-map"></div>
+            <div class="city-legend">
+              <span><i class="swatch seeded"></i>seeded place</span>
+              <span><i class="swatch building"></i>building</span>
+              <span><i class="swatch rising"></i>under construction</span>
+              <span><i class="swatch delinquent"></i>delinquent</span>
+              <span><i class="swatch free"></i>free ground</span>
+            </div>
+            <div class="building-list" id="building-list"></div>
+          </section>
+
+          <div class="page-column">
+            <section class="overview-panel locations-panel">
+              <div class="section-heading compact">
+                <div><p class="eyebrow">Spatial pulse</p><h2>Places</h2></div>
+                <span class="section-meta" id="location-meta"></span>
+              </div>
+              <div class="location-grid" id="location-grid"></div>
+            </section>
+
+            <section class="overview-panel events-panel">
+              <div class="section-heading compact">
+                <div><p class="eyebrow">Shared moments</p><h2>What is on</h2></div>
+                <span class="section-meta" id="event-meta"></span>
+              </div>
+              <div class="event-list" id="event-list"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ECONOMY: where credits come from and where they go. -->
+      <section class="page" id="page-economy" aria-label="Economy" hidden>
+        <div class="page-grid economy-grid">
+          <section class="overview-panel jobs-panel">
+            <div class="section-heading compact">
+              <div><p class="eyebrow">Opportunity market</p><h2>Jobs</h2></div>
+              <span class="section-meta" id="job-meta"></span>
+            </div>
+            <div class="job-list" id="job-list"></div>
+          </section>
+
+          <section class="overview-panel economy-panel">
+            <div class="section-heading compact">
+              <div><p class="eyebrow">System health</p><h2>Economy &amp; rules</h2></div>
+            </div>
+            <div id="economy-overview"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- HEALTH: a run once died in silence because four of seven brains stopped
+           answering and nothing on this page said so. -->
+      <section class="page" id="page-health" aria-label="Run health" hidden>
+        <div class="summary-grid" id="health-summary"></div>
+        <section class="overview-panel">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">Are the brains answering</p><h2>Agent health</h2></div>
+            <span class="section-meta" id="health-meta"></span>
+          </div>
+          <div class="residents-table" id="health-table"></div>
+          <p class="standings-note" id="health-note"></p>
+        </section>
       </section>
     </main>
 

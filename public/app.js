@@ -22,6 +22,34 @@ const residentsMeta = document.querySelector("#residents-meta");
 const standings = document.querySelector("#standings");
 const standingsMeta = document.querySelector("#standings-meta");
 const standingsNote = document.querySelector("#standings-note");
+const tabs = document.querySelector("#tabs");
+const healthTable = document.querySelector("#health-table");
+const healthMeta = document.querySelector("#health-meta");
+const healthNote = document.querySelector("#health-note");
+const healthSummary = document.querySelector("#health-summary");
+const healthBadge = document.querySelector("#health-badge");
+
+// Pages rather than one long scroll. The hash carries the page so a reload, or a link
+// sent to someone else, lands where it was.
+const pages = ["overview", "residents", "city", "economy", "health"];
+
+function showPage(name) {
+  const page = pages.includes(name) ? name : "overview";
+  for (const candidate of pages) {
+    document.querySelector(`#page-${candidate}`).hidden = candidate !== page;
+  }
+  for (const tab of tabs.querySelectorAll(".tab")) {
+    tab.setAttribute("aria-selected", String(tab.dataset.page === page));
+  }
+  if (location.hash.slice(1) !== page) history.replaceState(null, "", `#${page}`);
+}
+
+tabs.addEventListener("click", (clickEvent) => {
+  const tab = clickEvent.target.closest(".tab");
+  if (tab) showPage(tab.dataset.page);
+});
+window.addEventListener("hashchange", () => showPage(location.hash.slice(1)));
+showPage(location.hash.slice(1));
 
 select.addEventListener("change", () => {
   state.selectedId = select.value;
@@ -84,6 +112,73 @@ function renderWorldOverview() {
   renderStandings();
   renderResidents();
   renderCity();
+  renderHealth();
+}
+
+// A run once ran for two hours while four of seven brains had stopped answering. The
+// world kept ticking, events kept flowing, and nothing on this dashboard said so. A
+// resident whose brain is not answering is not a quiet resident, it is a stopped one.
+function renderHealth() {
+  const residents = state.world.characters;
+  const runtime = state.world.runtime ?? { connectedAgentBrains: 0, eventStreamConnections: 0 };
+  const rules = state.world.rules;
+  const stopped = residents.filter((resident) => resident.agentAvailability !== "available");
+  const struggling = residents.filter((resident) =>
+    resident.agentAvailability === "available" && (resident.consecutiveMissedResponses ?? 0) > 0);
+
+  healthBadge.textContent = stopped.length ? String(stopped.length) : "";
+  healthBadge.className = `tab-badge ${stopped.length ? "alert" : ""}`;
+
+  healthSummary.innerHTML = [
+    summaryCard("Brains answering", `${residents.length - stopped.length} / ${residents.length}`,
+      stopped.length ? `${stopped.length} stopped` : "all responding", stopped.length ? "offline" : "online"),
+    summaryCard("Connected", `${runtime.connectedAgentBrains} / ${residents.length}`,
+      `${runtime.eventStreamConnections} live event streams`, runtime.connectedAgentBrains ? "online" : "offline"),
+    summaryCard("Missing replies", struggling.length, struggling.length ? "at least one missed" : "none pending", "social"),
+    summaryCard("World speed", `${rules.realHoursPerGameDay}h`, "of real time per world day", "energy"),
+  ].join("");
+
+  healthMeta.textContent = stopped.length
+    ? `${stopped.map((resident) => resident.name).join(", ")} stopped deciding`
+    : "every brain is answering";
+
+  healthTable.innerHTML = `
+    <table>
+      <thead>
+        <tr><th>Resident</th><th>Brain</th><th class="num">Missed in a row</th><th>Doing</th><th class="num">Energy</th></tr>
+      </thead>
+      <tbody>
+        ${[...residents]
+    .sort((left, right) => (right.consecutiveMissedResponses ?? 0) - (left.consecutiveMissedResponses ?? 0))
+    .map((resident) => {
+      const missed = resident.consecutiveMissedResponses ?? 0;
+      const down = resident.agentAvailability !== "available";
+      return `
+          <tr class="${down ? "brain-down" : ""}">
+            <td><button class="resident-link" data-resident="${escapeHtml(resident.id)}">${escapeHtml(resident.name)}</button></td>
+            <td><span class="brain-chip ${down ? "poor" : "good"}">${escapeHtml(resident.agentAvailability)}</span></td>
+            <td class="num">${missed || "—"}</td>
+            <td class="doing">${escapeHtml(describeActivity(resident.activity, locationById(resident.locationId)?.name ?? resident.locationId).title)}</td>
+            <td class="num">${resident.energy}</td>
+          </tr>`;
+    }).join("")}
+      </tbody>
+    </table>`;
+
+  healthNote.textContent = `A brain is marked unavailable after ${rules.unavailableAfterMissedResponses ?? 3} `
+    + "missed replies in a row. It keeps a body in the world and stops making decisions for it, "
+    + "which looks identical to a resident who has nothing to do.";
+
+  for (const button of healthTable.querySelectorAll(".resident-link")) {
+    button.addEventListener("click", () => {
+      state.selectedId = button.dataset.resident;
+      select.value = state.selectedId;
+      showPage("residents");
+      renderWorldOverview();
+      renderCharacter();
+      loadCharacterTimeline();
+    });
+  }
 }
 
 // A run is won on Credits, what was actually lived, and the relationships that came to
@@ -234,7 +329,6 @@ function renderCity() {
       }
     }
   }
-  const plotsByCell = new Map(city.plots.map((plot) => [`${plot.x},${plot.y}`, plot]));
   const seededByCell = new Map(city.seededLocations
     .filter((location) => Number.isInteger(location.x))
     .map((location) => [`${location.x},${location.y}`, location]));
@@ -254,7 +348,6 @@ function renderCity() {
       const key = `${x},${y}`;
       const building = buildingsByCell.get(key);
       const seeded = seededByCell.get(key);
-      const plot = plotsByCell.get(key);
       let className = "cell";
       let label = "";
       let title = `${x},${y} · empty land`;
@@ -271,9 +364,6 @@ function renderCity() {
           + `${characterName(building.proprietorId)} · ${building.tags.join(", ") || "no tags"}\n`
           + `balance ${building.balance} · earned ${building.revenue} · upkeep ${building.dailyUpkeep}/day\n`
           + `${here} here now`;
-      } else if (plot?.buildingId) {
-        className += " owned";
-        title = `${x},${y} · claimed`;
       }
       cells.push(`<i class="${className}" title="${escapeHtml(title)}">${escapeHtml(label)}</i>`);
     }
@@ -282,25 +372,47 @@ function renderCity() {
   cityMap.innerHTML = cells.join("");
 
   buildingList.innerHTML = city.buildings.length
-    ? city.buildings.map((building) => `
+    ? city.buildings.map((building) => {
+      // The profile is what the place actually delivers and what it was priced on, and
+      // it is the ceiling on every night hosted there. Showing only the derived tags hid
+      // the one number that explains both the cost and who will enjoy it.
+      const profile = Object.entries(building.profile ?? {})
+        .filter(([, value]) => value > 0)
+        .sort(([, left], [, right]) => right - left)
+        .map(([dimension, value]) => meter(dimension, value, 100, value >= 70 ? "strong" : ""))
+        .join("");
+      const live = state.world.events.filter((event) =>
+        event.buildingId === building.buildingId && event.status !== "ended");
+      const ambition = Object.values(building.profile ?? {}).reduce((sum, value) => sum + value, 0) / 100;
+      const net = building.revenue - building.upkeepPaid;
+      return `
       <article class="building-card ${building.status.toLowerCase()}">
         <div class="building-topline">
           <div>
-            <span class="location-id">${escapeHtml(building.x + "," + building.y)} · ${escapeHtml(building.status.toLowerCase())}</span>
+            <span class="location-id">${escapeHtml(`${building.x},${building.y}`)} · ${building.width}x${building.height} · ${escapeHtml(building.status.toLowerCase())}</span>
             <h3>${escapeHtml(building.name)}</h3>
           </div>
-          <strong class="population-count">${building.capacity}</strong>
+          <div class="building-capacity"><strong>${building.capacity}</strong><span>capacity</span></div>
         </div>
-        <p class="location-caption">${escapeHtml(characterName(building.proprietorId))} · ${escapeHtml(building.tags.join(" · ") || "no tags")}</p>
+        <p class="location-caption">${escapeHtml(characterName(building.proprietorId))}${
+  live.length ? ` · <span class="live-now">${live.length} on now</span>` : " · nothing on"
+}</p>
         ${building.description ? `<p class="building-description">${escapeHtml(building.description)}</p>` : ""}
+        <div class="meters compact">${profile}</div>
         <div class="location-signals">
-          <span>built for ${building.constructionCost}</span>
-          <span>earned ${building.revenue}</span>
-          <span>balance ${building.balance}</span>
-          <span>upkeep ${building.dailyUpkeep}/day</span>
+          <span title="ambition is the sum of the profile over 100; cost rises with its square">ambition ${ambition.toFixed(1)}</span>
+          <span>built for ${number(building.constructionCost)}</span>
+          <span>earned ${number(building.revenue)}</span>
+          <span>upkeep paid ${number(building.upkeepPaid)}</span>
+          <span class="${net < 0 ? "negative" : "positive"}">net ${signed(net)}</span>
+          <span>balance ${number(building.balance)}</span>
+          <span>${number(building.dailyUpkeep)}/day upkeep</span>
         </div>
         <p class="routes">Can: ${escapeHtml(building.capabilities.join(" · "))}</p>
-      </article>`).join("")
+        ${building.status === "UNDER_CONSTRUCTION" && building.completesAt
+    ? `<p class="routes">Opens at ${escapeHtml(formatTime(building.completesAt))}</p>` : ""}
+      </article>`;
+    }).join("")
     : `<p class="empty-note">Nobody has built anything yet. A resident claims any free cell and raises a place for ${number(city.cheapestUsefulBuilding)} credits upward, choosing what it delivers.</p>`;
 }
 
