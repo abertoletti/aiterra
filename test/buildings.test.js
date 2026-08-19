@@ -37,7 +37,6 @@ function cityWorld({ credits = 4000, upkeepIntervalWorldMinutes = null } = {}) {
 }
 
 function buildTheHole(world, overrides = {}) {
-  world.acquirePlot("luca", 12, 10);
   return world.constructBuilding("luca", {
     x: 12, y: 10, width: 1, height: 1,
     name: overrides.name ?? "The Hole",
@@ -48,22 +47,28 @@ function buildTheHole(world, overrides = {}) {
   });
 }
 
-test("a plot is bought from the grid, and only once", () => {
-  const { world } = cityWorld();
-  const before = world.getObservation("luca").character.credits;
+test("building claims the ground, and a claimed cell cannot be built on twice", () => {
+  const { world, clock } = cityWorld();
 
-  const acquired = world.acquirePlot("luca", 12, 10);
-  assert.equal(acquired.data.plotId, "plot-12-10");
-  assert.equal(world.getObservation("luca").character.credits, before - 150);
+  const started = buildTheHole(world);
+  assert.deepEqual(started.data.plotIds, ["plot-12-10"], "the footprint's cells are claimed by the build");
+  assert.equal(world.state.plots.get("plot-12-10").buildingId, started.data.buildingId);
+  assert.equal(world.plotView(12, 10).available, false);
 
-  assert.throws(() => world.acquirePlot("luca", 12, 10),
-    (error) => error instanceof DomainError && error.code === "PLOT_ALREADY_OWNED");
-  assert.throws(() => world.acquirePlot("anna", 12, 10),
-    (error) => error instanceof DomainError && error.code === "PLOT_OWNED");
-  assert.throws(() => world.acquirePlot("luca", 0, 10),
-    (error) => error instanceof DomainError && error.code === "OFF_GRID");
-  assert.throws(() => world.acquirePlot("luca", 21, 10),
-    (error) => error instanceof DomainError && error.code === "OFF_GRID");
+  // There is no purchase step to fail at: either you can build or you cannot.
+  assert.throws(() => world.constructBuilding("anna", {
+    x: 12, y: 10, name: "On Top", description: "x",
+    profile: { music: 40 }, capabilities: ["host_event"],
+  }), (error) => error instanceof DomainError && error.code === "PLOT_OCCUPIED");
+
+  assert.throws(() => world.constructBuilding("luca", {
+    x: 0, y: 10, name: "Off Grid", description: "x",
+    profile: { music: 40 }, capabilities: ["host_event"],
+  }), (error) => error instanceof DomainError && error.code === "OFF_GRID");
+
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  assert.equal(world.state.buildings.get(started.data.buildingId).status, "ACTIVE");
 });
 
 test("construction is priced convexly, so promising everything is unaffordable", () => {
@@ -87,7 +92,6 @@ test("construction is priced convexly, so promising everything is unaffordable",
   assert.equal(everything.capacity, 40);
 
   assert.throws(() => {
-    world.acquirePlot("luca", 5, 5);
     world.constructBuilding("luca", {
       x: 5, y: 5, name: "Everything At Once",
       profile: Object.fromEntries("music socializing learning competition spirituality luxury adventure relaxation creativity nature"
@@ -157,7 +161,6 @@ test("the building's profile is the ceiling on what it can host", () => {
 
 test("capabilities are enforced, not narrated", () => {
   const { world, clock } = cityWorld();
-  world.acquirePlot("luca", 12, 10);
   world.constructBuilding("luca", {
     x: 12, y: 10, name: "The Quiet Room", profile: { relaxation: 60 },
     capabilities: ["create_job"],
@@ -170,7 +173,6 @@ test("capabilities are enforced, not narrated", () => {
     buildingId, title: "A Night", profile: { relaxation: 40 }, durationGameMinutes: 60,
   }), (error) => error instanceof DomainError && error.code === "CAPABILITY_MISSING");
 
-  world.acquirePlot("luca", 13, 10);
   assert.throws(() => world.constructBuilding("luca", {
     x: 13, y: 10, name: "No Capability", profile: { music: 10 }, capabilities: [],
   }), (error) => error instanceof DomainError && error.code === "NO_CAPABILITY");
@@ -179,10 +181,6 @@ test("capabilities are enforced, not narrated", () => {
   }), (error) => error instanceof DomainError && error.code === "UNKNOWN_CAPABILITY",
   "an invented capability is rejected, never quietly ignored");
 
-  // Land you do not own is not yours to build on, however valid the rest is.
-  assert.throws(() => world.constructBuilding("luca", {
-    x: 17, y: 17, name: "Someone Else's", profile: { music: 10 }, capabilities: ["host_event"],
-  }), (error) => error instanceof DomainError && error.code === "PLOT_NOT_OWNED");
 });
 
 test("a resident-built night earns its building the admission", () => {
@@ -254,8 +252,8 @@ test("upkeep is charged from the building's balance, and failure is explicit", (
 });
 
 test("a building whose proprietor is also broke fails explicitly", () => {
-  // Just enough to buy the land and build, and nothing left over.
-  const { world, clock } = cityWorld({ credits: 1_440, upkeepIntervalWorldMinutes: 60 });
+  // Just enough to build, and nothing left over.
+  const { world, clock } = cityWorld({ credits: 1_290, upkeepIntervalWorldMinutes: 60 });
   const started = buildTheHole(world);
   clock.advanceGameMinutes(20);
   world.advanceTo(clock.now());
@@ -275,22 +273,15 @@ test("an agent can actually reach the authoring actions through the runner", () 
   const { world, clock } = cityWorld();
   const offered = (id) => world.getObservation(id, { contextMode: "progressive" }).availableActions;
 
-  // The plot affordance is declared once rather than enumerating 400 cells.
-  const plotOffer = offered("luca").filter((action) => action.type === "acquire_plot");
-  assert.equal(plotOffer.length, 1, "declared, not enumerated");
-  assert.equal(plotOffer[0].pricePerPlot, 150);
-  assert.equal(validateAction({ type: "acquire_plot", x: 12, y: 10 },
-    { availableActions: offered("luca") }).x, 12);
-  assert.throws(() => validateAction({ type: "acquire_plot", x: 99, y: 10 },
-    { availableActions: offered("luca") }), /between 1 and 20/);
-
-  // Constructing is only offered once there is owned, empty land to build on.
-  assert.equal(offered("luca").filter((action) => action.type === "construct_building").length, 0);
-  world.acquirePlot("luca", 12, 10);
+  // The build affordance is declared once rather than enumerating 400 cells by four
+  // footprints, but it names what an agent cannot guess: the cells already gone.
   const buildOffer = offered("luca").find((action) => action.type === "construct_building");
-  assert.ok(buildOffer, "owning empty land is what makes construction possible");
-  assert.deepEqual(buildOffer.buildableFrom, [{ x: 12, y: 10 }]);
+  assert.ok(buildOffer, "building needs no prerequisite, so it is always offered");
+  assert.equal(buildOffer.gridWidth, 20);
   assert.equal(buildOffer.costFormula.structuralCostPerCell, 200);
+  assert.equal(buildOffer.cheapestUsefulBuilding, 500);
+  assert.ok(buildOffer.takenCells.some((cell) => cell.x === 10 && cell.y === 10),
+    "the commons stands on 10,10 and the agent is told so");
 
   const proposal = validateAction({
     type: "construct_building", x: 12, y: 10, width: 1, height: 1,
@@ -419,12 +410,13 @@ test("nobody can buy the ground the town square stands on", () => {
 
   // The commons sits at 10,10. Seeded places occupy their cells as surely as buildings
   // do, and the first live run had a resident build a lounge on top of the town square.
-  assert.throws(() => world.acquirePlot("luca", 10, 10),
-    (error) => error instanceof DomainError && error.code === "CELL_OCCUPIED");
-  assert.equal(world.plotView(10, 10, "luca").available, false);
-  assert.equal(world.plotView(10, 10, "luca").standingLocationId, "commons");
+  assert.throws(() => world.constructBuilding("luca", {
+    x: 10, y: 10, name: "On The Square", description: "x",
+    profile: { music: 40 }, capabilities: ["host_event"],
+  }), (error) => error instanceof DomainError && error.code === "CELL_OCCUPIED");
+  assert.equal(world.plotView(10, 10).available, false);
+  assert.equal(world.plotView(10, 10).standingLocationId, "commons");
 
-  // The cell beside it is still perfectly buyable.
-  assert.equal(world.plotView(11, 10, "luca").available, true);
-  assert.ok(world.acquirePlot("luca", 11, 10));
+  // The cell beside it is perfectly buildable.
+  assert.equal(world.plotView(11, 10).available, true);
 });

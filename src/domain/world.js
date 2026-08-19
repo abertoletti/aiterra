@@ -206,52 +206,19 @@ export class World {
   // controlled grammar, and idempotent through the same action receipts as every other
   // command. Free text names the place; only structured fields produce mechanics.
 
-  plotView(x, y, characterId = null) {
+  // A cell is free or it is not. There is no purchase step: building claims the ground.
+  plotView(x, y) {
     const id = plotKey(x, y);
     const plot = this.state.plots.get(id);
     const occupant = plot?.buildingId ? this.state.buildings.get(plot.buildingId) : null;
     const standing = this.locationAtCell(x, y);
-    const blockers = [];
-    if (plot?.ownerId && plot.ownerId !== characterId) blockers.push("PLOT_OWNED");
-    if (occupant) blockers.push("PLOT_OCCUPIED");
-    if (standing) blockers.push("CELL_OCCUPIED");
-    if (characterId) {
-      const character = this.state.characters.get(characterId);
-      if (character && !plot?.ownerId && character.credits < this.config.city.plotPricePerCell) {
-        blockers.push("INSUFFICIENT_CREDITS");
-      }
-    }
     return {
       id, x, y,
-      price: this.config.city.plotPricePerCell,
-      ownerId: plot?.ownerId ?? null,
       buildingId: plot?.buildingId ?? null,
-      available: !plot?.ownerId && !occupant && !standing,
+      available: !occupant && !standing,
       standingLocationId: standing?.id ?? null,
-      ownedByMe: Boolean(characterId && plot?.ownerId === characterId),
-      blockers,
+      blockers: [...(occupant ? ["PLOT_OCCUPIED"] : []), ...(standing ? ["CELL_OCCUPIED"] : [])],
     };
-  }
-
-  acquirePlot(characterId, x, y) {
-    const character = this.requireCharacter(characterId);
-    if (!this.withinGrid(x, y)) {
-      throw invalid("OFF_GRID", `A plot must sit inside the ${this.config.city.width}x${this.config.city.height} grid`);
-    }
-    const id = plotKey(x, y);
-    // A seeded place occupies its cell as surely as a building does, or a resident can
-    // buy the ground out from under the town square and put a club on it.
-    const standing = this.locationAtCell(x, y);
-    if (standing) throw conflict("CELL_OCCUPIED", `${standing.name} already stands on that cell`);
-    const existing = this.state.plots.get(id);
-    if (existing?.ownerId === characterId) throw conflict("PLOT_ALREADY_OWNED", "Character already owns that plot");
-    if (existing?.ownerId) throw conflict("PLOT_OWNED", "Another resident owns that plot");
-    const price = this.config.city.plotPricePerCell;
-    if (character.credits < price) throw invalid("INSUFFICIENT_CREDITS", `A plot costs ${price} credits`);
-    return this.record("PLOT_ACQUIRED", {
-      actorCharacterId: characterId,
-      data: { plotId: id, x, y, ownerId: characterId, price, cityGridVersion: this.config.city.gridVersion },
-    });
   }
 
   // Cost and capacity are derived here and nowhere else, so a client cannot claim them
@@ -293,16 +260,21 @@ export class World {
     }
     if (selected.length === 0) throw invalid("NO_CAPABILITY", "A building must take at least one capability");
 
+    // Building claims the ground. A separate purchase step only let a resident fail at
+    // the first move of a two-move plan: ten plots were bought in one run and not one
+    // building went up, because 150 for land was affordable and 650 to build was not.
     const cellIds = [];
     for (let dx = 0; dx < width; dx += 1) {
       for (let dy = 0; dy < height; dy += 1) {
         const cx = x + dx;
         const cy = y + dy;
         if (!this.withinGrid(cx, cy)) throw invalid("OFF_GRID", "The footprint leaves the grid");
-        const plot = this.state.plots.get(plotKey(cx, cy));
-        if (plot?.ownerId !== characterId) throw conflict("PLOT_NOT_OWNED", `Character does not own ${plotKey(cx, cy)}`);
-        if (plot?.buildingId) throw conflict("PLOT_OCCUPIED", `${plotKey(cx, cy)} already carries a building`);
-        cellIds.push(plot.id);
+        const standing = this.locationAtCell(cx, cy);
+        if (standing) throw conflict("CELL_OCCUPIED", `${standing.name} already stands on ${plotKey(cx, cy)}`);
+        if (this.state.plots.get(plotKey(cx, cy))?.buildingId) {
+          throw conflict("PLOT_OCCUPIED", `${plotKey(cx, cy)} already carries a building`);
+        }
+        cellIds.push(plotKey(cx, cy));
       }
     }
 
@@ -1863,9 +1835,17 @@ export class World {
         : this.config.timing.highEventReactionWorldMinutes;
     const deliveredReal = new Date(deliveredAtReal);
     if (Number.isNaN(deliveredReal.getTime())) throw invalid("INVALID_TIME", "Delivery time is invalid");
-    const realDuration = typeof this.clock.realMillisecondsForGameMinutes === "function"
+    const derivedReal = typeof this.clock.realMillisecondsForGameMinutes === "function"
       ? this.clock.realMillisecondsForGameMinutes(worldMinutes)
       : worldMinutes * 60_000 / 6;
+    // The floor is in wall-clock, because what it protects is the runtime's ability to
+    // think, and thinking does not speed up when the world does. Both deadlines derive
+    // from the same duration, so they cannot disagree.
+    const referenceFactor = 24 / this.config.timing.referenceRealHoursPerGameDay;
+    const realDuration = Math.max(derivedReal, worldMinutes * 60_000 / referenceFactor);
+    const effectiveWorldMinutes = typeof this.clock.gameMinutesForRealMilliseconds === "function"
+      ? Math.max(worldMinutes, this.clock.gameMinutesForRealMilliseconds(realDuration))
+      : worldMinutes;
     this.record("AGENT_NOTIFICATION_DELIVERED", {
       actorCharacterId: characterId,
       causedByEventIds: [notificationEventId],
@@ -1874,8 +1854,10 @@ export class World {
         notificationEventId,
         deliveredAt: this.clock.now().toISOString(),
         deliveredAtReal: deliveredReal.toISOString(),
-        respondByWorldTime: addGameMinutes(this.clock.now(), worldMinutes).toISOString(),
+        respondByWorldTime: addGameMinutes(this.clock.now(), effectiveWorldMinutes).toISOString(),
         respondByRealTime: new Date(deliveredReal.getTime() + realDuration).toISOString(),
+        requestedWorldMinutes: worldMinutes,
+        effectiveWorldMinutes: Math.round(effectiveWorldMinutes * 100) / 100,
         timingPolicyVersion: this.config.timing.policyVersion,
       },
     });
@@ -2281,13 +2263,6 @@ export class World {
       }
       // Authorship. These four mutate world structure rather than the character's own
       // state, which is a class of command the protocol did not previously have.
-      case "acquire_plot": {
-        const event = this.acquirePlot(characterId, action.x, action.y);
-        result = this.actionResult(characterId, event, {
-          plotId: event.data.plotId, price: event.data.price,
-        });
-        break;
-      }
       case "construct_building": {
         const event = this.constructBuilding(characterId, action);
         result = this.actionResult(characterId, event, {
@@ -2895,9 +2870,8 @@ export class World {
       city: {
         gridVersion: this.config.city.gridVersion,
         grid: [this.config.city.width, this.config.city.height],
-        plotPrice: this.config.city.plotPricePerCell,
         capabilities: [...this.config.city.capabilities],
-        instruction: "The city is a grid of buyable plots and you may build on it. Buy a plot, then construct a building on land you own: you name it, describe it, and choose what it delivers using the same profile dimensions your own preferences use. The world never decides what kind of place it is.",
+        instruction: "The city is a grid and you may build on it. There is no land to buy: construct_building on any free cell claims the ground and raises the place in one action. You name it, describe it, and choose what it delivers using the same profile dimensions your own preferences use. The world never decides what kind of place it is.",
         cost: `Construction costs cells x (${this.config.city.structuralCostPerCell} + ${this.config.city.profileCostPerCell} x ambition^${this.config.city.ambitionExponent}), where ambition is the sum of your ten profile values divided by 100. The cost rises with the square of the total you promise, so a place that delivers everything is unaffordable and a focused one is cheap. Deciding what your place is for is the whole choice.`,
         ceiling: "A building's profile is the ceiling on every experience you can host there. A venue with music 40 can never host the city's great music night; paying for music 90 is how you earn the right to.",
         earning: "Admission to an experience you host funds the building, not your pocket. Upkeep is charged from that balance, so an unused building bleeds and a busy one pays for itself. You can also fund it from your own credits.",
@@ -3082,7 +3056,7 @@ export class World {
       gridVersion: this.config.city.gridVersion,
       width: this.config.city.width,
       height: this.config.city.height,
-      plotPrice: this.config.city.plotPricePerCell,
+      cheapestUsefulBuilding: this.buildingQuote({ music: 100 }, 1, 1).constructionCost,
       capabilities: [...this.config.city.capabilities],
       upkeepIntervalWorldMinutes: this.config.city.upkeepIntervalWorldMinutes,
       profileTaxonomyVersion: this.config.grammar.profileTaxonomyVersion,
@@ -3331,35 +3305,25 @@ export class World {
         });
       }
       // Authorship affordances are declared, not enumerated: an agent that has decided
-      // to build already knows which cell it wants, and enumerating 400 plots by four
-      // footprints would cost the product of two domains for no information.
+      // to build already knows which cell it wants, and enumerating 400 cells by four
+      // footprints would cost the product of two domains for no information. What it
+      // cannot guess is which cells are gone, so those are listed - there are only ever
+      // a handful, and guessing them produced twelve rejections in one run.
       const city = this.config.city;
-      const ownedPlots = [...this.state.plots.values()].filter((plot) => plot.ownerId === character.id);
-      // Which cells are gone. Twelve of nineteen rejections in the first resident-only
-      // run were PLOT_OWNED: residents were guessing coordinates because the affordance
-      // named a grid and never said what was taken. Occupied cells are few, so listing
-      // them costs almost nothing and removes the guessing entirely.
       const takenCells = [
         ...[...this.state.plots.values()]
-          .filter((plot) => plot.ownerId)
-          .map((plot) => ({ x: plot.x, y: plot.y, why: plot.ownerId === character.id ? "yours" : "owned" })),
+          .filter((plot) => plot.buildingId)
+          .map((plot) => ({ x: plot.x, y: plot.y, why: "built on" })),
         ...[...this.state.locations.values()]
           .filter((location) => Number.isInteger(location.x))
           .map((location) => ({ x: location.x, y: location.y, why: "occupied" })),
       ].sort((left, right) => left.x - right.x || left.y - right.y);
-      actions.push({
-        type: "acquire_plot",
-        gridWidth: city.width, gridHeight: city.height,
-        pricePerPlot: city.plotPricePerCell,
-        ownedPlotIds: ownedPlots.map((plot) => plot.id),
-        takenCells,
-        credits: character.credits,
-      });
-      const freeOwnedPlots = ownedPlots.filter((plot) => !plot.buildingId);
-      if (freeOwnedPlots.length > 0) {
+      {
         actions.push({
           type: "construct_building",
-          buildableFrom: freeOwnedPlots.map((plot) => ({ x: plot.x, y: plot.y })),
+          gridWidth: city.width, gridHeight: city.height,
+          takenCells,
+          cheapestUsefulBuilding: this.buildingQuote({ music: 100 }, 1, 1).constructionCost,
           maximumFootprint: { width: city.maximumFootprintWidth, height: city.maximumFootprintHeight },
           capabilities: [...city.capabilities],
           profileDimensions: [...this.config.grammar.profileDimensions],

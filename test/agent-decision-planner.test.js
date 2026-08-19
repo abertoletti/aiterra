@@ -198,8 +198,12 @@ test("a progressive observation uses the runtime's cached manifest", () => {
   delete progressive.rules;
   const cached = { version: "agent-rules-v2", energy: { maximum: 100 } };
 
-  const context = JSON.parse(buildDecisionMessages(progressive, [], [], { rules: cached })[1].content);
-  assert.deepEqual(context.rules, cached, "the model still receives the rules it must apply");
+  const messages = buildDecisionMessages(progressive, [], [], { rules: cached });
+  // It reaches the model on the stable system message, which is the cacheable side,
+  // rather than inside the context object that changes every call.
+  assert.ok(messages[0].content.includes(JSON.stringify(cached)),
+    "the model still receives the rules it must apply");
+  assert.equal(JSON.parse(messages[1].content).rules, undefined);
 });
 
 test("secondary goals validate against known identifiers, not against full-mode records", () => {
@@ -267,7 +271,7 @@ test("the prompt states what a run is judged on, and stays a spec rather than an
   }
   assert.ok(prompt.indexOf("host_experience NOW") < prompt.indexOf("accept_job"),
     "an idle building is the most valuable thing to fix, so it heads the list");
-  assert.ok(prompt.includes("acquire_plot"), "and building must be reachable from it");
+  assert.ok(prompt.includes("construct_building"), "and building must be reachable from it");
   assert.ok(prompt.includes("CEILING on every experience"));
 
   const lines = prompt.split("\n");
@@ -305,4 +309,32 @@ test("a catalog request is honoured whichever envelope the model reaches for", a
 test("an action that merely looks like a request is still an action", () => {
   assert.equal(asContextRequest({ type: "move", destinationId: "commons" }), null);
   assert.equal(asContextRequest({ type: "requestContext" }), null, "a request needs a resource");
+});
+
+test("the rules manifest rides the stable system message, not the volatile context", () => {
+  const rules = { version: "agent-rules-v3", city: { cost: "x".repeat(1_000) } };
+  const messages = buildDecisionMessages(observation({ contextMode: "progressive" }), [], [], { rules });
+  const context = JSON.parse(messages[1].content);
+
+  // Measured on a live run: 1,280 of ~9,600 prompt tokens per call were cached, which is
+  // exactly the system message and nothing more, because the user message begins with
+  // worldTime and breaks the provider's prefix at its first byte. The manifest is
+  // identical for a whole rules version, so it belongs on the cacheable side.
+  assert.ok(messages[0].content.includes("## Rules (authoritative)"));
+  assert.ok(messages[0].content.includes("agent-rules-v3"));
+  assert.equal(context.rules, undefined, "and must not be paid for twice at full price");
+  assert.equal(context.rulesVersion, observation().rulesVersion,
+    "the version stays in the context so the model knows which manifest it is reading");
+
+  // Two calls one world-minute apart must share a byte-identical system message.
+  const later = buildDecisionMessages(
+    observation({ contextMode: "progressive", worldTime: "2042-01-01T00:01:00.000Z" }), [], [], { rules },
+  );
+  assert.equal(messages[0].content, later[0].content, "the stable prefix must not drift between calls");
+  assert.notEqual(messages[1].content, later[1].content);
+});
+
+test("no manifest means no empty rules heading", () => {
+  const messages = buildDecisionMessages(observation());
+  assert.ok(!messages[0].content.includes("## Rules"));
 });

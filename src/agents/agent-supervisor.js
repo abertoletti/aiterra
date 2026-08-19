@@ -3,7 +3,7 @@ import { DecisionValidationError, safeFallbackAction } from "./decision-planner.
 
 export class AgentSupervisor {
   constructor({
-    agents, planner, concurrency = 2, pollIntervalMs = 5_000,
+    agents, planner, concurrency = null, pollIntervalMs = 5_000,
     decisionCooldownMs = 500, maximumActionsPerCycle = 3,
     modelCallsPerWindow = 10, modelCallWindowMs = 60_000,
     reconnectDelayMs = 2_000, logger = console,
@@ -23,7 +23,11 @@ export class AgentSupervisor {
     this.contextMode = contextMode;
     this.contextRequestsPerDecision = nonNegativeInteger(contextRequestsPerDecision, "contextRequestsPerDecision");
     this.logger = logger;
-    this.semaphore = new Semaphore(positiveInteger(concurrency, "concurrency"));
+    // One slot per agent by default. A tighter cap was the binding constraint on
+    // response time - two slots across seven agents ceilinged the world at 23 model
+    // calls a minute against a 70-a-minute rate limit, and made the seventh agent wait
+    // 13 seconds before its call even started. The rate limiter is the real throttle.
+    this.semaphore = new Semaphore(positiveInteger(concurrency ?? agents.length, "concurrency"));
     this.abortController = new AbortController();
     this.running = false;
     this.modelCalls = 0;

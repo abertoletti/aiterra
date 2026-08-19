@@ -32,7 +32,7 @@ const FILTERS = {
     "locationId", "startsAfter", "startsBefore",
     "tag", "minimumAffinity", "maximumPrice", "feasibleOnly",
   ],
-  plots: ["availableOnly", "ownedByMe", "maximumDistance", "feasibleOnly"],
+  plots: ["availableOnly", "maximumDistance", "feasibleOnly"],
   buildings: ["locationId", "tag", "minimumAffinity", "maximumDistance", "feasibleOnly"],
   people: ["locationId", "subjectCharacterId", "feasibleOnly"],
 };
@@ -170,9 +170,9 @@ function knownItems(world, characterId, resource) {
   return knownPeople(world, characterId);
 }
 
-// The whole grid, because land a resident cannot see is land nobody will build on. Four
-// hundred cells page cleanly, and the filters let an agent narrow to what it can act on
-// rather than the server deciding that for it.
+// The whole grid, because ground a resident cannot see is ground nobody will build on.
+// Four hundred cells page cleanly, and the filters let an agent narrow to what it can
+// act on rather than the server deciding that for it.
 function knownPlots(world, characterId) {
   const character = world.requireCharacter(characterId);
   const here = world.state.locations.get(character.locationId);
@@ -180,13 +180,12 @@ function knownPlots(world, characterId) {
   const items = [];
   for (let y = 1; y <= city.height; y += 1) {
     for (let x = 1; x <= city.width; x += 1) {
-      const view = world.plotView(x, y, characterId);
+      const view = world.plotView(x, y);
       const distance = gridDistance(here, { x, y });
       items.push({
         id: view.id,
-        feasible: view.available && !view.blockers.includes("INSUFFICIENT_CREDITS"),
+        feasible: view.available,
         available: view.available,
-        ownedByMe: view.ownedByMe,
         distance,
         changeKind: view.buildingId ? "filled" : "published",
         item: {
@@ -415,7 +414,6 @@ function matchesFilters(entry, resource, filters) {
       || entry.affinity < Number(filters.minimumAffinity))) return false;
   if (filters.maximumPrice !== undefined && Number(entry.accessPrice ?? 0) > Number(filters.maximumPrice)) return false;
   if (filters.availableOnly !== undefined && isTrue(filters.availableOnly) && !entry.available) return false;
-  if (filters.ownedByMe !== undefined && isTrue(filters.ownedByMe) && !entry.ownedByMe) return false;
   if (filters.maximumDistance !== undefined
     && (entry.distance === null || entry.distance === undefined
       || entry.distance > Number(filters.maximumDistance))) return false;

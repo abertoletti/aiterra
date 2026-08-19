@@ -51,7 +51,6 @@ const logger = new PilotConsoleLogger({
 const supervisor = new AgentSupervisor({
   agents,
   planner,
-  concurrency: integerEnvironment(environment, "PILOT_MODEL_CONCURRENCY", 2),
   pollIntervalMs: integerEnvironment(environment, "PILOT_POLL_INTERVAL_MS", 5_000),
   decisionCooldownMs: integerEnvironment(environment, "PILOT_DECISION_COOLDOWN_MS", 500),
   maximumActionsPerCycle: integerEnvironment(environment, "PILOT_MAXIMUM_ACTIONS_PER_CYCLE", 3),

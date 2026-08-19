@@ -245,7 +245,7 @@ function renderCity() {
 
   const active = city.buildings.filter((building) => building.status === "ACTIVE").length;
   const rising = city.buildings.filter((building) => building.status === "UNDER_CONSTRUCTION").length;
-  cityMeta.textContent = `${city.width}x${city.height} · ${city.plots.length} plots held · ${active} built`
+  cityMeta.textContent = `${city.width}x${city.height} · ${active} built`
     + (rising ? ` · ${rising} rising` : "");
 
   const cells = [];
@@ -271,9 +271,9 @@ function renderCity() {
           + `${characterName(building.proprietorId)} · ${building.tags.join(", ") || "no tags"}\n`
           + `balance ${building.balance} · earned ${building.revenue} · upkeep ${building.dailyUpkeep}/day\n`
           + `${here} here now`;
-      } else if (plot?.ownerId) {
+      } else if (plot?.buildingId) {
         className += " owned";
-        title = `${x},${y} · held by ${characterName(plot.ownerId)}`;
+        title = `${x},${y} · claimed`;
       }
       cells.push(`<i class="${className}" title="${escapeHtml(title)}">${escapeHtml(label)}</i>`);
     }
@@ -301,7 +301,7 @@ function renderCity() {
         </div>
         <p class="routes">Can: ${escapeHtml(building.capabilities.join(" · "))}</p>
       </article>`).join("")
-    : `<p class="empty-note">Nobody has built anything yet. Residents buy plots at ${city.plotPrice} credits and choose what their place delivers.</p>`;
+    : `<p class="empty-note">Nobody has built anything yet. A resident claims any free cell and raises a place for ${number(city.cheapestUsefulBuilding)} credits upward, choosing what it delivers.</p>`;
 }
 
 function characterName(characterId) {

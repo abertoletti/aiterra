@@ -4,7 +4,7 @@ const ALLOWED_CONTEXT_FILTERS = [
   "locationId", "minimumCompensation", "feasibleOnly",
   "startsAfter", "startsBefore", "subjectCharacterId",
   "tag", "minimumAffinity", "maximumPrice",
-  "availableOnly", "ownedByMe", "maximumDistance",
+  "availableOnly", "maximumDistance",
 ];
 
 export class DecisionValidationError extends Error {
@@ -82,12 +82,14 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
 } = {}) {
   if (!observation || typeof observation !== "object") throw new Error("An Aiterra observation is required");
   const progressive = observation.contextMode === "progressive";
+  // In progressive mode the observation omits the manifest body and the runtime supplies
+  // the copy it cached by version.
+  const activeRules = observation.rules ?? rules ?? null;
   const context = {
     worldTime: observation.worldTime,
     rulesVersion: observation.rulesVersion,
     // In progressive mode the observation omits the manifest body and the runtime
     // supplies the copy it cached by version.
-    rules: observation.rules ?? rules ?? undefined,
     decision: observation.decision,
     character: observation.character,
     nearby: observation.nearby,
@@ -116,7 +118,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
   const contextProtocol = progressive && contextRequestsRemaining > 0
     ? [
       "This observation is deliberately compact. `summaries` reports, per resource, how many items you know and how many are currently possible; a low feasibleCount is not an empty world.",
-      "To ask, answer with {\"requestContext\":{\"resource\":\"<a resource named in summaries>\",\"filters\":{}},\"rationale\":\"why you need it\"} and you will be asked again with that catalog included. Ask whenever you are about to choose blind: before buying land, before deciding there is nothing worth attending, or when you want to know what other residents have built.",
+      "To ask, answer with {\"requestContext\":{\"resource\":\"<a resource named in summaries>\",\"filters\":{}},\"rationale\":\"why you need it\"} and you will be asked again with that catalog included. Ask whenever you are about to choose blind: before choosing where to build, before deciding there is nothing worth attending, or when you want to know what other residents have built.",
       `You may request detail ${contextRequestsRemaining} more time(s) for this decision; after that, decide with what you have.`,
       "Do not request a catalog you already received below, and do not request one whose summary shows nothing you could act on.",
     ]
@@ -159,19 +161,19 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "Work through this list in order and take the first one that applies:",
         "1. YOU OWN A BUILDING WITH NO EVENT RUNNING -> host_experience NOW. A building with nothing on is dead money: you paid to build it, upkeep is charged whether or not anyone comes, and it earns nothing until you put a night on. This is the highest-value action in the game and it is the one you are most likely to skip.",
         "2. SOMETHING IN cityTonight SUITS YOU (high affinity, affordable) -> `move` to its locationId, then `attend_event` when you arrive. cityTonight lists every public experience in the city with its affinity for you, its price and how many minutes away it is.",
-        "3. YOU HAVE THE CREDITS TO BUILD AND NO BUILDING YET -> acquire_plot {x,y} -> construct_building. Build near where people already are; check cityTonight and nearby for where that is.",
+        "3. YOU CAN AFFORD A BUILDING AND HAVE NONE -> construct_building {x,y,...}. One action: pick any free cell and it is yours. Build near where people already are; check cityTonight and nearby for where that is. The affordance names cheapestUsefulBuilding and takenCells.",
         "4. YOU ARE SHORT OF CREDITS -> accept_job -> move -> start_job. Credits exist to be spent, not banked.",
         "5. ENERGY LOW -> rest",
         "",
         "## Building, and then running it",
-        "- a plot costs the price shown in the acquire_plot affordance; you must own EVERY cell of the footprint (1x1 up to 2x2)",
+        "- there is no land to buy. Building claims the ground: name a free cell and a footprint (1x1 up to 2x2) and every cell of it becomes yours.",
         "- profile = what your place delivers, on the ten dimensions. Cost = cells x (structural + profileCost x ambition^2), ambition = sum of your profile values / 100. Squared, so broad profiles are unaffordable: pick 2-3 dimensions.",
         "- capacity comes from footprint alone; your building's profile is the CEILING on every experience you host there",
         "- BUILDING IS HALF THE JOB. An empty building only loses money. The moment yours is ACTIVE, host_experience on it, and host another as soon as the last one ends.",
         "- to host: pick a title and description, a profile at or under your ceiling (omit `profile` and it uses your building's own), a duration, and a price. Price it so people will actually pay.",
         "- admission funds the building and upkeep is charged from that balance, so a busy place pays for itself and an idle one bleeds",
         "- residents come only if the night suits them and they can reach it. You cannot make them come; you can only put on something worth coming to.",
-        "- `plots` and `buildings` are catalogs you can request when you need land or want to see what rivals built; rules.city has the exact numbers",
+        "- `plots` lists free cells, `buildings` shows what others built and where the crowds are; rules.city has the exact numbers",
         "",
         "## Goals",
         "- keep at least one active secondary goal whenever you have capacity",
@@ -193,6 +195,13 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
           ? ["or ask for a catalog first, which is a different top-level key and NOT an action:",
             "{\"requestContext\":{\"resource\":\"experiences\",\"filters\":{}},\"rationale\":\"why you need it\"}"]
           : []),
+        // The manifest lives at the end of the stable message rather than in the volatile
+        // context object. Both are identical for a whole rules version, and the provider
+        // caches by exact prefix: measured, 1,280 of ~9,600 tokens per call were cached,
+        // which is exactly this system message and nothing more, because the user message
+        // begins with worldTime and breaks the prefix at its first byte. Cached input bills
+        // at roughly a seventh of fresh input.
+        ...(activeRules ? ["", "## Rules (authoritative)", JSON.stringify(activeRules)] : []),
       ].join("\n"),
     },
     { role: "user", content: JSON.stringify(context) },
@@ -262,12 +271,9 @@ function actionShapes(availableActions) {
   for (const type of types) {
     switch (type) {
       case "move": shapes.move = { type: "move", destinationId: "<an offered destinationId>" }; break;
-      case "acquire_plot": shapes.acquire_plot = {
-        type, x: "<integer 1..gridWidth>", y: "<integer 1..gridHeight>",
-      }; break;
       case "construct_building": shapes.construct_building = {
         type,
-        x: "<x of a plot you own>", y: "<y of a plot you own>",
+        x: "<x, 1..gridWidth, a cell not in takenCells>", y: "<y, 1..gridHeight>",
         width: "<1 or 2>", height: "<1 or 2, and you must own every cell of the rectangle>",
         name: "<required, what you call the place>",
         description: "<required, what it is; free text, no mechanical effect>",
@@ -444,14 +450,6 @@ export function validateAction(candidate, observation, history = []) {
       return { type };
     // Authorship. The runner checks shape and bounds against the declared envelope; the
     // server remains the authority on ownership, price and every other consequence.
-    case "acquire_plot": {
-      const envelope = templates[0] ?? {};
-      return {
-        type,
-        x: boundedInteger(candidate.x, "x", 1, envelope.gridWidth ?? 20),
-        y: boundedInteger(candidate.y, "y", 1, envelope.gridHeight ?? 20),
-      };
-    }
     case "construct_building": {
       const envelope = templates[0] ?? {};
       const maximum = envelope.maximumFootprint ?? { width: 2, height: 2 };

@@ -44,7 +44,6 @@ export const defaultConfig = Object.freeze({
     gridVersion: 1,
     width: 20,
     height: 20,
-    plotPricePerCell: 150,
     maximumFootprintWidth: 2,
     maximumFootprintHeight: 2,
     capacityPerCell: 10,
@@ -182,6 +181,17 @@ export const defaultConfig = Object.freeze({
     highEventReactionWorldMinutes: 8,
     criticalEventReactionWorldMinutes: 2,
     unavailableAfterMissedResponses: 3,
+    // A world that runs twice as fast must not give a brain half the time to think.
+    // Deadlines stay expressed in world minutes, as the approved policy has them, but a
+    // deadline never buys less wall-clock than it would at the reference clock speed the
+    // policy was calibrated against. Proportional rather than a flat floor, so the
+    // ordering critical < high < conversation survives at any speed.
+    //
+    // Measured: at 2 real hours per world day an 8-world-minute reply deadline is 40
+    // real seconds, against an end-to-end path - notify, poll, observe, queue, infer,
+    // submit - that routinely takes 25-40s. Four of seven brains were marked unavailable
+    // in one run because of it.
+    referenceRealHoursPerGameDay: 4,
   },
   conversation: {
     maximumMessageCharacters: 2_000,

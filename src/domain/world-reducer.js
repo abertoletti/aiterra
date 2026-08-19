@@ -253,24 +253,19 @@ export function applyEvent(state, event) {
     case "EVENT_CREATED":
       state.gatherings.set(data.id, { ...structuredClone(data), attendees: new Set() });
       break;
-    case "PLOT_ACQUIRED": {
-      state.characters.get(data.ownerId).credits -= data.price;
-      state.plots.set(data.plotId, {
-        id: data.plotId, x: data.x, y: data.y, ownerId: data.ownerId, buildingId: null,
-      });
-      break;
-    }
     case "BUILDING_CONSTRUCTION_STARTED": {
       state.characters.get(data.proprietorId).credits -= data.constructionCost;
       state.buildings.set(data.buildingId, {
         ...structuredClone(data),
         locationId: null, balance: 0, lastUpkeepAt: null, revenue: 0, upkeepPaid: 0,
       });
-      // Occupying the cells at the start is what stops a second building being started
-      // on the same land while the first is still going up.
-      for (const plotId of data.plotIds) {
-        const plot = state.plots.get(plotId);
-        if (plot) plot.buildingId = data.buildingId;
+      // Claiming the cells at the start is what stops a second building being started on
+      // the same ground while the first is still going up.
+      for (let index = 0; index < data.plotIds.length; index += 1) {
+        const [, x, y] = data.plotIds[index].split("-");
+        state.plots.set(data.plotIds[index], {
+          id: data.plotIds[index], x: Number(x), y: Number(y), buildingId: data.buildingId,
+        });
       }
       break;
     }

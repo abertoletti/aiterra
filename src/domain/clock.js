@@ -20,6 +20,10 @@ export class AcceleratedWorldClock {
   realMillisecondsForGameMinutes(gameMinutes) {
     return Number(gameMinutes) * 60_000 / this.factor;
   }
+
+  gameMinutesForRealMilliseconds(realMilliseconds) {
+    return Number(realMilliseconds) * this.factor / 60_000;
+  }
 }
 
 export class ManualClock {
@@ -48,6 +52,10 @@ export class ManualClock {
     // Manual clocks are normally used by deterministic tests. Match the
     // default 6x world acceleration unless the caller supplies real time.
     return Number(gameMinutes) * 60_000 / 6;
+  }
+
+  gameMinutesForRealMilliseconds(realMilliseconds) {
+    return Number(realMilliseconds) * 6 / 60_000;
   }
 }
 
