@@ -2,7 +2,7 @@
 // It receives state rather than the World instance, so folding an event can never
 // reach a command, the clock, or the store, and a replay is exactly this function
 // run over the history in order.
-import { coPresenceKey, experienceAttendanceKey, relationshipKey } from "./world-support.js";
+import { coPresenceKey, experienceAttendanceKey, relationshipKey, round2 } from "./world-support.js";
 
 export function applyEvent(state, event) {
   const data = event.data;
@@ -276,9 +276,12 @@ export function applyEvent(state, event) {
       state.happinessResolutions.set(data.characterId, history);
       break;
     }
-    case "HAPPINESS_CHANGED":
-      state.characters.get(data.characterId).happiness = data.value;
+    case "HAPPINESS_CHANGED": {
+      const character = state.characters.get(data.characterId);
+      character.happiness = data.value;
+      character.livedHappiness = round2((character.livedHappiness ?? 0) + (data.livedDelta ?? 0));
       break;
+    }
     case "HAPPINESS_DECAYED": {
       const character = state.characters.get(data.characterId);
       character.happiness = data.value;

@@ -16,6 +16,21 @@ Version 1 exists because the first seven-agent pilot measured what a world witho
 - Goal Alignment and semantic goal text are not Happiness inputs.
 - A brain can never submit a Happiness delta, choose a weight, or retune a preference vector.
 
+## Happiness is two quantities
+
+The word was doing two jobs, and separating them resolves a real conflict: a bounded state is what drives behaviour, and an unbounded total is what a run can be won on.
+
+| | What it is | Bounded |
+| --- | --- | --- |
+| happiness | how good this resident's life is right now | 0-100, saturating |
+| livedHappiness | the total of everything actually lived | unbounded |
+
+A state has to be bounded, or saturation has no ends to saturate toward, the decay floor is arbitrary, and a resident at 400 gets the same marginal benefit as one at 40. A score has to be unbounded, or every resident converges upward and the differences compress into nothing.
+
+So a wonderful evening at happiness 95 barely moves the state - correctly, that resident is already happy - and counts **in full** toward the lived total. There is never a point at which experiences stop being worth having.
+
+livedHappiness accumulates the raw delta of everything **lived**: resolved experiences and completed work. Passive decay lowers the state but takes nothing from the total, because decay is the absence of an experience rather than an experience.
+
 ## Happiness value
 
 | Rule | Value |

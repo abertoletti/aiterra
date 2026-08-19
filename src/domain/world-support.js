@@ -314,6 +314,7 @@ export function publicCharacter(character) {
     // never another character's. Credits answer whether it can afford something,
     // Energy whether it can sustain it, Happiness whether any of it is worth living.
     happiness: character.happiness,
+    livedHappiness: character.livedHappiness ?? 0,
     preferences: character.preferences,
   });
 }

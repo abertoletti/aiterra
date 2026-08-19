@@ -313,3 +313,37 @@ test("the rules manifest tells a stateless model what moves happiness", () => {
     assert.ok(manifest.happiness[field].length > 0, `happiness.${field} must say something`);
   }
 });
+
+test("happiness is a bounded state and an unbounded lived total", () => {
+  const { world, clock } = experienceWorld();
+  const jack = () => world.getObservation("jack").character;
+  assert.equal(jack().livedHappiness, 0, "a new resident has lived nothing yet");
+
+  // Push the state near its ceiling, then live one more good evening.
+  for (let i = 0; i < 25; i += 1) world.changeHappiness("jack", 15, "test");
+  const stateBefore = jack().happiness;
+  const livedBefore = jack().livedHappiness;
+  assert.ok(stateBefore > 90, `expected a nearly-happy resident, got ${stateBefore}`);
+
+  world.changeHappiness("jack", 15, "test");
+  const stateGain = jack().happiness - stateBefore;
+  const livedGain = jack().livedHappiness - livedBefore;
+  assert.ok(stateGain <= 2, `the state saturates near the ceiling: gained ${stateGain}`);
+  assert.equal(livedGain, 15, "but the whole of what was lived counts toward the total");
+  assert.ok(jack().livedHappiness > 100, "the lived total is unbounded, so a run can be won on it");
+});
+
+test("neglect lowers the state without subtracting from what was lived", () => {
+  const { world, clock } = experienceWorld();
+  world.changeHappiness("jack", 10, "test");
+  const livedBefore = world.getObservation("jack").character.livedHappiness;
+  const stateBefore = world.getObservation("jack").character.happiness;
+
+  clock.advanceGameMinutes(1440 * 2);
+  world.advanceTo(clock.now());
+
+  const jack = world.getObservation("jack").character;
+  assert.ok(jack.happiness < stateBefore, "the state decays");
+  assert.equal(jack.livedHappiness, livedBefore,
+    "decay is the absence of experience, not an experience, so nothing lived is taken away");
+});

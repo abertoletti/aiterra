@@ -280,7 +280,7 @@ export class World {
 
   // Experience and Happiness policy v1. Bounded, server-owned, and saturating toward
   // the range ends so no sequence of experiences can pin a character at 0 or 100.
-  changeHappiness(characterId, rawDelta, reason, { causedByEventIds = [], worldTime = null, factors = null } = {}) {
+  changeHappiness(characterId, rawDelta, reason, { causedByEventIds = [], worldTime = null, factors = null, lived = true } = {}) {
     const character = this.requireCharacter(characterId);
     const policy = this.config.happiness;
     const bounded = clamp(rawDelta, -policy.maximumChangePerExperience, policy.maximumChangePerExperience);
@@ -295,6 +295,11 @@ export class World {
       data: {
         characterId, reason, value, previous: character.happiness,
         rawDelta: bounded, appliedDelta: value - character.happiness,
+        // Happiness is two quantities. The state says how good life is now, so it is
+        // bounded and saturates. livedHappiness is the unbounded total of what was
+        // actually lived, which is what a run is won on: a wonderful evening at 95
+        // barely moves the state and still counts in full toward the total.
+        lived, livedDelta: lived ? bounded : 0,
         ...(factors ? { factors } : {}),
         happinessPolicyVersion: policy.policyVersion,
       },
@@ -2206,6 +2211,9 @@ export class World {
           characterId: character.id, worldDays: elapsedWindows,
           previous: character.happiness, value: character.happiness + applied,
           delta: applied, floor: policy.decayFloor,
+          // Decay is the absence of experience, not an experience, so it lowers the
+          // state without subtracting from the total of what was lived.
+          lived: false,
           happinessPolicyVersion: policy.policyVersion,
         },
       });
@@ -2429,6 +2437,7 @@ export class World {
         experienceValue: "An experience resolves once, when you leave or when it ends. Its value comes from how well its profile matches your own preferences, who was actually there and how you feel about them, how much of it you were present for, whether you actually talked to anyone, the size of the crowd, and how recently you did something similar.",
         pursuit: "Attending costs Credits and Energy and pays Happiness, so it is worth choosing deliberately. Going somewhere that matches nothing you care about, leaving after a minute, or repeating the same kind of gathering makes it worse, not neutral.",
         neglect: `Going ${this.config.happiness.decayWindowWorldMinutes / 1440} world day(s) without a resolved experience costs ${this.config.happiness.decayPerWorldDay} Happiness, down to a floor of ${this.config.happiness.decayFloor}. Below ${this.config.happiness.lowThreshold} Happiness you recover less Energy from rest, so working without ever gathering makes you steadily less capable of working.`,
+        livedTotal: "Happiness is two numbers. 'happiness' is how good your life is right now: bounded, and it saturates as it approaches either end. 'livedHappiness' is the unbounded total of everything you have actually lived, and together with Credits and relationships it is what a run is won on. A wonderful evening when you are already happy barely moves the first and counts in full toward the second, so there is never a point at which experiences stop being worth having.",
         privacy: "You see your own Happiness and preferences and never another character's.",
       },
       // The context discipline is a stable rule, so it lives in the manifest rather
