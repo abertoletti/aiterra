@@ -241,8 +241,34 @@ test("secondary goals validate against known identifiers, not against full-mode 
 
 test("the prompt asks the character to pursue something and says how to name a goal", () => {
   const prompt = buildDecisionMessages(observation())[0].content;
-  assert.ok(prompt.includes("should be pursuing something"),
+  assert.ok(prompt.includes("keep at least one active secondary goal"),
     "the first pilot adopted zero goals because the prompt told it to adopt them only rarely");
-  assert.ok(prompt.includes("known.characterIds"), "and it must say where a valid target comes from");
+  assert.ok(prompt.includes("`known`"), "and it must say where a valid target comes from");
+  assert.ok(prompt.includes("sourceEventId you actually perceived"));
   assert.ok(!prompt.includes("only when a concrete new commitment"), "the discouraging wording is gone");
+});
+
+test("the prompt states what a run is judged on, and stays a spec rather than an essay", () => {
+  const prompt = buildDecisionMessages(observation())[0].content;
+
+  // Three runs produced almost nothing but conversation while the prompt was 52 flowing
+  // sentences joined by spaces. An instruction buried mid-wall is one the model will not
+  // weigh, so the structure itself is part of the contract.
+  assert.ok(prompt.includes("## What you are playing for"), "the objective has to be stated, not implied");
+  assert.ok(prompt.includes("livedHappiness"));
+  assert.ok(prompt.includes("## If nothing is pending"),
+    "a free decision is where a run is won, and it needs its own section");
+  assert.ok(prompt.includes("Do NOT default to talking"));
+
+  // Every deliberate route a resident can take is named where a free decision is made.
+  for (const route of ["ATTEND:", "EARN:", "BUILD:", "RECOVER:"]) {
+    assert.ok(prompt.includes(route), `the free-decision menu must offer ${route}`);
+  }
+  assert.ok(prompt.includes("acquire_plot"), "and building must be reachable from it");
+  assert.ok(prompt.includes("CEILING on every experience"));
+
+  const lines = prompt.split("\n");
+  const longest = Math.max(...lines.map((line) => line.length));
+  assert.ok(lines.length > 40, "structure comes from lines, not from one joined paragraph");
+  assert.ok(longest < 340, `no line should be a paragraph; longest was ${longest}`);
 });

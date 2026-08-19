@@ -234,10 +234,22 @@ export class AgentSupervisor {
           usage: decision.usage,
           characterName: observation.character?.name,
         });
+        // The instructions themselves, recorded once per distinct prompt rather than on
+        // every decision: a run's log should be able to answer "what was it told" without
+        // carrying five kilobytes per turn.
+        if (decision.systemPromptDigest && state.loggedPromptDigest !== decision.systemPromptDigest) {
+          state.loggedPromptDigest = decision.systemPromptDigest;
+          this.log("info", agent.characterId, "system_prompt", null, {
+            digest: decision.systemPromptDigest,
+            systemPrompt: decision.systemPrompt,
+            characterName: observation.character?.name,
+          });
+        }
         this.log("info", agent.characterId, "model_decision", null, {
           action,
           rationale: decision.rationale,
           usage: decision.usage,
+          systemPromptDigest: decision.systemPromptDigest,
           characterName: observation.character?.name,
         });
       } catch (error) {
