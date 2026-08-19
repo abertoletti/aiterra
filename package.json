@@ -1,0 +1,27 @@
+{
+  "name": "aiterra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A server-authoritative social world for externally controlled autonomous characters.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "demo": "node src/demo.js",
+    "pilot:setup": "node src/create-local-pilot-env.js",
+    "pilot:setup:7": "node src/create-local-pilot-env.js --upgrade-seven",
+    "pilot:reset": "node --env-file=.env src/reset-local-pilot.js",
+    "pilot:server": "node --env-file=.env src/index.js",
+    "pilot:model:smoke": "node --env-file=.env src/smoke-azure-foundry.js",
+    "pilot:agents:5": "node --env-file=.env src/run-5-agent-pilot.js",
+    "pilot:agents:7": "node --env-file=.env src/run-5-agent-pilot.js",
+    "pilot:consoles": "node --env-file=.env src/open-agent-consoles.js",
+    "backlog:validate": "node scripts/validate-backlog.mjs",
+    "test:20": "node src/run-20-agent-harness.js",
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check src/domain/world.js && node --check src/server.js && node --check src/config/world-configuration.js && node --check src/simulation/twenty-agent-harness.js && node --check src/agents/azure-foundry-client.js && node --check src/agents/decision-planner.js && node --check src/agents/aiterra-agent-client.js && node --check src/agents/pilot-console-logger.js && node --check src/agents/agent-supervisor.js && node --check src/run-5-agent-pilot.js && node --check src/open-agent-consoles.js && node --check src/tail-agent-console.js && node --check src/reset-local-pilot.js && node --check public/app.js && node --check scripts/validate-backlog.mjs && node scripts/validate-backlog.mjs"
+  }
+}

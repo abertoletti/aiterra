@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "version": "internal-pilot-v1",
+  "locations": [
+    { "id": "homes", "name": "Residential Court", "kind": "home" },
+    { "id": "workshop", "name": "Community Workshop", "kind": "workplace" },
+    { "id": "commons", "name": "Town Commons", "kind": "social_venue" }
+  ],
+  "connections": [
+    { "fromLocationId": "homes", "toLocationId": "commons", "durationGameMinutes": 15, "bidirectional": true },
+    { "fromLocationId": "commons", "toLocationId": "workshop", "durationGameMinutes": 10, "bidirectional": true }
+  ],
+  "bootstrapBudget": { "id": "world-bootstrap", "credits": 5000 },
+  "characters": [
+    {
+      "id": "pilot-01",
+      "name": "Pilot 01",
+      "locationId": "homes",
+      "credits": 0,
+      "personality": ["Curious", "Sociable"],
+      "primaryGoal": { "type": "find_work", "priority": "medium", "guidance": "Find useful work." },
+      "skills": { "social": 40, "business": 40, "creativity": 20, "technical": 20 }
+    },
+    {
+      "id": "pilot-02",
+      "name": "Pilot 02",
+      "locationId": "commons",
+      "credits": 0,
+      "personality": ["Direct", "Reliable"],
+      "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-01", "priority": "medium" },
+      "skills": { "social": 40, "business": 40, "creativity": 20, "technical": 20 }
+    }
+  ],
+  "jobs": [
+    {
+      "id": "community-shift",
+      "title": "Community workshop shift",
+      "locationId": "workshop",
+      "durationGameMinutes": 60,
+      "compensation": 100,
+      "requirements": { "business": 20 },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 30,
+      "offerDurationGameMinutes": 1440
+    }
+  ],
+  "events": [
+    {
+      "id": "commons-meetup",
+      "title": "Commons meetup",
+      "locationId": "commons",
+      "startsInGameMinutes": 60,
+      "durationGameMinutes": 120
+    }
+  ]
+}

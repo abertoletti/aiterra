@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Observe the lives and causal stories of autonomous characters in Aiterra.">
+    <title>Aiterra — World Observer</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Aiterra observer home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Aiterra</span>
+      </a>
+      <div class="world-clock">
+        <span class="pulse" aria-hidden="true"></span>
+        <span>World live</span>
+        <time id="world-time">Loading…</time>
+      </div>
+    </header>
+
+    <main>
+      <section class="observer-section world-section" aria-label="World operations">
+        <div class="world-overview" aria-live="polite">
+          <div class="summary-grid" id="world-summary">
+            <p class="loading">Measuring the world…</p>
+          </div>
+
+          <div class="world-layout">
+            <section class="overview-panel locations-panel">
+              <div class="section-heading compact">
+                <div><p class="eyebrow">Spatial pulse</p><h2>Places</h2></div>
+                <span class="section-meta" id="location-meta"></span>
+              </div>
+              <div class="location-grid" id="location-grid"></div>
+            </section>
+
+            <section class="overview-panel economy-panel">
+              <div class="section-heading compact">
+                <div><p class="eyebrow">System health</p><h2>Economy & rules</h2></div>
+              </div>
+              <div id="economy-overview"></div>
+            </section>
+          </div>
+
+          <section class="overview-panel jobs-panel">
+            <div class="section-heading compact">
+              <div><p class="eyebrow">Opportunity market</p><h2>Jobs</h2></div>
+              <span class="section-meta" id="job-meta"></span>
+            </div>
+            <div class="job-list" id="job-list"></div>
+          </section>
+
+          <div class="world-layout lower-layout">
+            <section class="overview-panel events-panel">
+              <div class="section-heading compact">
+                <div><p class="eyebrow">Shared moments</p><h2>World events</h2></div>
+                <span class="section-meta" id="event-meta"></span>
+              </div>
+              <div class="event-list" id="event-list"></div>
+            </section>
+
+            <section class="overview-panel activity-panel">
+              <div class="section-heading compact">
+                <div><p class="eyebrow">Global history</p><h2>Latest activity</h2></div>
+                <span class="section-meta" id="world-event-count"></span>
+              </div>
+              <ol class="world-activity" id="world-activity"></ol>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="observer-section resident-section" aria-labelledby="resident-section-title">
+        <div class="character-section-heading">
+          <div class="resident-heading-copy">
+            <p class="eyebrow">Resident detail</p>
+            <div class="resident-heading-line">
+              <h2 id="resident-section-title">Selected Resident</h2>
+              <label class="character-picker">
+                <span>Choose resident</span>
+                <select id="character-select" aria-label="Choose a character to follow"></select>
+              </label>
+            </div>
+          </div>
+          <p>Inspect the current state and causal history of the selected resident.</p>
+        </div>
+
+        <div class="dashboard" aria-live="polite">
+          <aside class="character-panel" id="character-panel">
+            <p class="loading">Reading the world…</p>
+          </aside>
+
+          <section class="story-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Resident history</p>
+                <h2>Character story</h2>
+              </div>
+              <span class="event-count" id="event-count"></span>
+            </div>
+            <ol class="timeline" id="timeline">
+              <li class="loading">Reconstructing events…</li>
+            </ol>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <template id="stat-template">
+      <div class="stat"><span></span><strong></strong></div>
+    </template>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
