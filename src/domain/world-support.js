@@ -1,0 +1,435 @@
+// Pure support for the World aggregate: shared event-type sets, the domain error,
+// and the projection, validation, and normalization helpers. Nothing here touches
+// world state, so every function is safe to call from any module.
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export const relevanceOrder = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+export const ownerFeedTypes = new Set([
+  "CHARACTER_CREATED", "MOVEMENT_STARTED", "CHARACTER_ARRIVED",
+  "CO_PRESENCE_STARTED", "CO_PRESENCE_ENDED",
+  "CONVERSATION_STARTED", "CONVERSATION_MESSAGE_SENT", "CONVERSATION_ENDED",
+  "CONVERSATION_TURN_EXPIRED", "SILENCE_RESOLVED", "AGENT_REACTION_TIMED_OUT",
+  "KNOWLEDGE_LEARNED", "RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED",
+  "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ABANDONED", "SECONDARY_GOAL_EXPIRED",
+  "JOB_CREATED", "JOB_ACCEPTED", "JOB_STARTED", "JOB_COMPLETED", "JOB_CANCELLED", "JOB_FAILED", "JOB_EXPIRED",
+  "EVENT_CREATED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED",
+  "INVITATION_SENT", "INVITATION_ACCEPTED", "INVITATION_DECLINED", "INVITATION_EXPIRED",
+  "COMMITMENT_CREATED", "COMMITMENT_REMINDER_SENT", "COMMITMENT_WINDOW_OPENED", "COMMITMENT_KEPT", "COMMITMENT_MISSED",
+  "JOB_TEAM_MEMBER_JOINED", "JOB_TEAM_MEMBER_LEFT",
+  "ENERGY_CHANGED", "REST_STARTED", "REST_COMPLETED", "DECISION_RECORDED",
+  "DEADLINE_SUPPRESSED_FOR_PLATFORM_INCIDENT", "AGENT_RESPONSE_MISSED", "AGENT_RECOVERY_VERIFIED",
+]);
+
+export const nonProjectionEventTypes = new Set([
+  "AGENT_ACTION_PROCESSED", "RELEVANCE_EVALUATED", "OWNER_FEED_VIEWED",
+  "RETURN_SUMMARY_VIEWED", "STORY_DETAIL_VIEWED", "STORY_INTEREST_RATED",
+  "AGENT_EVENT_REPLAYED", "AGENT_CONNECTION_TESTED",
+  "OPPORTUNITIES_VIEWED", "AGENT_RULES_REQUESTED",
+]);
+
+// A directional relationship is private to its owner, so only `fromId` projects it.
+export const directionalRelationshipEventTypes = new Set([
+  "RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED",
+  "RELATIONSHIP_APPRAISAL_RECORDED", "RELATIONSHIP_OBJECTIVE_OUTCOME_RECORDED",
+]);
+
+export class DomainError extends Error {
+  constructor(code, message, status = 400, details = null) {
+    super(message);
+    this.name = "DomainError";
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
+export function isNotificationTerminal(status) {
+  return ["resolved", "expired", "cancelled"].includes(status);
+}
+
+export function createEmptyState() {
+  return {
+    locations: new Map(), connections: new Map(), characters: new Map(), relationships: new Map(),
+    conversations: new Map(), jobs: new Map(), gatherings: new Map(), coPresence: new Map(),
+    invitations: new Map(), commitments: new Map(),
+    notifications: new Map(), knowledge: new Map(), actionReceipts: new Map(),
+    systemBudgets: new Map(), platformIncident: null,
+    returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
+    agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
+    eventsById: new Map(), characterProjectionVersions: new Map(), globalProjectionVersion: 0,
+    conversationAppraisals: new Set(),
+  };
+}
+
+export function conversationAppraisalKey(characterId, conversationId) {
+  return `${characterId}:${conversationId}`;
+}
+
+// Mirrors characterMayReference: the characters whose projection an event advances.
+// EVENT_CREATED is handled separately because it is perceivable by every character.
+export function projectionCharactersForEvent(event) {
+  if (directionalRelationshipEventTypes.has(event.type)) {
+    return event.data?.fromId ? [event.data.fromId] : [];
+  }
+  return [...new Set([
+    event.actorCharacterId, event.subjectCharacterId,
+    ...(event.data?.participantIds ?? []),
+  ].filter(Boolean))];
+}
+
+export function relationshipKey(fromId, toId) {
+  return `${fromId}->${toId}`;
+}
+
+export function coPresenceKey(firstCharacterId, secondCharacterId, locationId) {
+  return `${[firstCharacterId, secondCharacterId].sort().join("<->")}@${locationId}`;
+}
+
+export function timeWindowsOverlap(firstStartsAt, firstEndsAt, secondStartsAt, secondEndsAt) {
+  return new Date(firstStartsAt) < new Date(secondEndsAt) && new Date(secondStartsAt) < new Date(firstEndsAt);
+}
+
+export function normalizeRelationship(relationship, config) {
+  const affinity = Number(relationship.affinity ?? 0);
+  const trust = Number(relationship.trust ?? 0);
+  const tension = Number(relationship.tension ?? 0);
+  if (![affinity, trust, tension].every(Number.isFinite)) throw invalid("INVALID_RELATIONSHIP", "Relationship dimensions must be numbers");
+  return {
+    affinity: clamp(affinity, config.minimum, config.maximum),
+    trust: clamp(trust, config.minimum, config.maximum),
+    tension: clamp(tension, config.tensionMinimum, config.tensionMaximum),
+  };
+}
+
+export function relationshipStrength(relationship) {
+  if (!relationship) return 0;
+  return Math.max(Math.abs(relationship.affinity), Math.abs(relationship.trust), relationship.tension);
+}
+
+export function normalizeSkills(skills) {
+  const result = {};
+  for (const skill of ["social", "business", "creativity", "technical"]) {
+    const value = Number(skills?.[skill] ?? 0);
+    if (!Number.isFinite(value) || value < 0 || value > 100) throw invalid("INVALID_SKILL", `${skill} must be between 0 and 100`);
+    result[skill] = value;
+  }
+  return result;
+}
+
+export function normalizeGoal(goal, { id = goal.id, className }) {
+  requiredId(id, "goal id");
+  requiredId(goal.type, "goal type");
+  if (!['low', 'medium', 'high'].includes(goal.priority ?? "medium")) throw invalid("INVALID_GOAL_PRIORITY", "Goal priority must be low, medium, or high");
+  return {
+    id,
+    goalClass: className,
+    type: goal.type,
+    targetId: goal.targetId ? String(goal.targetId).slice(0, 100) : null,
+    priority: goal.priority ?? "medium",
+    guidance: String(goal.guidance ?? "").slice(0, 500),
+    expiresAt: goal.expiresAt ?? null,
+    sourceEventId: goal.sourceEventId ?? null,
+    status: "active",
+  };
+}
+
+export function scoreGoalMatch(goal, event) {
+  let matchType = null;
+  const targetCandidates = new Set([
+    event.actorCharacterId,
+    event.subjectCharacterId,
+    event.data.characterId,
+    event.data.targetId,
+    event.data.locationId,
+    event.data.eventId,
+    event.data.jobId,
+  ].filter(Boolean));
+  if (goal.targetId && targetCandidates.has(goal.targetId)) matchType = "exact";
+  else if (goal.type === "find_work" && event.type.startsWith("JOB_")) matchType = goal.targetId ? null : "contextual";
+  else if (["strengthen_relationship", "avoid_character", "resolve_conflict"].includes(goal.type)
+    && goal.targetId && [event.actorCharacterId, event.subjectCharacterId].includes(goal.targetId)) matchType = "exact";
+  else if (goal.type === "attend_event" && event.data.eventId === goal.targetId) matchType = "exact";
+  else if (goal.type === "visit_location" && event.data.locationId === goal.targetId) matchType = "exact";
+  if (!matchType) return null;
+  const base = goal.goalClass === "primary"
+    ? matchType === "exact" ? 30 : 20
+    : matchType === "exact" ? 20 : 10;
+  const priority = goal.priority === "high" ? 10 : goal.priority === "medium" ? 5 : 0;
+  const cap = goal.goalClass === "primary" ? 40 : 30;
+  return {
+    goalId: goal.id,
+    goalClass: goal.goalClass,
+    goalType: goal.type,
+    matchType,
+    priority: goal.priority,
+    contribution: Math.min(cap, base + priority),
+  };
+}
+
+export function goalMatchesEvidence(goal, characterId, event) {
+  if (goal.type === "visit_location") return event.type === "CHARACTER_ARRIVED"
+    && event.data.characterId === characterId && event.data.locationId === goal.targetId;
+  if (goal.type === "attend_event") return event.type === "EVENT_ATTENDANCE_STARTED"
+    && event.data.characterId === characterId && event.data.eventId === goal.targetId;
+  if (goal.type === "find_work") return ["JOB_ACCEPTED", "JOB_COMPLETED"].includes(event.type)
+    && event.data.workerId === characterId && (!goal.targetId || event.data.locationId === goal.targetId);
+  if (goal.type === "strengthen_relationship") return event.type === "RELATIONSHIP_CHANGED"
+    && event.data.fromId === characterId && event.data.toId === goal.targetId
+    && ["affinity", "trust"].includes(event.data.dimension) && event.data.delta > 0;
+  if (goal.type === "resolve_conflict") return event.type === "RELATIONSHIP_CHANGED"
+    && event.data.fromId === characterId && event.data.toId === goal.targetId
+    && event.data.dimension === "tension" && event.data.delta < 0;
+  return false;
+}
+
+export function normalizeFact(fact) {
+  if (!fact || typeof fact !== "object") throw invalid("INVALID_FACT", "Shared fact must be an object");
+  requiredId(fact.id, "fact id");
+  requiredText(fact.claim, "fact claim", 500);
+  const perceivedReliability = fact.perceivedReliability ?? "unknown";
+  if (!["unknown", "low", "medium", "high"].includes(perceivedReliability)) {
+    throw invalid("INVALID_FACT_RELIABILITY", "Perceived reliability must be unknown, low, medium, or high");
+  }
+  return {
+    id: fact.id, claim: fact.claim,
+    subjectId: fact.subjectId ? String(fact.subjectId).slice(0, 100) : null,
+    perceivedReliability,
+  };
+}
+
+export function publicCharacter(character) {
+  return structuredClone({
+    id: character.id, name: character.name, personality: character.personality, goal: character.goal,
+    primaryGoal: character.primaryGoal, secondaryGoals: character.secondaryGoals,
+    locationId: character.locationId, activity: character.activity, energy: character.energy,
+    credits: character.credits, skills: character.skills, reputation: character.reputation, score: character.score,
+    agentAvailability: character.agentAvailability, consecutiveMissedResponses: character.consecutiveMissedResponses,
+  });
+}
+
+export function conversationObservation(conversation, config) {
+  const copy = structuredClone(conversation);
+  const turnsRemaining = Math.max(0, config.maximumTurns - copy.messages.length);
+  return {
+    ...copy,
+    maximumTurns: config.maximumTurns,
+    turnsRemaining,
+    closingRecommended: turnsRemaining <= config.closingTurns,
+  };
+}
+
+export function publicJob(job, energyCost = null) {
+  return structuredClone({
+    id: job.id, creatorId: job.creatorId, workerId: job.workerId, workerIds: job.workerIds,
+    teamSize: job.teamSize, openTeamSlots: Math.max(0, job.teamSize - job.workerIds.length),
+    requirementsMode: job.requirementsMode, title: job.title,
+    locationId: job.locationId, durationGameMinutes: job.durationGameMinutes,
+    compensation: job.compensation, requirements: job.requirements, status: job.status,
+    visibility: job.visibility ?? "public",
+    publishedAt: job.publishedAt,
+    scheduledStartAt: job.scheduledStartAt, startGraceUntil: job.startGraceUntil,
+    offerExpiresAt: job.offerExpiresAt,
+    availableFrom: job.availableFrom, availableUntil: job.availableUntil,
+    fundingSourceType: job.fundingSourceType, fundingSourceId: job.fundingSourceId,
+    reservation: job.reservation, terminalCause: job.terminalCause ?? null,
+    ...(energyCost === null ? {} : { energyCost }),
+  });
+}
+
+export function ownerFeedCategory(type) {
+  if (["MOVEMENT_STARTED", "CHARACTER_ARRIVED", "REST_STARTED", "REST_COMPLETED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED"].includes(type)) return "action";
+  if (["CO_PRESENCE_STARTED", "CO_PRESENCE_ENDED", "CONVERSATION_STARTED", "CONVERSATION_MESSAGE_SENT", "CONVERSATION_ENDED"].includes(type)) return "encounter";
+  if (["RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED", "KNOWLEDGE_LEARNED", "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED"].includes(type)) return "consequence";
+  if (type.startsWith("JOB_") || type === "EVENT_CREATED") return "opportunity";
+  if (type.includes("EXPIRED") || type.includes("TIMED_OUT") || type === "SILENCE_RESOLVED" || type === "AGENT_RESPONSE_MISSED") return "agent_timeout";
+  if (type === "DECISION_RECORDED") return "decision";
+  return "world";
+}
+
+export function ownerFeedDetails(event) {
+  const data = event.data;
+  if (event.type === "RELATIONSHIP_CHANGED") return {
+    counterpartId: data.toId, dimension: data.dimension, previous: data.previous,
+    delta: data.delta, value: data.value, rule: data.rule, sourceType: data.sourceType,
+    relationshipRuleVersion: data.relationshipRuleVersion,
+  };
+  if (event.type === "CONVERSATION_ENDED") return {
+    conversationId: data.conversationId, reason: data.reason, turnCount: data.turnCount,
+    durationGameMinutes: data.durationGameMinutes, producedFactIds: data.producedFactIds,
+  };
+  if (event.type === "KNOWLEDGE_LEARNED") return {
+    fact: data.fact, sourceCharacterId: data.sourceCharacterId, messageId: data.messageId,
+  };
+  if (event.type.startsWith("JOB_")) return {
+    jobId: data.jobId ?? data.id, title: data.title, terminalCause: data.terminalCause,
+    compensation: data.compensation,
+  };
+  if (event.type.startsWith("SECONDARY_GOAL_")) return {
+    goalId: data.goalId ?? data.goal?.id, goal: data.goal ?? null,
+  };
+  if (event.type === "DECISION_RECORDED") return { declaredDecision: data.summary };
+  return {};
+}
+
+export function summaryPriority(type) {
+  if (type === "RELATIONSHIP_CHANGED") return 100;
+  if (["JOB_FAILED", "JOB_COMPLETED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ADOPTED"].includes(type)) return 90;
+  if (["AGENT_REACTION_TIMED_OUT", "CONVERSATION_TURN_EXPIRED", "SILENCE_RESOLVED"].includes(type)) return 85;
+  if (type === "DECISION_RECORDED") return 80;
+  if (type === "KNOWLEDGE_LEARNED") return 75;
+  if (type === "CONVERSATION_ENDED") return 70;
+  if (["CHARACTER_ARRIVED", "CONVERSATION_STARTED"].includes(type)) return 50;
+  return 0;
+}
+
+export function encodeOwnerCursor(payload, secret) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", secret).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+
+export function decodeOwnerCursor(cursor, secret) {
+  try {
+    const [encoded, suppliedSignature, extra] = String(cursor).split(".");
+    if (!encoded || !suppliedSignature || extra) throw new Error("malformed");
+    const expected = createHmac("sha256", secret).update(encoded).digest();
+    const supplied = Buffer.from(suppliedSignature, "base64url");
+    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new Error("signature");
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (!payload || typeof payload !== "object") throw new Error("payload");
+    return payload;
+  } catch {
+    throw new DomainError("INVALID_CURSOR", "Owner feed cursor is invalid", 400);
+  }
+}
+
+export function metric(numerator, denominator) {
+  return { numerator, denominator, value: denominator === 0 ? null : numerator / denominator };
+}
+
+export function delaySummary(values) {
+  if (values.length === 0) return { sampleCount: 0, averageWorldMilliseconds: null, maximumWorldMilliseconds: null };
+  return {
+    sampleCount: values.length,
+    averageWorldMilliseconds: values.reduce((sum, value) => sum + value, 0) / values.length,
+    maximumWorldMilliseconds: Math.max(...values),
+  };
+}
+
+export function buildDescendantIndex(events) {
+  const directChildren = new Map();
+  for (const event of events) {
+    for (const causeId of event.causedByEventIds) {
+      if (!directChildren.has(causeId)) directChildren.set(causeId, new Set());
+      directChildren.get(causeId).add(event.id);
+    }
+  }
+  const result = new Map();
+  for (const event of events) {
+    const descendants = new Set();
+    const queue = [...(directChildren.get(event.id) ?? [])];
+    while (queue.length > 0) {
+      const eventId = queue.shift();
+      if (descendants.has(eventId)) continue;
+      descendants.add(eventId);
+      queue.push(...(directChildren.get(eventId) ?? []));
+    }
+    result.set(event.id, descendants);
+  }
+  return result;
+}
+
+export function projectStoryCandidates(events, descendants) {
+  const roots = events.filter((event) => ["CO_PRESENCE_STARTED", "CHARACTER_ARRIVED", "CONVERSATION_STARTED"].includes(event.type));
+  const consequenceTypes = new Set([
+    "RELATIONSHIP_CHANGED", "KNOWLEDGE_LEARNED", "SECONDARY_GOAL_ADOPTED",
+    "JOB_ACCEPTED", "JOB_COMPLETED", "JOB_CANCELLED", "JOB_FAILED",
+  ]);
+  const consequences = events.filter((event) => consequenceTypes.has(event.type));
+  const candidates = [];
+  for (const root of roots) {
+    const depth = new Map([[root.id, 0]]);
+    const reachableEvents = events
+      .filter((event) => event.sequence > root.sequence && descendants.get(root.id)?.has(event.id))
+      .sort((a, b) => a.sequence - b.sequence);
+    for (const event of reachableEvents) {
+      const parentDepths = event.causedByEventIds.map((id) => depth.get(id)).filter(Number.isFinite);
+      if (parentDepths.length > 0) depth.set(event.id, Math.max(...parentDepths) + 1);
+    }
+    for (const terminal of consequences) {
+      const causalEdges = depth.get(terminal.id);
+      if (!Number.isFinite(causalEdges) || causalEdges < 3) continue;
+      if (new Date(terminal.worldTime) > new Date(new Date(root.worldTime).getTime() + 24 * 60 * 60_000)) continue;
+      const pathEvents = [root, ...reachableEvents.filter((event) => event.sequence <= terminal.sequence && depth.has(event.id))];
+      const characterIds = [...new Set(pathEvents.flatMap(charactersForEvent))];
+      if (characterIds.length < 2) continue;
+      candidates.push({
+        id: `${root.id}:${terminal.id}:v1`,
+        rootEventId: root.id,
+        terminalConsequenceEventId: terminal.id,
+        characterIds,
+        causalEdges,
+        metricDefinitionVersion: 1,
+      });
+    }
+  }
+  return candidates;
+}
+
+export function collectActiveCharacterDays(events) {
+  const activeTypes = new Set([
+    "MOVEMENT_STARTED", "CONVERSATION_STARTED", "CONVERSATION_MESSAGE_SENT",
+    "JOB_ACCEPTED", "JOB_STARTED", "JOB_COMPLETED", "EVENT_ATTENDANCE_STARTED",
+    "REST_STARTED", "SECONDARY_GOAL_ADOPTED", "DECISION_RECORDED",
+  ]);
+  const days = new Set();
+  for (const event of events.filter((item) => activeTypes.has(item.type))) {
+    for (const characterId of charactersForEvent(event)) days.add(`${characterId}:${event.worldTime.slice(0, 10)}`);
+  }
+  return days;
+}
+
+export function charactersForEvent(event) {
+  return [...new Set([
+    event.actorCharacterId, event.subjectCharacterId,
+    ...(event.data.participantIds ?? []), event.data.characterId,
+    event.data.fromId, event.data.toId, event.data.workerId, event.data.creatorId,
+  ].filter(Boolean))];
+}
+
+export function requiredId(value, label) {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/.test(value)) {
+    throw invalid("INVALID_ID", `${label} is invalid`);
+  }
+}
+
+export function requiredText(value, label, maximum) {
+  if (typeof value !== "string" || !value.trim() || value.length > maximum) {
+    throw invalid("INVALID_TEXT", `${label} must contain 1-${maximum} characters`);
+  }
+}
+
+export function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+export function addMilliseconds(value, milliseconds) {
+  return new Date(new Date(value).getTime() + milliseconds).toISOString();
+}
+
+export function sameStringArray(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function invalid(code, message) {
+  return new DomainError(code, message, 422);
+}
+
+export function conflict(code, message) {
+  return new DomainError(code, message, 409);
+}
+
+export function forbidden(code, message) {
+  return new DomainError(code, message, 403);
+}
