@@ -213,6 +213,7 @@ function actionShapes(availableActions) {
       case "start_job":
       case "cancel_job": shapes[type] = { type, jobId: "<an offered jobId>" }; break;
       case "attend_event": shapes.attend_event = { type, eventId: "<an offered eventId>" }; break;
+      case "leave_experience": shapes.leave_experience = { type, eventId: "<the eventId you are attending>" }; break;
       case "send_invitation": shapes.send_invitation = {
         type,
         targetCharacterId: "<an offered targetCharacterId>",
@@ -304,6 +305,7 @@ export function validateAction(candidate, observation, history = []) {
     case "cancel_job":
       return matchedIdentifierAction(type, "jobId", candidate, templates);
     case "attend_event":
+    case "leave_experience":
       return matchedIdentifierAction(type, "eventId", candidate, templates);
     case "send_invitation": {
       const targetCharacterId = text(candidate.targetCharacterId, "targetCharacterId", 100);

@@ -2,7 +2,7 @@
 // It receives state rather than the World instance, so folding an event can never
 // reach a command, the clock, or the store, and a replay is exactly this function
 // run over the history in order.
-import { coPresenceKey, relationshipKey } from "./world-support.js";
+import { coPresenceKey, experienceAttendanceKey, relationshipKey } from "./world-support.js";
 
 export function applyEvent(state, event) {
   const data = event.data;
@@ -226,13 +226,65 @@ export function applyEvent(state, event) {
       state.characters.get(data.characterId).activity = {
         type: "attend_event", eventId: data.eventId, title: data.title,
         startedAt: data.startedAt, expectedEndAt: data.expectedEndAt, startedByEventId: event.id,
-        compatibleSecondaryActions: ["start_conversation", "send_message", "end_conversation", "appraise_interaction"],
+        compatibleSecondaryActions: ["start_conversation", "send_message", "end_conversation", "appraise_interaction", "leave_experience"],
       };
+      const key = experienceAttendanceKey(data.eventId, data.characterId);
+      const prior = state.experienceAttendance.get(key);
+      // Re-entry keeps accumulating presence against the same unresolved attendance,
+      // so one experience resolves once no matter how many times it is entered.
+      state.experienceAttendance.set(key, {
+        eventId: data.eventId,
+        characterId: data.characterId,
+        startedAt: data.startedAt,
+        endedAt: null,
+        accruedMinutes: prior && !prior.resolved ? prior.accruedMinutes : 0,
+        conversationTurns: prior && !prior.resolved ? prior.conversationTurns : 0,
+        resolved: false,
+      });
       break;
     }
-    case "EVENT_ATTENDANCE_ENDED":
+    case "EVENT_ATTENDANCE_ENDED": {
       state.characters.get(data.characterId).activity = null;
+      const attendance = state.experienceAttendance.get(experienceAttendanceKey(data.eventId, data.characterId));
+      if (attendance) {
+        attendance.endedAt = data.endedAt ?? event.worldTime;
+        attendance.accruedMinutes = data.presenceMinutes ?? attendance.accruedMinutes;
+      }
       break;
+    }
+    case "EXPERIENCE_ACCESS_PAID": {
+      state.characters.get(data.characterId).credits -= data.price;
+      if (data.destinationType === "system_budget") {
+        const budget = state.systemBudgets.get(data.destinationId);
+        if (budget) budget.balance += data.price;
+      } else {
+        const proprietor = state.characters.get(data.destinationId);
+        if (proprietor) proprietor.credits += data.price;
+      }
+      break;
+    }
+    case "EXPERIENCE_HAPPINESS_RESOLVED": {
+      const attendance = state.experienceAttendance.get(experienceAttendanceKey(data.eventId, data.characterId));
+      if (attendance) attendance.resolved = true;
+      // The repetition window reads this list, so a resolution has to be remembered
+      // even after the attendance itself stops mattering.
+      const history = state.happinessResolutions.get(data.characterId) ?? [];
+      history.push({
+        eventId: data.eventId, locationId: data.locationId,
+        dominantDimension: data.dominantDimension ?? null, worldTime: event.worldTime,
+      });
+      state.happinessResolutions.set(data.characterId, history);
+      break;
+    }
+    case "HAPPINESS_CHANGED":
+      state.characters.get(data.characterId).happiness = data.value;
+      break;
+    case "HAPPINESS_DECAYED": {
+      const character = state.characters.get(data.characterId);
+      character.happiness = data.value;
+      character.lastHappinessDecayAt = event.worldTime;
+      break;
+    }
     case "INVITATION_SENT":
       state.invitations.set(data.invitationId, {
         id: data.invitationId, ...structuredClone(data), status: "pending", sentByEventId: event.id,
@@ -282,6 +334,13 @@ export function applyEvent(state, event) {
       });
       break;
     case "CONVERSATION_MESSAGE_SENT": {
+      // Verified interaction: only turns this character itself took, and only while it
+      // was actually present at an experience.
+      const speaker = state.characters.get(data.senderId ?? event.actorCharacterId);
+      if (speaker?.activity?.type === "attend_event") {
+        const attending = state.experienceAttendance.get(experienceAttendanceKey(speaker.activity.eventId, speaker.id));
+        if (attending && !attending.resolved) attending.conversationTurns += 1;
+      }
       const conversation = state.conversations.get(data.conversationId);
       conversation.messages.push({
         id: data.messageId, senderId: data.senderId, text: data.text,

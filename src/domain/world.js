@@ -9,6 +9,8 @@ import {
 } from "./world-context.js";
 import {
   DomainError, addMilliseconds, clamp, itemsTouchedByEvent, coPresenceKey, conflict, conversationAppraisalKey,
+  dominantDimension, evenPreferences, experienceAttendanceKey, normalizeExperienceProfile, normalizePreferences,
+  profileAffinity, round2,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
   normalizeFact, normalizeGoal, normalizeRelationship, normalizeSkills,
@@ -219,6 +221,7 @@ export class World {
     energy = this.config.energy.maximum,
     credits = 0,
     skills = { social: 0, business: 0, creativity: 0, technical: 0 },
+    preferences = null,
   }) {
     requiredId(id, "character id");
     requiredText(name, "character name", 80);
@@ -240,6 +243,12 @@ export class World {
         energy,
         credits,
         skills: normalizeSkills(skills),
+        happiness: this.config.happiness.initial,
+        preferences: preferences
+          ? normalizePreferences(preferences, this.config.grammar)
+          : evenPreferences(this.config.grammar),
+        profileTaxonomyVersion: this.config.grammar.profileTaxonomyVersion,
+        happinessPolicyVersion: this.config.happiness.policyVersion,
       },
     });
     for (const other of this.state.characters.values()) {
@@ -263,6 +272,240 @@ export class World {
       subjectCharacterId: toId,
       data: { fromId, toId, ...dimensions, reason, relationshipRuleVersion: this.config.relationship.policyVersion },
     });
+  }
+
+  // Experience and Happiness policy v1. Bounded, server-owned, and saturating toward
+  // the range ends so no sequence of experiences can pin a character at 0 or 100.
+  changeHappiness(characterId, rawDelta, reason, { causedByEventIds = [], worldTime = null, factors = null } = {}) {
+    const character = this.requireCharacter(characterId);
+    const policy = this.config.happiness;
+    const bounded = clamp(rawDelta, -policy.maximumChangePerExperience, policy.maximumChangePerExperience);
+    const applied = bounded > 0
+      ? Math.round(bounded * (policy.maximum - character.happiness) / policy.maximum)
+      : Math.round(bounded * character.happiness / policy.maximum);
+    const value = clamp(character.happiness + applied, policy.minimum, policy.maximum);
+    return this.record("HAPPINESS_CHANGED", {
+      actorCharacterId: characterId,
+      causedByEventIds,
+      worldTime,
+      data: {
+        characterId, reason, value, previous: character.happiness,
+        rawDelta: bounded, appliedDelta: value - character.happiness,
+        ...(factors ? { factors } : {}),
+        happinessPolicyVersion: policy.policyVersion,
+      },
+    });
+  }
+
+  // AIT-1504. One authoritative command: it settles the access offer, charges entry
+  // Energy, and creates presence. A failure leaves no payment and no presence.
+  joinExperience(characterId, eventId) {
+    const character = this.requireCharacter(characterId);
+    const gathering = this.requireGathering(eventId);
+    const feasibility = this.eventAttendanceFeasibility(character, gathering);
+    if (!feasibility.eligible) {
+      const code = feasibility.blockingCode;
+      if (code === "ACTIVITY_CONFLICT") throw conflict("ACTIVITY_CONFLICT", `Cannot attend while ${character.activity.type}`);
+      if (code === "INSUFFICIENT_ENERGY") throw invalid("INSUFFICIENT_ENERGY", `Attendance requires ${this.config.experience.entryEnergyCost} energy`);
+      if (code === "WRONG_LOCATION") throw invalid("WRONG_LOCATION", "Character must be at the experience location");
+      throw invalid("EVENT_NOT_ACTIVE", "Experience is not active");
+    }
+    const capacity = gathering.capacity ?? null;
+    if (capacity !== null && this.currentAttendeeCount(eventId) >= capacity) {
+      throw conflict("EXPERIENCE_FULL", "The experience has reached its capacity");
+    }
+    const price = gathering.accessPrice ?? 0;
+    if (price > 0 && character.credits < price) {
+      throw invalid("INSUFFICIENT_CREDITS", `Admission costs ${price} credits`);
+    }
+    // Re-entry inside the window does not repeat the initial participation cost.
+    const previous = this.state.experienceAttendance.get(experienceAttendanceKey(eventId, characterId));
+    const now = this.clock.now();
+    const reEntry = Boolean(previous && !previous.resolved && previous.endedAt
+      && (now - new Date(previous.endedAt)) <= this.config.experience.reEntryWindowWorldMinutes * 60_000);
+    const entryEnergyCost = reEntry ? 0 : this.config.experience.entryEnergyCost;
+
+    const causedByEventIds = [];
+    if (price > 0) {
+      const paid = this.record("EXPERIENCE_ACCESS_PAID", {
+        actorCharacterId: characterId,
+        data: {
+          characterId, eventId, price,
+          destinationType: gathering.accessDestinationType ?? "system_budget",
+          destinationId: gathering.accessDestinationId ?? this.config.economy.bootstrapBudgetId,
+          experienceCommercePolicyVersion: this.config.experience.commercePolicyVersion,
+        },
+      });
+      causedByEventIds.push(paid.id);
+    }
+    if (entryEnergyCost > 0) {
+      causedByEventIds.push(this.changeEnergy(characterId, -entryEnergyCost, "experience_entry").id);
+    }
+    return this.record("EVENT_ATTENDANCE_STARTED", {
+      actorCharacterId: characterId,
+      causedByEventIds,
+      data: {
+        eventId, characterId, title: gathering.title, locationId: gathering.locationId,
+        startedAt: now.toISOString(), expectedEndAt: gathering.endsAt,
+        price, reEntry, entryEnergyCost,
+        experienceEnergyPolicyVersion: this.config.experience.energyPolicyVersion,
+      },
+    });
+  }
+
+  // AIT-1504. Leaving is authoritative and is what triggers settlement, so a resident
+  // cannot avoid the duration charge or the participation factor by walking out.
+  leaveExperience(characterId, eventId) {
+    const character = this.requireCharacter(characterId);
+    this.requireGathering(eventId);
+    if (character.activity?.type !== "attend_event" || character.activity.eventId !== eventId) {
+      throw conflict("NOT_ATTENDING", "Character is not currently attending that experience");
+    }
+    return this.endExperienceAttendance(characterId, eventId, "departure");
+  }
+
+  // The single resolution point the Energy and Happiness policies share: departure,
+  // experience end, or terminal cancellation, whichever comes first.
+  endExperienceAttendance(characterId, eventId, cause, worldTime = null) {
+    const gathering = this.requireGathering(eventId);
+    const attendance = this.state.experienceAttendance.get(experienceAttendanceKey(eventId, characterId));
+    const at = worldTime ? new Date(worldTime) : this.clock.now();
+    const presenceMinutes = attendance
+      ? attendance.accruedMinutes + Math.max(0, Math.round((at - new Date(attendance.startedAt)) / 60_000))
+      : 0;
+
+    const ended = this.record("EVENT_ATTENDANCE_ENDED", {
+      actorCharacterId: characterId,
+      worldTime: at.toISOString(),
+      data: { eventId, characterId, cause, endedAt: at.toISOString(), presenceMinutes },
+    });
+
+    // Marginal presence Energy, charged once against a measured interval.
+    const marginal = Math.min(
+      this.config.experience.marginalEnergyMaximum,
+      Math.floor(presenceMinutes / this.config.experience.marginalEnergyPerWorldMinutes),
+    );
+    if (marginal > 0) {
+      this.changeEnergy(characterId, -marginal, "experience_duration", { allowFloor: true, causedByEventIds: [ended.id], worldTime: at.toISOString() });
+    }
+    this.resolveExperienceHappiness(characterId, gathering, { presenceMinutes, cause, causedByEventIds: [ended.id], worldTime: at.toISOString() });
+    return ended;
+  }
+
+  // AIT-1505. Every factor comes from what actually happened, never from what was
+  // announced. Resolution is once per attendance.
+  resolveExperienceHappiness(characterId, gathering, { presenceMinutes, cause, causedByEventIds = [], worldTime }) {
+    const character = this.requireCharacter(characterId);
+    const policy = this.config.happiness;
+    const grammar = this.config.grammar;
+    const profile = gathering.profile ?? null;
+    const attendanceKey = experienceAttendanceKey(gathering.id, characterId);
+    const attendance = this.state.experienceAttendance.get(attendanceKey);
+    if (attendance?.resolved) return null;
+
+    // An experience with no authored profile produces no experiential value: there is
+    // nothing to compare a preference against, and inventing a default would be the
+    // server deciding what the gathering meant.
+    if (!profile) return null;
+
+    const affinityValue = profileAffinity(character.preferences, profile, grammar);
+    const affinity = clamp(
+      (affinityValue - policy.affinityPivot) * policy.affinityScale,
+      policy.affinityMinimum, policy.affinityMaximum,
+    );
+
+    const others = this.overlappingAttendees(gathering.id, characterId);
+    const socialValue = clamp(
+      others.reduce((total, otherId) => {
+        const relationship = this.getRelationship(characterId, otherId);
+        return total + (relationship ? (relationship.affinity - relationship.tension) / 100 : 0);
+      }, 0),
+      -policy.socialValueBound, policy.socialValueBound,
+    );
+
+    const plannedMinutes = Math.max(1, Math.round((new Date(gathering.endsAt) - new Date(gathering.startsAt)) / 60_000));
+    const share = presenceMinutes / plannedMinutes;
+    const participation = share < 0.10 ? -4 : share < 0.40 ? -2 : share < 0.75 ? 0 : 2;
+
+    const interaction = Math.min(
+      policy.interactionValueMaximum,
+      (attendance?.conversationTurns ?? 0) * policy.interactionValuePerTurn,
+    );
+
+    const capacity = gathering.capacity ?? null;
+    const crowd = capacity === null
+      ? clamp(others.length - 1, -policy.crowdBound, policy.crowdBound)
+      : clamp(Math.round((others.length / capacity) * 4) - 2, -policy.crowdBound, policy.crowdBound);
+
+    const repetition = Math.max(policy.repetitionMinimum,
+      -policy.repetitionPerPriorAttendance * this.similarPriorAttendances(characterId, gathering, worldTime));
+
+    const factors = {
+      affinity: round2(affinity),
+      socialValue: round2(socialValue),
+      participation,
+      interaction,
+      crowd,
+      repetition: round2(repetition),
+      affinityValue: round2(affinityValue),
+      presenceMinutes,
+      plannedMinutes,
+      coPresentCount: others.length,
+      profileTaxonomyVersion: grammar.profileTaxonomyVersion,
+    };
+    const raw = affinity + socialValue + participation + interaction + crowd + repetition;
+
+    const resolved = this.record("EXPERIENCE_HAPPINESS_RESOLVED", {
+      actorCharacterId: characterId,
+      causedByEventIds,
+      worldTime,
+      data: {
+        characterId, eventId: gathering.id, locationId: gathering.locationId, cause,
+        rawDelta: round2(clamp(raw, -policy.maximumChangePerExperience, policy.maximumChangePerExperience)),
+        factors,
+        dominantDimension: dominantDimension(profile, grammar),
+        happinessPolicyVersion: policy.policyVersion,
+      },
+    });
+    this.changeHappiness(characterId, raw, "experience_resolved", {
+      causedByEventIds: [resolved.id], worldTime, factors,
+    });
+    return resolved;
+  }
+
+  currentAttendeeCount(eventId) {
+    let count = 0;
+    for (const character of this.state.characters.values()) {
+      if (character.activity?.type === "attend_event" && character.activity.eventId === eventId) count += 1;
+    }
+    return count;
+  }
+
+  // Residents whose attendance actually overlapped this character's, which is what
+  // makes social value depend on presence rather than on an announced guest list.
+  overlappingAttendees(eventId, characterId) {
+    const mine = this.state.experienceAttendance.get(experienceAttendanceKey(eventId, characterId));
+    if (!mine) return [];
+    const from = new Date(mine.startedAt);
+    const to = mine.endedAt ? new Date(mine.endedAt) : this.clock.now();
+    const others = [];
+    for (const [key, other] of this.state.experienceAttendance) {
+      if (!key.startsWith(`${eventId}:`) || other.characterId === characterId) continue;
+      const otherFrom = new Date(other.startedAt);
+      const otherTo = other.endedAt ? new Date(other.endedAt) : this.clock.now();
+      if (otherFrom < to && from < otherTo) others.push(other.characterId);
+    }
+    return [...new Set(others)];
+  }
+
+  similarPriorAttendances(characterId, gathering, worldTime) {
+    const policy = this.config.happiness;
+    const since = new Date(new Date(worldTime ?? this.clock.now()).getTime()
+      - policy.repetitionWindowWorldDays * 24 * 60 * 60_000);
+    const dominant = dominantDimension(gathering.profile, this.config.grammar);
+    return (this.state.happinessResolutions.get(characterId) ?? []).filter((prior) =>
+      new Date(prior.worldTime) >= since
+      && (prior.locationId === gathering.locationId || (dominant && prior.dominantDimension === dominant))).length;
   }
 
   startMove(characterId, destinationId) {
@@ -598,14 +841,17 @@ export class World {
       actorCharacterId: characterId,
       data: {
         characterId, startedAt: startedAt.toISOString(), expectedEndAt,
-        expectedRecovery: Math.min(this.config.energy.restRecovery, this.config.energy.maximum - character.energy),
+        expectedRecovery: this.restRecoveryFor(character),
       },
     });
     this.endActiveConversations(characterId, "incompatible_activity", rest.id);
     return rest;
   }
 
-  createEvent({ creatorId = null, id = this.idGenerator(), title, locationId, startsAt, endsAt }) {
+  createEvent({
+    creatorId = null, id = this.idGenerator(), title, locationId, startsAt, endsAt,
+    profile = null, accessPrice = 0, capacity = null, description = null,
+  }) {
     if (creatorId) this.requireCharacter(creatorId);
     this.requireLocation(locationId);
     requiredText(title, "event title", 120);
@@ -613,33 +859,37 @@ export class World {
     const start = new Date(startsAt);
     const end = new Date(endsAt);
     if (!(end > start)) throw invalid("INVALID_WINDOW", "Event time window is invalid");
+    const price = Number(accessPrice ?? 0);
+    if (!Number.isInteger(price)
+      || price < this.config.experience.minimumAccessPrice
+      || price > this.config.experience.maximumAccessPrice) {
+      throw invalid("INVALID_ACCESS_PRICE",
+        `Admission must be an integer between ${this.config.experience.minimumAccessPrice} and ${this.config.experience.maximumAccessPrice}`);
+    }
+    if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1)) {
+      throw invalid("INVALID_CAPACITY", "Experience capacity must be a positive integer");
+    }
     return this.record("EVENT_CREATED", {
       actorCharacterId: creatorId,
-      data: { id, creatorId, title, locationId, startsAt: start.toISOString(), endsAt: end.toISOString() },
+      data: {
+        id, creatorId, title, locationId,
+        startsAt: start.toISOString(), endsAt: end.toISOString(),
+        // An experience without an authored profile stays a plain gathering: it has
+        // no experiential value, because there is nothing to compare a preference to.
+        profile: profile ? normalizeExperienceProfile(profile, this.config.grammar) : null,
+        accessPrice: price,
+        capacity,
+        ...(description ? { description: String(description).slice(0, 500) } : {}),
+        profileTaxonomyVersion: this.config.grammar.profileTaxonomyVersion,
+        experienceCommercePolicyVersion: this.config.experience.commercePolicyVersion,
+      },
     });
   }
 
+  // The protocol keeps the attend_event action name; joinExperience is the single
+  // authoritative command behind it, as the commerce policy requires.
   attendEvent(characterId, eventId) {
-    const character = this.requireCharacter(characterId);
-    const gathering = this.requireGathering(eventId);
-    if (character.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot attend while ${character.activity.type}`);
-    if (character.locationId !== gathering.locationId) throw invalid("WRONG_LOCATION", "Character must be at the event location");
-    const now = this.clock.now();
-    if (now < new Date(gathering.startsAt) || now >= new Date(gathering.endsAt)) throw invalid("EVENT_NOT_ACTIVE", "Event is not active");
-    this.requireEnergy(character, this.config.energy.eventAttendanceCost);
-    const energyEvent = this.changeEnergy(characterId, -this.config.energy.eventAttendanceCost, "event_attendance");
-    return this.record("EVENT_ATTENDANCE_STARTED", {
-      actorCharacterId: characterId,
-      causedByEventIds: [energyEvent.id],
-      data: {
-        eventId,
-        characterId,
-        title: gathering.title,
-        locationId: gathering.locationId,
-        startedAt: now.toISOString(),
-        expectedEndAt: gathering.endsAt,
-      },
-    });
+    return this.joinExperience(characterId, eventId);
   }
 
   sendInvitation(senderId, targetId, { destinationType, destinationId, message }) {
@@ -1704,7 +1954,17 @@ export class World {
       }
       case "attend_event": {
         const event = this.attendEvent(characterId, action.eventId);
-        result = this.actionResult(characterId, event, { expectedEndAt: event.data.expectedEndAt });
+        result = this.actionResult(characterId, event, {
+          expectedEndAt: event.data.expectedEndAt,
+          price: event.data.price, entryEnergyCost: event.data.entryEnergyCost,
+        });
+        break;
+      }
+      case "leave_experience": {
+        const event = this.leaveExperience(characterId, action.eventId);
+        result = this.actionResult(characterId, event, {
+          eventId: action.eventId, presenceMinutes: event.data.presenceMinutes,
+        });
         break;
       }
       case "send_invitation": {
@@ -1879,7 +2139,7 @@ export class World {
           });
         }
       } else if (activity.type === "rest") {
-        const recovered = Math.min(this.config.energy.restRecovery, this.config.energy.maximum - character.energy);
+        const recovered = this.restRecoveryFor(character);
         this.record("REST_COMPLETED", {
           actorCharacterId: character.id,
           causedByEventIds: [activity.startedByEventId],
@@ -1891,16 +2151,54 @@ export class World {
           },
         });
       } else if (activity.type === "attend_event") {
-        this.record("EVENT_ATTENDANCE_ENDED", {
-          actorCharacterId: character.id,
-          causedByEventIds: [activity.startedByEventId],
-          worldTime: activity.expectedEndAt,
-          data: {
-            eventId: activity.eventId, characterId: character.id, title: activity.title,
-            processingDelayWorldMilliseconds: Math.max(0, this.clock.now() - new Date(activity.expectedEndAt)),
-          },
-        });
+        // The experience ended rather than the resident leaving, but it is the same
+        // single resolution point: presence Energy and Happiness settle here too.
+        this.endExperienceAttendance(character.id, activity.eventId, "experience_completed", activity.expectedEndAt);
       }
+    }
+    this.applyHappinessDecay(target);
+  }
+
+  // The mandatory neglect pressure. A resident who only works and never gathers
+  // drifts toward the floor and stays there; the floor keeps it bounded.
+  // The low-Happiness consequence: a listless resident sleeps worse, so it has less
+  // Energy for work and conversation. Material, bounded, and it blocks nothing.
+  restRecoveryFor(character) {
+    const base = this.config.energy.restRecovery;
+    const reduced = character.happiness !== undefined && character.happiness < this.config.happiness.lowThreshold
+      ? Math.floor(base * (1 - this.config.happiness.lowRestRecoveryPenalty))
+      : base;
+    return Math.min(reduced, this.config.energy.maximum - character.energy);
+  }
+
+  applyHappinessDecay(targetWorldTime) {
+    const policy = this.config.happiness;
+    const target = new Date(targetWorldTime);
+    for (const character of this.state.characters.values()) {
+      if (character.happiness === undefined || character.happiness <= policy.decayFloor) continue;
+      const resolutions = this.state.happinessResolutions.get(character.id) ?? [];
+      const since = resolutions.length > 0
+        ? new Date(resolutions.at(-1).worldTime)
+        : new Date(character.createdAtWorldTime ?? this.history[0]?.worldTime ?? target);
+      const lastDecay = character.lastHappinessDecayAt ? new Date(character.lastHappinessDecayAt) : since;
+      const from = lastDecay > since ? lastDecay : since;
+      const windowMs = policy.decayWindowWorldMinutes * 60_000;
+      const elapsedWindows = Math.floor((target - from) / windowMs);
+      if (elapsedWindows < 1) continue;
+      const raw = -policy.decayPerWorldDay * elapsedWindows;
+      const floorHeadroom = character.happiness - policy.decayFloor;
+      const applied = Math.max(raw, -floorHeadroom);
+      const at = new Date(from.getTime() + elapsedWindows * windowMs).toISOString();
+      this.record("HAPPINESS_DECAYED", {
+        actorCharacterId: character.id,
+        worldTime: at,
+        data: {
+          characterId: character.id, worldDays: elapsedWindows,
+          previous: character.happiness, value: character.happiness + applied,
+          delta: applied, floor: policy.decayFloor,
+          happinessPolicyVersion: policy.policyVersion,
+        },
+      });
     }
   }
 
@@ -2112,6 +2410,16 @@ export class World {
       },
       consequences: {
         instruction: "Accepted actions can change energy, credits, work state, commitments, and directional relationships. Kept and broken commitments affect trust.",
+      },
+      happiness: {
+        policyVersion: this.config.happiness.policyVersion,
+        range: [this.config.happiness.minimum, this.config.happiness.maximum],
+        profileDimensions: [...this.config.grammar.profileDimensions],
+        instruction: "Happiness is what your lived experiences are worth. It is separate from Credits, which say what you can afford, and Energy, which says what you can sustain. You cannot set it; the world resolves it from what actually happened.",
+        experienceValue: "An experience resolves once, when you leave or when it ends. Its value comes from how well its profile matches your own preferences, who was actually there and how you feel about them, how much of it you were present for, whether you actually talked to anyone, the size of the crowd, and how recently you did something similar.",
+        pursuit: "Attending costs Credits and Energy and pays Happiness, so it is worth choosing deliberately. Going somewhere that matches nothing you care about, leaving after a minute, or repeating the same kind of gathering makes it worse, not neutral.",
+        neglect: `Going ${this.config.happiness.decayWindowWorldMinutes / 1440} world day(s) without a resolved experience costs ${this.config.happiness.decayPerWorldDay} Happiness, down to a floor of ${this.config.happiness.decayFloor}. Below ${this.config.happiness.lowThreshold} Happiness you recover less Energy from rest, so working without ever gathering makes you steadily less capable of working.`,
+        privacy: "You see your own Happiness and preferences and never another character's.",
       },
       // The context discipline is a stable rule, so it lives in the manifest rather
       // than in each runtime's private prompt. A stateless model that receives only
@@ -2507,14 +2815,23 @@ export class World {
       if (character.energy < this.config.energy.maximum) {
         actions.push({
           type: "rest", durationGameMinutes: this.config.energy.restDurationGameMinutes,
-          expectedRecovery: Math.min(this.config.energy.restRecovery, this.config.energy.maximum - character.energy),
+          expectedRecovery: this.restRecoveryFor(character),
         });
       }
       for (const gathering of upcomingEvents) {
         if (gathering.locationId === character.locationId && new Date(gathering.startsAt) <= this.clock.now()) {
+          // Everything the resident needs to weigh the evening before entering:
+          // the price, both Energy costs, and what the gathering actually offers.
           actions.push({
-            type: "attend_event", eventId: gathering.id,
-            energyCost: this.config.energy.eventAttendanceCost,
+            type: "attend_event", eventId: gathering.id, title: gathering.title,
+            accessPrice: gathering.accessPrice ?? 0,
+            entryEnergyCost: this.config.experience.entryEnergyCost,
+            marginalEnergyPerWorldMinutes: this.config.experience.marginalEnergyPerWorldMinutes,
+            marginalEnergyMaximum: this.config.experience.marginalEnergyMaximum,
+            profile: gathering.profile ? structuredClone(gathering.profile) : null,
+            capacity: gathering.capacity ?? null,
+            attendeeCount: this.currentAttendeeCount(gathering.id),
+            endsAt: gathering.endsAt,
             feasibility: this.eventAttendanceFeasibility(character, gathering),
           });
         }
@@ -2605,6 +2922,17 @@ export class World {
         locationWindowWorldMinutes: this.config.invitations.locationWindowWorldMinutes,
         targetsFrom: "a co-present resident or a person you already know",
         destinationsFrom: "a location you know or a known experience",
+      });
+    }
+    // Leaving is a real choice: attendance duration is what the participation factor
+    // measures, so staying or going changes the outcome.
+    if (character.activity?.type === "attend_event") {
+      const attending = this.state.gatherings.get(character.activity.eventId);
+      actions.push({
+        type: "leave_experience", eventId: character.activity.eventId,
+        startedAt: character.activity.startedAt,
+        scheduledEndAt: character.activity.expectedEndAt,
+        plannedEndAt: attending?.endsAt ?? character.activity.expectedEndAt,
       });
     }
     if (character.secondaryGoals.filter((goal) => goal.status === "active").length < this.config.goals.maximumActiveSecondaryGoals) {
@@ -2840,12 +3168,17 @@ export class World {
       .sort((a, b) => a.worldTime.localeCompare(b.worldTime))[0] ?? null;
   }
 
-  changeEnergy(characterId, delta, reason) {
+  changeEnergy(characterId, delta, reason, { causedByEventIds = [], worldTime = null, allowFloor = false } = {}) {
     const character = this.requireCharacter(characterId);
     const value = clamp(character.energy + delta, 0, this.config.energy.maximum);
+    const floored = allowFloor && character.energy + delta < 0;
     return this.record("ENERGY_CHANGED", {
       actorCharacterId: characterId,
-      data: { characterId, previous: character.energy, delta: value - character.energy, value, reason },
+      causedByEventIds,
+      worldTime,
+      // A presence that already happened cannot be un-lived, so its marginal charge
+      // takes the resident to zero rather than being refused. Recorded, not silent.
+      data: { characterId, previous: character.energy, delta: value - character.energy, value, reason, ...(floored ? { floored: true } : {}) },
     });
   }
 

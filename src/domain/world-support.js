@@ -58,6 +58,7 @@ export function createEmptyState() {
     returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
     eventsById: new Map(), itemVersions: new Map(),
+    experienceAttendance: new Map(), happinessResolutions: new Map(),
     characterProjectionVersions: new Map(), globalProjectionVersion: 0,
     conversationAppraisals: new Set(),
   };
@@ -88,6 +89,81 @@ export function projectionCharactersForEvent(event) {
     event.actorCharacterId, event.subjectCharacterId,
     ...(event.data?.participantIds ?? []),
   ].filter(Boolean))];
+}
+
+// City grammar policy v1: the six shared dimensions describe what a place or a
+// gathering does to a person. The server never learns what it is called.
+
+// A character's preferences must meet the approved budget, which is what stops a
+// resident from caring about everything and is why affinity discriminates at all.
+export function normalizePreferences(preferences, grammar) {
+  return normalizeProfileVector(preferences, grammar, grammar.preferenceBudget, "preference");
+}
+
+// An experience profile meets its own budget and is read as a distribution.
+export function normalizeExperienceProfile(profile, grammar) {
+  return normalizeProfileVector(profile, grammar, grammar.experienceProfileBudget, "experience profile");
+}
+
+function normalizeProfileVector(vector, grammar, budget, label) {
+  if (!vector || typeof vector !== "object" || Array.isArray(vector)) {
+    throw invalid("INVALID_PROFILE", `${label} must be an object of profile dimensions`);
+  }
+  for (const dimension of Object.keys(vector)) {
+    if (!grammar.profileDimensions.includes(dimension)) {
+      // Never ignored: an unknown dimension is a version mismatch, not a typo to skip.
+      throw invalid("UNKNOWN_PROFILE_DIMENSION", `${dimension} is not a version-${grammar.profileTaxonomyVersion} profile dimension`);
+    }
+  }
+  const result = {};
+  let total = 0;
+  for (const dimension of grammar.profileDimensions) {
+    const value = Number(vector[dimension] ?? 0);
+    if (!Number.isInteger(value) || value < 0 || value > 100) {
+      throw invalid("INVALID_PROFILE_VALUE", `${label} ${dimension} must be an integer between 0 and 100`);
+    }
+    result[dimension] = value;
+    total += value;
+  }
+  if (total !== budget) {
+    throw invalid("INVALID_PROFILE_BUDGET", `${label} dimensions must sum to exactly ${budget}, received ${total}`);
+  }
+  return result;
+}
+
+export function evenPreferences(grammar) {
+  const share = grammar.preferenceBudget / grammar.profileDimensions.length;
+  if (!Number.isInteger(share)) throw new Error("Preference budget must divide evenly across the dimensions");
+  return Object.fromEntries(grammar.profileDimensions.map((dimension) => [dimension, share]));
+}
+
+// affinity = the character's preferences weighted by what the experience offers.
+export function profileAffinity(preferences, profile, grammar) {
+  return grammar.profileDimensions.reduce(
+    (total, dimension) => total + ((profile[dimension] ?? 0) / grammar.experienceProfileBudget) * (preferences[dimension] ?? 0),
+    0,
+  );
+}
+
+// Repetition similarity, deliberately the crudest defensible rule: the dimension an
+// experience leads with. Deterministic, needs no threshold, and cannot be gamed by
+// relabelling because the dimensions are controlled.
+export function dominantDimension(profile, grammar) {
+  let best = null;
+  let bestValue = -1;
+  for (const dimension of grammar.profileDimensions) {
+    const value = profile?.[dimension] ?? 0;
+    if (value > bestValue) { best = dimension; bestValue = value; }
+  }
+  return bestValue > 0 ? best : null;
+}
+
+export function experienceAttendanceKey(eventId, characterId) {
+  return `${eventId}:${characterId}`;
+}
+
+export function round2(value) {
+  return Math.round(value * 100) / 100;
 }
 
 export function relationshipKey(fromId, toId) {
@@ -217,6 +293,11 @@ export function publicCharacter(character) {
     locationId: character.locationId, activity: character.activity, energy: character.energy,
     credits: character.credits, skills: character.skills, reputation: character.reputation, score: character.score,
     agentAvailability: character.agentAvailability, consecutiveMissedResponses: character.consecutiveMissedResponses,
+    // AIT-1501: a character sees its own Happiness and its own preference vector, and
+    // never another character's. Credits answer whether it can afford something,
+    // Energy whether it can sustain it, Happiness whether any of it is worth living.
+    happiness: character.happiness,
+    preferences: character.preferences,
   });
 }
 

@@ -32,6 +32,48 @@ export const defaultConfig = Object.freeze({
   movement: {
     durationGameMinutes: 15,
   },
+  // City, building, and experience grammar policy v1, shared-taxonomy scope.
+  grammar: {
+    profileTaxonomyVersion: 1,
+    profileDimensions: ["social", "stimulation", "calm", "creation", "learning", "belonging"],
+    preferenceBudget: 300,
+    experienceProfileBudget: 100,
+  },
+  // Experience and Happiness policy v1.
+  happiness: {
+    policyVersion: 1,
+    minimum: 0,
+    maximum: 100,
+    initial: 50,
+    maximumChangePerExperience: 15,
+    affinityPivot: 40,
+    affinityScale: 0.15,
+    affinityMinimum: -6,
+    affinityMaximum: 9,
+    socialValueBound: 5,
+    interactionValuePerTurn: 1,
+    interactionValueMaximum: 4,
+    crowdBound: 2,
+    repetitionPerPriorAttendance: 1.5,
+    repetitionMinimum: -5,
+    repetitionWindowWorldDays: 7,
+    decayPerWorldDay: 1,
+    decayWindowWorldMinutes: 1440,
+    decayFloor: 25,
+    lowThreshold: 30,
+    lowRestRecoveryPenalty: 0.2,
+  },
+  // Experience Energy policy v1 and experience commerce policy v1.
+  experience: {
+    energyPolicyVersion: 1,
+    commercePolicyVersion: 1,
+    entryEnergyCost: 3,
+    marginalEnergyPerWorldMinutes: 30,
+    marginalEnergyMaximum: 8,
+    reEntryWindowWorldMinutes: 60,
+    minimumAccessPrice: 0,
+    maximumAccessPrice: 200,
+  },
   relationship: {
     policyVersion: 1,
     minimum: -100,
@@ -103,7 +145,7 @@ export const defaultConfig = Object.freeze({
     maximumOpenPerCharacter: 3,
   },
   rules: {
-    version: "agent-rules-v2",
+    version: "agent-rules-v3",
   },
   protocol: {
     version: "1.0",

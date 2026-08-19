@@ -20,7 +20,9 @@ test("the social/economic vertical slice produces an auditable causal story", ()
 
   assert.equal(jack.credits, 500, "job escrow settles to Jack exactly once");
   assert.equal(jack.energy, 80, "movement, work, and conversation have server-selected energy costs");
-  assert.equal(sara.energy, 94, "movement, attendance, and conversation costs are applied");
+  // 90, not the pre-Happiness 94: attendance now also charges marginal presence Energy
+  // under the approved experience Energy policy - 1 per 30 world minutes present.
+  assert.equal(sara.energy, 90, "movement, attendance entry and duration, and conversation costs are applied");
   assert.equal(job.status, "completed");
   assert.deepEqual(
     pickDimensions(world.getRelationship("jack", "sara")),
