@@ -341,3 +341,108 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 }
 
 .empty-note { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+
+/* Resident profile: the numbers that explain a resident's behaviour, not just its state.
+   Preferences lead because affinity with an evening is computed from exactly those ten. */
+.traits { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.traits span {
+  font-size: 10.5px;
+  letter-spacing: .02em;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.stats.secondary { margin-top: 8px; opacity: .85; }
+.stat.good strong { color: var(--green); }
+.stat.poor strong { color: var(--coral); }
+
+.agent-warning {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--coral);
+}
+
+.meter-block { margin-top: 18px; }
+.meters { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+
+.meter {
+  display: grid;
+  grid-template-columns: 82px 1fr 28px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.meter-label { color: var(--muted); text-transform: capitalize; }
+
+.meter-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(104, 115, 110, .14);
+  overflow: hidden;
+}
+
+.meter-fill { display: block; height: 100%; background: var(--blue); border-radius: 3px; }
+.meter.strong .meter-fill { background: var(--green); }
+.meter.faint .meter-fill { background: rgba(104, 115, 110, .45); }
+.meter-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+.goal-list, .owned-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+
+.goal-row {
+  display: grid;
+  grid-template-columns: 62px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.goal-kind {
+  font-size: 9.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.goal-what { text-transform: capitalize; }
+.goal-status { font-size: 10.5px; color: var(--muted); }
+.goal-row.completed .goal-what { text-decoration: line-through; opacity: .6; }
+
+.owned-row { display: flex; flex-direction: column; gap: 2px; font-size: 12px; border-left: 2px solid var(--green); padding-left: 8px; }
+.owned-row.under_construction { border-left-color: var(--amber); }
+.owned-row.delinquent { border-left-color: var(--coral); }
+.owned-meta { font-size: 10.5px; color: var(--muted); }
+
+/* Both feeds run newest-first and scroll inside their own box, so a long-running world
+   does not push the rest of the page off the screen. */
+#timeline,
+#world-activity {
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+
+#timeline::-webkit-scrollbar,
+#world-activity::-webkit-scrollbar,
+.building-list::-webkit-scrollbar { width: 8px; }
+
+#timeline::-webkit-scrollbar-thumb,
+#world-activity::-webkit-scrollbar-thumb,
+.building-list::-webkit-scrollbar-thumb {
+  background: rgba(104, 115, 110, .3);
+  border-radius: 4px;
+}
+
+#timeline::-webkit-scrollbar-track,
+#world-activity::-webkit-scrollbar-track,
+.building-list::-webkit-scrollbar-track { background: transparent; }
+
+.building-list { max-height: 40vh; overflow-y: auto; padding-right: 6px; }
+
+/* The newest entry is what the eye should land on. */
+#timeline > li:first-child .event-copy p,
+#world-activity > li:first-child p { font-weight: 500; }

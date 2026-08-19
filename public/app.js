@@ -266,7 +266,7 @@ function renderEconomy() {
 }
 
 function renderWorldActivity() {
-  const recent = state.worldTimeline.slice(-10).reverse();
+  const recent = state.worldTimeline.slice(-60).reverse();
   worldEventCount.textContent = `${state.worldTimeline.length} meaningful events`;
   worldActivity.innerHTML = recent.length ? recent.map((item) => `
     <li class="activity-${activityCategory(item.type)}">
@@ -280,33 +280,116 @@ function renderCharacter() {
   if (!character) return;
   const location = locationById(character.locationId)?.name ?? character.locationId;
   const activity = describeActivity(character.activity, location);
-  const relationships = character.importantRelationships.slice(0, 4).map((relationship) => `
+  const rules = state.world.rules;
+  const relationships = character.importantRelationships.slice(0, 5).map((relationship) => `
     <li>
       <span>${escapeHtml(relationship.name)}</span>
       <span class="relationship ${relationship.affinity < 0 || relationship.trust < 0 ? "negative" : "positive"}" title="Affinity, trust, tension">A ${signed(relationship.affinity)} · Tr ${signed(relationship.trust)} · X ${relationship.tension}</span>
     </li>`).join("");
 
+  // What this resident cares about, strongest first. It is the most explanatory thing
+  // on the page: affinity with an evening is computed from exactly these ten numbers,
+  // so a good or bad night is readable here before it happens.
+  const preferences = Object.entries(character.preferences ?? {})
+    .sort(([, left], [, right]) => right - left)
+    .map(([dimension, value]) => meter(dimension, value, 100, value >= 70 ? "strong" : value <= 20 ? "faint" : ""))
+    .join("");
+
+  const skills = Object.entries(character.skills ?? {})
+    .sort(([, left], [, right]) => right - left)
+    .map(([skill, value]) => meter(skill, value, 100)).join("");
+
+  const goals = [
+    ...(character.primaryGoal ? [{ ...character.primaryGoal, kind: "primary" }] : []),
+    ...(character.secondaryGoals ?? []).map((goal) => ({ ...goal, kind: "secondary" })),
+  ];
+  const goalList = goals.length
+    ? goals.map((goal) => `
+      <li class="goal-row ${escapeHtml(goal.status ?? "active")}">
+        <span class="goal-kind">${escapeHtml(goal.kind)}</span>
+        <span class="goal-what">${escapeHtml(String(goal.type ?? "").replace(/_/g, " "))}${goal.targetId ? ` → ${escapeHtml(goal.targetId)}` : ""}</span>
+        <span class="goal-status">${escapeHtml(goal.status ?? "active")}</span>
+      </li>`).join("")
+    : `<li class="goal-row"><span class="goal-what">No active goal</span></li>`;
+
+  const owned = (state.world.city?.buildings ?? []).filter((building) => building.proprietorId === character.id);
+  const property = owned.length
+    ? owned.map((building) => `
+      <li class="owned-row ${escapeHtml(building.status.toLowerCase())}">
+        <span>${escapeHtml(building.name)}</span>
+        <span class="owned-meta">${escapeHtml(building.status.toLowerCase())} · balance ${number(building.balance)} · earned ${number(building.revenue)}</span>
+      </li>`).join("")
+    : "";
+
+  const happinessTone = character.happiness >= 60 ? "good" : character.happiness <= 35 ? "poor" : "";
+  const livedTone = character.livedHappiness > 0 ? "good" : character.livedHappiness < 0 ? "poor" : "";
+
   panel.innerHTML = `
     <div class="identity">
       <div class="avatar" aria-hidden="true">${escapeHtml(character.name[0])}</div>
-      <div><p class="eyebrow">Resident profile</p><h2>${escapeHtml(character.name)}</h2></div>
+      <div>
+        <p class="eyebrow">Resident profile</p>
+        <h2>${escapeHtml(character.name)}</h2>
+        <div class="traits">${(character.personality ?? []).map((trait) => `<span>${escapeHtml(trait)}</span>`).join("")}</div>
+      </div>
     </div>
     <div class="now-card">
       <span class="now-label">Right now</span>
       <strong>${escapeHtml(activity.title)}</strong>
       <span>${escapeHtml(activity.detail)}</span>
+      ${character.agentAvailability !== "available"
+        ? `<span class="agent-warning">brain ${escapeHtml(character.agentAvailability)} · ${character.consecutiveMissedResponses} missed</span>`
+        : ""}
     </div>
     <div class="stats">
-      ${stat("Energy", `${character.energy} / ${state.world.rules.maximumEnergy}`)}
+      ${stat("Energy", `${character.energy} / ${rules.maximumEnergy}`)}
       ${stat("Credits", number(character.credits))}
+      ${stat("Happiness", character.happiness, happinessTone)}
+      ${stat("Lived total", signed(round1(character.livedHappiness)), livedTone)}
+    </div>
+    <div class="stats secondary">
       ${stat("Reputation", character.reputation)}
       ${stat("Score", character.score)}
+      ${stat("Buildings", owned.length)}
     </div>
     <div class="goal-block"><span>Long-term objective</span><p>${escapeHtml(character.goal)}</p></div>
+    <div class="meter-block">
+      <div class="minor-heading"><h3>Cares about</h3><span>affinity is computed from these</span></div>
+      <div class="meters">${preferences || "<p class=\"empty-note\">No preferences recorded</p>"}</div>
+    </div>
+    <div class="meter-block">
+      <div class="minor-heading"><h3>Skills</h3><span>gates which work is possible</span></div>
+      <div class="meters">${skills}</div>
+    </div>
+    <div class="relationships">
+      <div class="minor-heading"><h3>Goals</h3><span>what it is pursuing</span></div>
+      <ul class="goal-list">${goalList}</ul>
+    </div>
+    ${property ? `
+    <div class="relationships">
+      <div class="minor-heading"><h3>Property</h3><span>what it built</span></div>
+      <ul class="owned-list">${property}</ul>
+    </div>` : ""}
     <div class="relationships">
       <div class="minor-heading"><h3>Relationships</h3><span>directional</span></div>
       <ul>${relationships || "<li><span>No relationships yet</span></li>"}</ul>
     </div>`;
+}
+
+// A labelled bar. Ten preference rows have to stay readable at a glance, so the label
+// and the number sit on one line and the bar carries the comparison.
+function meter(label, value, maximum, tone = "") {
+  const width = Math.max(0, Math.min(100, (value / maximum) * 100));
+  return `
+    <div class="meter ${tone}">
+      <span class="meter-label">${escapeHtml(label)}</span>
+      <span class="meter-track"><span class="meter-fill" style="width:${width}%"></span></span>
+      <span class="meter-value">${value}</span>
+    </div>`;
+}
+
+function round1(value) {
+  return Math.round((value ?? 0) * 10) / 10;
 }
 
 async function loadCharacterTimeline() {
@@ -315,7 +398,9 @@ async function loadCharacterTimeline() {
   if (!response.ok) return;
   const data = await response.json();
   eventCount.textContent = `${data.items.length} meaningful events`;
-  timeline.replaceChildren(...data.items.map((item, index) => {
+  // Newest first. A life read oldest-first means scrolling to the bottom to find out
+  // what just happened, which is the one thing an observer always wants.
+  timeline.replaceChildren(...[...data.items].reverse().map((item, index) => {
     const row = document.createElement("li");
     row.className = isTurningPoint(item.type) ? "turning-point" : "";
     row.innerHTML = `
@@ -363,7 +448,7 @@ function worldRouteCount() {
 
 function characterById(id) { return state.world?.characters.find((item) => item.id === id); }
 function locationById(id) { return state.world?.locations.find((item) => item.id === id); }
-function stat(label, value) { return `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`; }
+function stat(label, value, tone = "") { return `<div class="stat ${tone}"><span>${label}</span><strong>${value}</strong></div>`; }
 function isTurningPoint(type) { return ["AGENT_NOTIFICATION_QUEUED", "KNOWLEDGE_LEARNED", "RELATIONSHIP_CHANGED", "DECISION_RECORDED"].includes(type); }
 function activityCategory(type) {
   if (type.startsWith("JOB_")) return "job";
