@@ -1,8 +1,10 @@
 # City, building, and experience grammar policy
 
-**Status:** Draft · **Candidate version:** 1 · **Updated:** 2026-08-18 · **Applies to:** AIT-1006, AIT-1401, AIT-1402, AIT-1403, AIT-1404, AIT-1407, AIT-1601, AIT-1602, AIT-1605, AIT-1609
+**Version:** 1 · **Scope:** the shared profile taxonomy only · **Updated:** 2026-08-19 · **Applies to:** AIT-1006, AIT-1401, AIT-1402, AIT-1403, AIT-1404, AIT-1407, AIT-1601, AIT-1602, AIT-1605, AIT-1609
 
-This draft describes how agents author meaning inside a bounded mechanical grammar. It is not an active versioned rule until version 1 is approved.
+Version 1 approves **only** decisions 3 and 4: the controlled universal profile dimensions shared by character preferences, experiences, and later buildings, and their budget and normalization rules. That is the subset the Experience and Happiness slice needs, and approving it lets Happiness reference a versioned taxonomy instead of inventing one.
+
+Districts, plots, building capabilities, capacity, quality derivation, naming rules, and repurposing remain **Draft** and are listed at the end. A story that depends on those parts is still blocked.
 
 ## Fixed product decisions
 
@@ -17,13 +19,47 @@ This draft describes how agents author meaning inside a bounded mechanical gramm
 - Capacity and quality are authoritative derived values. A client cannot claim them through description or tags, and quality must have at least one bounded disclosed mechanical use rather than remain a cosmetic number.
 - District properties can differ without assigning a semantic destiny to a district. Emergent concentration of activity is an outcome, not configuration text interpreted as a rule.
 
-## Required decisions before version 1 approval
+## Approved: the universal profile dimensions
 
-1. Initial district list and static land price, upkeep, traffic-potential, prestige, size, and capacity modifiers.
-2. Plot sizes, supply, acquisition limits, and ownership limits.
-3. Controlled universal profile dimensions and tag taxonomy shared by preferences, buildings, and experiences.
-4. Profile budget, normalization, compatibility, and validation rules.
-5. Capability prerequisites, mutually exclusive combinations, and per-building limits.
-6. Capacity and initial quality derivation, controlled upgrade paths, bounds, and compatible mechanical effects.
-7. Name and description safety, size, uniqueness, and moderation constraints.
-8. Repurposing constraints and compatibility behavior across grammar versions.
+Six dimensions, `profileTaxonomyVersion: 1`. They describe what a place or a gathering *does to a person*, never what it is called. The same six describe a character's preferences, so affinity is a comparison of like with like.
+
+| Dimension | What it measures |
+| --- | --- |
+| `social` | being among other people |
+| `stimulation` | intensity, noise, novelty, excitement |
+| `calm` | quiet, rest, reflection |
+| `creation` | making, performing, building something |
+| `learning` | acquiring knowledge or skill |
+| `belonging` | ritual, shared identity, community membership |
+
+The taxonomy is deliberately semantic-free. A nightclub is whatever profile its author gives it — plausibly high `social` and `stimulation`; a church might be high `belonging` and `calm`; a workshop high `creation` and `learning`. The server never learns those words, and two residents may author places with the same profile and completely different meaning.
+
+Adding, removing, or renaming a dimension requires a new taxonomy version, because every stored preference vector and experience profile is expressed in it.
+
+## Approved: budgets, normalization, and validation
+
+| Rule | Value |
+| --- | ---: |
+| Dimension value range | 0–100, integer |
+| Character preference budget | dimensions sum to exactly 300 |
+| Experience profile budget | dimensions sum to exactly 100 |
+| Missing dimension | treated as 0, but the budget must still be met |
+| Unknown dimension name | rejected, never ignored |
+
+A character's preference budget of 300 over six dimensions means an average of 50: a resident can care intensely about two or three things, not about everything. That is what makes one experience better for Mira than for Rook, and it is why affinity discriminates at all.
+
+An experience profile sums to 100 and is therefore read as a distribution: an experience is a mix of what it offers, and `weight_d = profile_d / 100`.
+
+Affinity between a character and an experience is the weighted preference:
+
+```text
+affinity = Σ_d ( profile_d / 100 ) × preference_d        → 0–100
+```
+
+Both vectors are server-owned. A brain may author free description and may not submit, adjust, or opportunistically retune either vector; preference changes require the explicit versioned rules of the Happiness policy.
+
+## Still Draft: everything else
+
+Decisions 1, 2, and 5 through 8 remain unapproved: the district list and its land-price, upkeep, traffic, prestige, size and capacity modifiers; plot sizes, supply and ownership limits; capability prerequisites and exclusivity; capacity and quality derivation and upgrade paths; name and description safety; and repurposing compatibility across grammar versions.
+
+AIT-1401 through AIT-1403, AIT-1407, and the building-dependent parts of AIT-1601, AIT-1602, AIT-1605, and AIT-1609 stay blocked until those receive a version 2.

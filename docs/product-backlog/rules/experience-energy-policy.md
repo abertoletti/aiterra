@@ -1,27 +1,43 @@
 # Experience Energy policy
 
-**Status:** Draft · **Candidate version:** 1 · **Updated:** 2026-08-18 · **Applies to:** AIT-1102, AIT-1105, AIT-1504, AIT-1604, AIT-1606
+**Version:** 1 · **Scope:** attendance participation and duration · **Updated:** 2026-08-19 · **Applies to:** AIT-1102, AIT-1105, AIT-1504, AIT-1604, AIT-1606
 
-This draft defines the shape of Energy consumption during experiences. It is not an active versioned rule until version 1 is approved.
+Version 1 approves the costs an attendance actually incurs today: entry, duration, and settlement. Contributor, performance, and argument additions remain **Draft**, because the activities they price do not exist yet.
 
-## Fixed product decisions
+## Invariants
 
-- Experience Energy is the sum of a meaningful initial participation cost, a lower marginal presence cost based on actual duration, and additional costs for interactions or activities.
-- The duration function is not a single constant multiplied by advertised event duration.
-- Partial attendance is allowed when the experience permits it, and presence cost uses authoritative time actually present.
-- Very brief attendance still pays the initial participation cost so entering for one minute cannot obtain a near-free reward.
-- Conversations, intense arguments, performing, and working may add different costs. Residents present for the same duration can finish with different Energy.
-- Every estimate is disclosed as an estimate; entry and optional activities are revalidated against current Energy.
+- Experience Energy is an initial participation cost, plus a lower marginal cost for time actually present, plus additions for activities.
+- The duration cost is not a constant multiplied by the advertised duration; it accrues against real presence.
+- Partial attendance is allowed where the experience permits it, and presence cost uses authoritative time actually present.
+- Very brief attendance still pays the full initial cost, so entering for a minute cannot buy a near-free reward.
+- Every figure disclosed before entry is an estimate; entry and optional activities are revalidated against current Energy.
 - Charges are authoritative, idempotent, restart-safe, and attributable to participation, duration, or activity.
 
-## Required decisions before version 1 approval
+## Approved costs
 
-1. Initial participation cost and minimum Energy required to enter.
-2. Marginal duration curve, units, caps, and rounding.
-3. Re-entry behavior and whether the initial cost repeats within a defined window.
-4. Conversation, argument, contributor, work, and other activity additions.
-5. Progressive charging interval and departure or interruption settlement.
-6. Low-Energy exit, forced termination, and degraded social reaction behavior.
+| Cost | Value |
+| --- | ---: |
+| Initial participation | 3 Energy |
+| Minimum Energy to enter | 3 |
+| Marginal presence | 1 Energy per 30 world minutes present, rounded down |
+| Marginal cap per attendance | 8 Energy |
+| Re-entry window | 60 world minutes |
+| `experienceEnergyPolicyVersion` | 1 |
 
-The illustrative targets discussed during design — approximately 10 Energy for a one-minute visit and 15 for two hours — remain calibration examples, not approved values.
+The initial cost matches the existing `energy.eventAttendanceCost`, so attendance does not silently become more expensive than it was before this policy existed. The marginal cost is deliberately lower per unit of time than work: two hours at a gathering costs 3 + 4 = 7 Energy, against 15 for a work shift.
 
+Re-entering the same experience within the re-entry window does not repeat the initial cost; marginal presence keeps accruing across the visits. Beyond the window a fresh entry pays the initial cost again.
+
+Conversation turns during an experience keep costing what the approved interaction timing policy already charges. That is the one activity addition version 1 has, because it is the one that exists.
+
+## Settlement
+
+Initial cost is charged at entry, atomically with admission: a rejected entry charges nothing. Marginal presence is charged once, at the same resolution point the Happiness policy uses — departure, experience end, or terminal cancellation, whichever comes first.
+
+Charging duration once at the end rather than progressively is a deliberate simplification for version 1: it makes the charge exactly attributable to a measured presence interval and removes any partial-interval rounding. A resident cannot avoid it by leaving, because leaving is what triggers it.
+
+A resident whose Energy would go below zero from the marginal charge is taken to zero rather than refused, since the presence has already happened and cannot be un-lived. That floor is recorded on the event.
+
+## Still Draft
+
+Contributor, performance, and argument-intensity additions; progressive charging intervals; forced termination and degraded social reaction at low Energy; and interruption settlement for an experience a resident is removed from rather than leaves.

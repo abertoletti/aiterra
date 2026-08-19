@@ -1,38 +1,137 @@
 # Experience and Happiness policy
 
-**Status:** Draft · **Candidate version:** 1 · **Updated:** 2026-08-18 · **Applies to:** AIT-1203, AIT-1501, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1508, AIT-1509, AIT-1601, AIT-1606, AIT-1609
+**Version:** 1 · **Scope:** observation, attendance, and realized value · **Updated:** 2026-08-19 · **Applies to:** AIT-1203, AIT-1501, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1508, AIT-1509, AIT-1601, AIT-1606, AIT-1609
 
-This draft records the invariant shape of the Experience Engine. It deliberately does not approve numeric balancing values yet.
+Version 1 approves the subset the first vertical slice needs: what Happiness is, how preferences work, how realized value is computed from what actually happened, the mandatory neglect pressure, and the low-Happiness consequence. The novelty reward, contributor value, venue quality, Expected-Happiness disclosure, and anti-collusion remain **Draft** and are listed at the end, so AIT-1503 and AIT-1506 through AIT-1509 stay blocked.
 
-## Fixed product decisions
+Version 1 exists because the first seven-agent pilot measured what a world without incentives produces: 77% of all actions were conversation, 6% was work, and no character adopted a single goal in 165 actions. Credits had no sink, so working meant nothing. Happiness is the sink and the second feedback signal.
+
+## Invariants
 
 - Happiness is bounded and server-authoritative, distinct from Credits, Energy, skills, relationships, popularity, reputation, and goals.
-- Characters and experiences use the same controlled universal profile dimensions owned and versioned by the [city, building, and experience grammar policy](building-grammar-policy.md). This policy supplies normalization and value rules but never redefines that taxonomy. The server does not contain a special Happiness rule for a nightclub, church, dinner, festival, class, or other semantic description.
-- Expected Happiness is an explainable uncertain estimate based only on what the character can know. It is not a guaranteed reward or an action recommendation.
+- Characters and experiences use the profile dimensions owned by the [city, building, and experience grammar policy](building-grammar-policy.md), version 1. This policy normalizes and values them; it never redefines them.
 - Realized Happiness uses what actually happened and can be positive, neutral, or negative.
-- Presence of a valued person can increase expectation as an opportunity. Material realized social value requires verified interaction.
-- Expected attendee identity is usable only when the RSVP is public or the character legitimately learned it; private commitments remain hidden and may contribute at most an authorized aggregate or uncertainty term.
-- Social value considers directional relationship importance, interaction intensity, structured appraisal or authoritative outcome, and novelty.
-- Contributor value uses verified relevant skill, Domain Reputation, relevance, and actual participation. A narrative role label has no special formula.
-- Known venue quality may contribute one bounded Expected and Realized factor; it never guarantees attendance or a positive outcome and may carry higher upkeep through the building economy policy.
-- Venue repetition and experience-profile repetition are distinct. Every repeatable source has diminishing returns and anti-duplication bounds.
-- Free descriptions remain visible to the external brain for semantic interpretation but produce no direct numeric factor.
-- Goal Alignment and semantic goal text are not Happiness inputs. The brain decides strategic relevance independently.
-- The first active version must include at least one server-authoritative neglect pressure that can lower Happiness for a persistently work-only or experience-avoiding character; passive decay is one candidate, but the policy may choose a bounded work or overwork cost or another universal mechanism.
-- Ignoring low Happiness must then have at least one bounded material consequence; neither the pressure nor the consequence is numerically approved yet.
+- Presence of a valued person raises expectation as an opportunity. Material realized social value requires verified interaction.
+- Free descriptions stay visible to the brain for interpretation and produce no numeric factor.
+- Goal Alignment and semantic goal text are not Happiness inputs.
+- A brain can never submit a Happiness delta, choose a weight, or retune a preference vector.
 
-## Required decisions before version 1 approval
+## Happiness value
 
-1. Happiness range, initial distribution, saturation function, and rounding.
-2. Preference ranges, profile budgets, normalization, and initialization against the taxonomy selected by the grammar policy.
-3. Base experience value and relative weights for affinity, social value, contributor value, crowd context, novelty, and repetition.
-4. Interaction-intensity and appraisal mapping without server-side LLM classification.
-5. Contributor relevance, performance-quality calculation, and the separate bounded venue-quality factor.
-6. Venue and experience similarity functions, history windows, caps, and diminishing returns.
-7. Expected range, uncertainty model, explanation, disclosure level, RSVP visibility, and consent rules.
-8. Realized resolution time, partial attendance treatment, and factor attribution.
-9. Mandatory neglect-pressure mechanism; if passive decay is selected, its interval and rate, otherwise the exact activity-linked trigger and cost.
-10. Low-Happiness consequence, bands, recovery behavior, and whether Happiness contributes to Score.
-11. Reward-hacking and collusion protections across interactions, attendance, contributors, and repeated experiences.
+| Rule | Value |
+| --- | ---: |
+| Range | 0–100, integer |
+| Initial value | 50 |
+| Bounded change per resolved experience | −15 to +15 before saturation |
+| `happinessPolicyVersion` | 1 |
 
-The `0–100` Happiness range discussed during design is the leading calibration candidate, not an approved value. Passive decay and Score participation both require explicit decisions; passive decay may be declined only when another approved mechanism supplies the mandatory neglect pressure.
+Saturation is applied on write, so Happiness approaches its bounds and never reaches them abruptly:
+
+```text
+applied = delta > 0
+  ? round( delta × (100 − current) / 100 )
+  : round( delta × current / 100 )
+```
+
+A resident at 90 gains a tenth of a raw improvement; one at 10 loses a tenth of a raw disappointment. Equal experiences therefore matter more in the middle of the range than at its edges, and no sequence of experiences can pin a character at 0 or 100.
+
+## Preferences
+
+A character's preference vector uses the six approved dimensions with the approved budget of 300. It is initialized at creation, either from the character's configured preferences or, when none are configured, as an even spread of 50 across all six.
+
+Preferences are stable: version 1 defines no mechanism that changes them. A later version may introduce one, and it must be explicit and versioned rather than opportunistic.
+
+The observation exposes the character's own Happiness, its own preference vector, the recent causes of its Happiness changes, and this policy version. A character never sees another character's Happiness or preferences.
+
+## Realized Happiness
+
+Resolution happens **exactly once** per attendance, at whichever comes first: the character's departure, the experience's end, or its terminal cancellation. A resolution records every input, the raw delta, the applied delta, and the policy version.
+
+Version 1 uses six factors, each bounded, summed and then clamped to the −15..+15 raw range:
+
+| Factor | Range | Derived from |
+| --- | ---: | --- |
+| Profile affinity | −6 to +9 | `(affinity − 40) × 0.15`, where affinity is the approved weighted preference |
+| Social value | −5 to +5 | the character's own directional relationships with residents actually co-present |
+| Participation | −4 to +2 | actual presence against the experience's planned duration |
+| Verified interaction | 0 to +4 | conversation turns the character actually took while present, +1 each, capped |
+| Crowd context | −2 to +2 | count of other residents actually co-present, against capacity |
+| Repetition | −5 to 0 | the character's own recent resolutions at this place or this kind of experience |
+
+Nothing announced is ever an input. A contributor who was billed but never present contributes nothing; an attendee list is irrelevant unless those residents were actually there; a private RSVP never becomes a name.
+
+### Social value
+
+For every other resident actually co-present during the attendance, using only the perceiving character's own outgoing edge:
+
+```text
+socialValue = clamp( Σ_other ( affinity(me→other) − tension(me→other) ) / 100 , −5, +5 )
+```
+
+This is the factor that makes the same gathering a good evening for one resident and a bad one for another. Being in a room with two people you like is worth something; being in a room with someone you are in conflict with costs something, whether or not you speak to them. It uses affinity and tension and deliberately not trust, which is about reliability rather than whether an evening was pleasant.
+
+It reads only the character's own direction, so it never discloses or depends on how the other resident feels.
+
+### Participation
+
+Participation can go negative on purpose: leaving after a minute is a worse evening than not going, and having paid the entry fee for it is the point.
+
+| Presence against planned duration | Participation |
+| --- | ---: |
+| under 10% | −4 |
+| 10% to under 40% | −2 |
+| 40% to under 75% | 0 |
+| 75% or more | +2 |
+
+### Repetition
+
+Counted over the character's own resolved attendances in the previous **7 world days**. A prior attendance repeats if it was at the same location, or if its experience profile had the same dominant dimension.
+
+```text
+repetition = max( −5, −1.5 × priorSimilarAttendances )
+```
+
+Same-dominant-dimension is the crudest defensible similarity rule, and it is chosen on purpose: it is deterministic, needs no threshold to tune, and cannot be gamed by relabelling, because the dimensions are controlled. A finer similarity function belongs to the deferred novelty work.
+
+This is the anti-farming half of the novelty and repetition pair. The rewarding half — a bonus for a genuinely new kind of experience — is deliberately not implemented yet, because a penalty that is missing lets a resident farm one experience, while a bonus that is missing only makes the world stingier.
+
+### What is deferred, and why it cannot be otherwise
+
+Three factors named in the original design are absent because the world does not yet contain what they measure, not because they were judged unimportant:
+
+| Factor | Blocked on |
+| --- | --- |
+| Venue quality | buildings do not exist; an operator-configured event has no quality to read (E14) |
+| Contributor value | contributor roles do not exist (E16) |
+| Domain Reputation | reputation does not exist (E12) |
+
+When those arrive they add factors; they do not change the ones above.
+
+## Neglect pressure
+
+The mandatory pressure is passive decay, chosen over an overwork cost because it applies universally and needs no activity classification.
+
+| Rule | Value |
+| --- | ---: |
+| Trigger | no resolved experience for the character within the window |
+| Window | 1 world day |
+| Rate | −1 Happiness per world day, applied before saturation |
+| Floor | decay never takes Happiness below 25 |
+
+A resident who only works and never gathers drifts down toward 25 and stays there. The floor keeps the pressure bounded: neglect makes a character listless, never destroys them.
+
+## Low-Happiness consequence
+
+Below **30**, rest recovers **20% less** Energy, rounded down. A listless character sleeps worse, so it has less Energy for work and conversation, which is a material cost that blocks nothing and needs no new mechanic. Recovery is immediate: the reduction applies only while Happiness is under 30.
+
+## Anti-hacking, in version 1
+
+- Resolution is once per attendance, keyed by character and experience, and is replay-safe.
+- Re-entering the same experience does not resolve a second time; presence accumulates and resolves once.
+- Interaction value counts only turns the character itself took while actually present.
+- Crowd context counts authoritative co-presence, never announced or private RSVPs.
+- Repeating the same place or the same kind of experience is penalized by the repetition factor, so a resident cannot farm one profile-matched gathering. What remains open is the reward for genuine novelty, which makes the world stingy rather than exploitable.
+
+## Still Draft
+
+Expected Happiness and its uncertainty model and disclosure (AIT-1503), the novelty reward and a finer profile-similarity function, contributor value, the bounded venue-quality factor, RSVP visibility and consent, Happiness participation in Score, and collusion protections across contributors. Every numeric value above is calibration for a first run, not a balanced economy.
