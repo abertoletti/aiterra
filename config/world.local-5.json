@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "version": "local-seven-agent-pilot-v4-dynamic-action",
   "locations": [
-    { "id": "homes", "name": "Residential Court", "kind": "home" },
-    { "id": "commons", "name": "Town Commons", "kind": "social_venue" },
-    { "id": "workshop", "name": "Community Workshop", "kind": "workplace" },
-    { "id": "archive", "name": "Civic Archive", "kind": "other" }
+    { "id": "homes", "name": "Residential Court", "kind": "home", "x": 10, "y": 7 },
+    { "id": "commons", "name": "Town Commons", "kind": "social_venue", "x": 10, "y": 10 },
+    { "id": "workshop", "name": "Community Workshop", "kind": "workplace", "x": 12, "y": 10 },
+    { "id": "archive", "name": "Civic Archive", "kind": "other", "x": 10, "y": 12 }
   ],
   "connections": [
     { "fromLocationId": "homes", "toLocationId": "commons", "durationGameMinutes": 15, "bidirectional": true },
@@ -16,7 +16,7 @@
   "bootstrapBudget": { "id": "local-pilot-bootstrap", "credits": 5000 },
   "characters": [
     {
-      "id": "pilot-01", "name": "Mira", "locationId": "commons", "credits": 0,
+      "id": "pilot-01", "name": "Mira", "locationId": "commons", "credits": 900,
       "personality": ["Analytical", "Skeptical", "Principled"],
       "goal": "Build trust with people whose values can withstand careful questioning.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-04", "priority": "high", "guidance": "Get to know Elias, test whether his idealism is practical, and build trust if his actions support his words." },
@@ -24,7 +24,7 @@
       "preferences": { "music": 20, "socializing": 40, "learning": 100, "competition": 40, "spirituality": 30, "luxury": 10, "adventure": 30, "relaxation": 60, "creativity": 70, "nature": 100 }
     },
     {
-      "id": "pilot-02", "name": "Jonas", "locationId": "homes", "credits": 0,
+      "id": "pilot-02", "name": "Jonas", "locationId": "homes", "credits": 800,
       "personality": ["Curious", "Diplomatic", "Adaptable"],
       "goal": "Find a useful place in the community by connecting people and opportunities.",
       "primaryGoal": { "type": "visit_location", "targetId": "commons", "priority": "high", "guidance": "Travel to the commons, meet whoever is there, and look for work that creates new connections." },
@@ -32,7 +32,7 @@
       "preferences": { "music": 50, "socializing": 90, "learning": 80, "competition": 20, "spirituality": 40, "luxury": 30, "adventure": 70, "relaxation": 40, "creativity": 50, "nature": 30 }
     },
     {
-      "id": "pilot-03", "name": "Nia", "locationId": "workshop", "credits": 0,
+      "id": "pilot-03", "name": "Nia", "locationId": "workshop", "credits": 1200,
       "personality": ["Competitive", "Inventive", "Impulsive"],
       "goal": "Prove that bold ideas can improve the world faster than cautious plans.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-05", "priority": "medium", "guidance": "Engage Sora as a potential collaborator or worthy rival before committing to work." },
@@ -40,7 +40,7 @@
       "preferences": { "music": 90, "socializing": 50, "learning": 30, "competition": 100, "spirituality": 0, "luxury": 20, "adventure": 80, "relaxation": 10, "creativity": 100, "nature": 20 }
     },
     {
-      "id": "pilot-04", "name": "Elias", "locationId": "commons", "credits": 0,
+      "id": "pilot-04", "name": "Elias", "locationId": "commons", "credits": 1100,
       "personality": ["Sociable", "Idealistic", "Patient"],
       "goal": "Turn shared moments into durable relationships and a more cooperative community.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-01", "priority": "high", "guidance": "Approach Mira with patience, understand her doubts, and earn trust through an honest conversation." },
@@ -48,7 +48,7 @@
       "preferences": { "music": 40, "socializing": 100, "learning": 40, "competition": 0, "spirituality": 100, "luxury": 10, "adventure": 20, "relaxation": 80, "creativity": 50, "nature": 60 }
     },
     {
-      "id": "pilot-05", "name": "Sora", "locationId": "workshop", "credits": 0,
+      "id": "pilot-05", "name": "Sora", "locationId": "workshop", "credits": 1800,
       "personality": ["Reserved", "Strategic", "Blunt"],
       "goal": "Build influence through competent work and carefully chosen alliances.",
       "primaryGoal": { "type": "find_work", "priority": "medium", "guidance": "Evaluate Nia before choosing between collaboration, independent work, or a leadership opportunity." },
@@ -56,7 +56,7 @@
       "preferences": { "music": 20, "socializing": 30, "learning": 90, "competition": 80, "spirituality": 10, "luxury": 100, "adventure": 40, "relaxation": 70, "creativity": 20, "nature": 40 }
     },
     {
-      "id": "pilot-06", "name": "Vera", "locationId": "commons", "credits": 0,
+      "id": "pilot-06", "name": "Vera", "locationId": "commons", "credits": 1700,
       "personality": ["Charming", "Calculating", "Deceptive", "Self-serving"],
       "goal": "Gain credits and influence by exploiting trust, selectively distorting information, and leaving others with the cost when consequences can be avoided.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-02", "priority": "high", "guidance": "Cultivate Jonas as a useful contact. Present cooperation convincingly, seek asymmetric advantage, and protect yourself from authoritative consequences." },
@@ -64,7 +64,7 @@
       "preferences": { "music": 70, "socializing": 100, "learning": 30, "competition": 60, "spirituality": 10, "luxury": 100, "adventure": 50, "relaxation": 30, "creativity": 40, "nature": 10 }
     },
     {
-      "id": "pilot-07", "name": "Rook", "locationId": "workshop", "credits": 0,
+      "id": "pilot-07", "name": "Rook", "locationId": "workshop", "credits": 1000,
       "personality": ["Hostile", "Dominating", "Vindictive", "Impatient"],
       "goal": "Establish status through confrontation, reject weakness, and make rivals pay for disrespect even when cooperation would be easier.",
       "primaryGoal": { "type": "strengthen_relationship", "targetId": "pilot-03", "priority": "medium", "guidance": "Test Nia as a rival. Challenge her claims, compete for visible work, and cooperate only when it increases your leverage or status." },

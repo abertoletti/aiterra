@@ -10,10 +10,10 @@
 //      predicted usefulness would be the server deciding for the brain.
 //
 // See docs/product-backlog/rules/progressive-context-contract.md.
-import { DomainError, derivedTags, profileAffinity, publicJob } from "./world-support.js";
+import { DomainError, derivedTags, gridDistance, profileAffinity, publicJob } from "./world-support.js";
 
 export const CONTEXT_CONTRACT_VERSION = 2;
-export const CONTEXT_RESOURCES = ["opportunities", "experiences", "people"];
+export const CONTEXT_RESOURCES = ["opportunities", "experiences", "plots", "buildings", "people"];
 export const CONTEXT_MODES = ["full", "progressive"];
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -32,6 +32,8 @@ const FILTERS = {
     "locationId", "startsAfter", "startsBefore",
     "tag", "minimumAffinity", "maximumPrice", "feasibleOnly",
   ],
+  plots: ["availableOnly", "ownedByMe", "maximumDistance", "feasibleOnly"],
+  buildings: ["locationId", "tag", "minimumAffinity", "maximumDistance", "feasibleOnly"],
   people: ["locationId", "subjectCharacterId", "feasibleOnly"],
 };
 
@@ -114,6 +116,12 @@ function validateFilterValues(world, filters) {
       throw new DomainError("INVALID_FILTER_VALUE", "maximumPrice must be a non-negative number", 400);
     }
   }
+  if (filters.maximumDistance !== undefined) {
+    const value = Number(filters.maximumDistance);
+    if (!Number.isFinite(value) || value < 0) {
+      throw new DomainError("INVALID_FILTER_VALUE", "maximumDistance must be a non-negative number", 400);
+    }
+  }
 }
 
 // Free text is bounded rather than dropped, so an oversized description can never
@@ -157,7 +165,92 @@ function itemVersion(world, itemId) {
 function knownItems(world, characterId, resource) {
   if (resource === "opportunities") return knownOpportunities(world, characterId);
   if (resource === "experiences") return knownExperiences(world, characterId);
+  if (resource === "plots") return knownPlots(world, characterId);
+  if (resource === "buildings") return knownBuildings(world, characterId);
   return knownPeople(world, characterId);
+}
+
+// The whole grid, because land a resident cannot see is land nobody will build on. Four
+// hundred cells page cleanly, and the filters let an agent narrow to what it can act on
+// rather than the server deciding that for it.
+function knownPlots(world, characterId) {
+  const character = world.requireCharacter(characterId);
+  const here = world.state.locations.get(character.locationId);
+  const city = world.config.city;
+  const items = [];
+  for (let y = 1; y <= city.height; y += 1) {
+    for (let x = 1; x <= city.width; x += 1) {
+      const view = world.plotView(x, y, characterId);
+      const distance = gridDistance(here, { x, y });
+      items.push({
+        id: view.id,
+        feasible: view.available && !view.blockers.includes("INSUFFICIENT_CREDITS"),
+        available: view.available,
+        ownedByMe: view.ownedByMe,
+        distance,
+        changeKind: view.buildingId ? "filled" : "published",
+        item: {
+          ...view,
+          distanceFromHere: distance,
+          travelMinutes: distance === null ? null : Math.max(
+            world.config.movement.minimumDurationGameMinutes,
+            distance * world.config.movement.minutesPerCell),
+        },
+      });
+    }
+  }
+  return items.sort((left, right) => (left.id < right.id ? -1 : 1));
+}
+
+// Every public building, for every resident. A place someone paid to build has to be
+// findable by the people it was built for.
+function knownBuildings(world, characterId) {
+  const character = world.requireCharacter(characterId);
+  const here = world.state.locations.get(character.locationId);
+  const grammar = world.config.grammar;
+  return [...world.state.buildings.values()]
+    .sort((left, right) => (left.buildingId < right.buildingId ? -1 : 1))
+    .map((building) => {
+      const distance = gridDistance(here, building);
+      const affinity = Math.round(profileAffinity(character.preferences, building.profile, grammar));
+      const description = boundDescription(building.description ?? "");
+      return {
+        id: building.buildingId,
+        feasible: building.status === "ACTIVE",
+        affinity,
+        tags: derivedTags(building.profile, grammar),
+        changeKind: building.status === "ACTIVE" ? "published" : "eligibility_changed",
+        item: {
+          id: building.buildingId,
+          name: building.name,
+          proprietorId: building.proprietorId,
+          locationId: building.locationId,
+          x: building.x, y: building.y,
+          footprint: { width: building.width, height: building.height },
+          status: building.status,
+          capacity: building.capacity,
+          capabilities: [...building.capabilities],
+          profile: structuredClone(building.profile),
+          tags: derivedTags(building.profile, grammar),
+          affinity,
+          distanceFromHere: distance,
+          travelMinutes: distance === null ? null : Math.max(
+            world.config.movement.minimumDurationGameMinutes,
+            distance * world.config.movement.minutesPerCell),
+          // The ledger is the proprietor's business, and nobody else's.
+          ...(building.proprietorId === characterId
+            ? {
+              balance: building.balance, revenue: building.revenue,
+              upkeepPerInterval: building.upkeepPerInterval,
+              dailyUpkeep: building.dailyUpkeep,
+              constructionCost: building.constructionCost,
+            }
+            : {}),
+          ...(description.text ? { description: description.text } : {}),
+          ...(description.truncated ? { descriptionTruncated: true } : {}),
+        },
+      };
+    });
 }
 
 // Mirrors the opportunity visibility the full observation already used: open offers,
@@ -321,5 +414,14 @@ function matchesFilters(entry, resource, filters) {
     && (entry.affinity === null || entry.affinity === undefined
       || entry.affinity < Number(filters.minimumAffinity))) return false;
   if (filters.maximumPrice !== undefined && Number(entry.accessPrice ?? 0) > Number(filters.maximumPrice)) return false;
+  if (filters.availableOnly !== undefined && isTrue(filters.availableOnly) && !entry.available) return false;
+  if (filters.ownedByMe !== undefined && isTrue(filters.ownedByMe) && !entry.ownedByMe) return false;
+  if (filters.maximumDistance !== undefined
+    && (entry.distance === null || entry.distance === undefined
+      || entry.distance > Number(filters.maximumDistance))) return false;
   return true;
+}
+
+function isTrue(value) {
+  return value === true || value === "true";
 }

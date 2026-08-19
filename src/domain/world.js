@@ -11,7 +11,8 @@ import {
   DomainError, addMilliseconds, clamp, itemsTouchedByEvent, coPresenceKey, conflict, conversationAppraisalKey,
   appraisalOutcomeKey, dominantDimension, evenPreferences, experienceAttendanceKey,
   normalizeExperienceProfile, normalizePreferences, normalizeTopics, topicFitFor,
-  profileAffinity, round2,
+  profileAffinity, round2, derivedTags,
+  buildingCost, buildingUpkeep, gridDistance, plotKey,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
   normalizeFact, normalizeGoal, normalizeRelationship, normalizeSkills,
@@ -183,11 +184,221 @@ export class World {
     });
   }
 
-  defineLocation({ id, name }) {
+  defineLocation({ id, name, x = null, y = null, buildingId = null }) {
     requiredId(id, "location id");
-    requiredText(name, "location name", 80);
+    requiredText(name, "location name", this.config.city.nameMaximumLength);
     if (this.state.locations.has(id)) throw conflict("LOCATION_EXISTS", `Location ${id} already exists`);
-    return this.record("LOCATION_DEFINED", { data: { id, name } });
+    if (x !== null || y !== null) {
+      if (!this.withinGrid(x, y)) throw invalid("OFF_GRID", `Location must sit inside the ${this.config.city.width}x${this.config.city.height} grid`);
+    }
+    return this.record("LOCATION_DEFINED", { data: { id, name, x, y, buildingId } });
+  }
+
+  withinGrid(x, y) {
+    return Number.isInteger(x) && Number.isInteger(y)
+      && x >= 1 && x <= this.config.city.width && y >= 1 && y <= this.config.city.height;
+  }
+
+  // ---- E14. The city the residents build ----------------------------------------
+  //
+  // Authorship is a new class of command: it mutates world structure rather than the
+  // character's own state. Everything below is therefore priced, validated against the
+  // controlled grammar, and idempotent through the same action receipts as every other
+  // command. Free text names the place; only structured fields produce mechanics.
+
+  plotView(x, y, characterId = null) {
+    const id = plotKey(x, y);
+    const plot = this.state.plots.get(id);
+    const occupant = plot?.buildingId ? this.state.buildings.get(plot.buildingId) : null;
+    const blockers = [];
+    if (plot?.ownerId && plot.ownerId !== characterId) blockers.push("PLOT_OWNED");
+    if (occupant) blockers.push("PLOT_OCCUPIED");
+    if (characterId) {
+      const character = this.state.characters.get(characterId);
+      if (character && !plot?.ownerId && character.credits < this.config.city.plotPricePerCell) {
+        blockers.push("INSUFFICIENT_CREDITS");
+      }
+    }
+    return {
+      id, x, y,
+      price: this.config.city.plotPricePerCell,
+      ownerId: plot?.ownerId ?? null,
+      buildingId: plot?.buildingId ?? null,
+      available: !plot?.ownerId && !occupant,
+      ownedByMe: Boolean(characterId && plot?.ownerId === characterId),
+      blockers,
+    };
+  }
+
+  acquirePlot(characterId, x, y) {
+    const character = this.requireCharacter(characterId);
+    if (!this.withinGrid(x, y)) {
+      throw invalid("OFF_GRID", `A plot must sit inside the ${this.config.city.width}x${this.config.city.height} grid`);
+    }
+    const id = plotKey(x, y);
+    const existing = this.state.plots.get(id);
+    if (existing?.ownerId === characterId) throw conflict("PLOT_ALREADY_OWNED", "Character already owns that plot");
+    if (existing?.ownerId) throw conflict("PLOT_OWNED", "Another resident owns that plot");
+    const price = this.config.city.plotPricePerCell;
+    if (character.credits < price) throw invalid("INSUFFICIENT_CREDITS", `A plot costs ${price} credits`);
+    return this.record("PLOT_ACQUIRED", {
+      actorCharacterId: characterId,
+      data: { plotId: id, x, y, ownerId: characterId, price, cityGridVersion: this.config.city.gridVersion },
+    });
+  }
+
+  // Cost and capacity are derived here and nowhere else, so a client cannot claim them
+  // and the affordance cannot advertise a different price from the one charged.
+  buildingQuote(profile, width, height) {
+    const cells = width * height;
+    const { ambition, constructionCost } = buildingCost(profile, cells, this.config.city);
+    const { dailyUpkeep, upkeepPerInterval } = buildingUpkeep(constructionCost, this.config.city);
+    return {
+      cells, ambition, constructionCost, dailyUpkeep, upkeepPerInterval,
+      capacity: cells * this.config.city.capacityPerCell,
+      constructionMinutes: cells * this.config.city.constructionMinutesPerCell,
+    };
+  }
+
+  constructBuilding(characterId, {
+    x, y, width = 1, height = 1, name, description = "", profile, capabilities = [],
+  }) {
+    const character = this.requireCharacter(characterId);
+    const city = this.config.city;
+    requiredText(name, "building name", city.nameMaximumLength);
+    if (!Number.isInteger(width) || !Number.isInteger(height)
+      || width < 1 || height < 1 || width > city.maximumFootprintWidth || height > city.maximumFootprintHeight) {
+      throw invalid("INVALID_FOOTPRINT",
+        `A footprint must be between 1x1 and ${city.maximumFootprintWidth}x${city.maximumFootprintHeight}`);
+    }
+    const owned = [...this.state.buildings.values()].filter((building) => building.proprietorId === characterId);
+    if (owned.length >= city.maximumBuildingsPerCharacter) {
+      throw conflict("BUILDING_LIMIT_REACHED", `A resident may hold at most ${city.maximumBuildingsPerCharacter} buildings`);
+    }
+    // The profile is what the building delivers, and it is the ceiling on every
+    // experience hosted there. That is what makes it worth paying for.
+    const normalizedProfile = normalizeExperienceProfile(profile, this.config.grammar);
+    const selected = [...new Set(capabilities)];
+    for (const capability of selected) {
+      if (!city.capabilities.includes(capability)) {
+        throw invalid("UNKNOWN_CAPABILITY", `${capability} is not a version-${city.gridVersion} building capability`);
+      }
+    }
+    if (selected.length === 0) throw invalid("NO_CAPABILITY", "A building must take at least one capability");
+
+    const cellIds = [];
+    for (let dx = 0; dx < width; dx += 1) {
+      for (let dy = 0; dy < height; dy += 1) {
+        const cx = x + dx;
+        const cy = y + dy;
+        if (!this.withinGrid(cx, cy)) throw invalid("OFF_GRID", "The footprint leaves the grid");
+        const plot = this.state.plots.get(plotKey(cx, cy));
+        if (plot?.ownerId !== characterId) throw conflict("PLOT_NOT_OWNED", `Character does not own ${plotKey(cx, cy)}`);
+        if (plot?.buildingId) throw conflict("PLOT_OCCUPIED", `${plotKey(cx, cy)} already carries a building`);
+        cellIds.push(plot.id);
+      }
+    }
+
+    const quote = this.buildingQuote(normalizedProfile, width, height);
+    if (character.credits < quote.constructionCost) {
+      throw invalid("INSUFFICIENT_CREDITS", `Construction costs ${quote.constructionCost} credits`);
+    }
+
+    const buildingId = `building-${this.idGenerator()}`;
+    const startedAt = this.clock.now();
+    return this.record("BUILDING_CONSTRUCTION_STARTED", {
+      actorCharacterId: characterId,
+      data: {
+        buildingId, proprietorId: characterId,
+        name: String(name).trim(),
+        description: String(description).slice(0, city.descriptionMaximumLength),
+        x, y, width, height, plotIds: cellIds,
+        profile: normalizedProfile,
+        tags: derivedTags(normalizedProfile, this.config.grammar),
+        capabilities: selected,
+        capacity: quote.capacity,
+        constructionCost: quote.constructionCost,
+        ambition: quote.ambition,
+        dailyUpkeep: quote.dailyUpkeep,
+        upkeepPerInterval: quote.upkeepPerInterval,
+        startedAt: startedAt.toISOString(),
+        completesAt: addGameMinutes(startedAt, quote.constructionMinutes).toISOString(),
+        status: "UNDER_CONSTRUCTION",
+        cityGridVersion: city.gridVersion,
+        profileTaxonomyVersion: this.config.grammar.profileTaxonomyVersion,
+      },
+    });
+  }
+
+  fundBuilding(characterId, buildingId, credits) {
+    const character = this.requireCharacter(characterId);
+    const building = this.requireBuilding(buildingId);
+    if (building.proprietorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the proprietor can fund the building");
+    if (!Number.isInteger(credits) || credits < 1) throw invalid("INVALID_AMOUNT", "Funding must be a positive whole number of credits");
+    if (character.credits < credits) throw invalid("INSUFFICIENT_CREDITS", `Character holds ${character.credits} credits`);
+    return this.record("BUILDING_FUNDED", {
+      actorCharacterId: characterId,
+      data: { buildingId, characterId, credits, balance: building.balance + credits },
+    });
+  }
+
+  requireBuilding(buildingId) {
+    const building = this.state.buildings.get(buildingId);
+    if (!building) throw invalid("UNKNOWN_BUILDING", `Building ${buildingId} does not exist`);
+    return building;
+  }
+
+  // AIT-1601. The proprietor authors a night, and the building's profile is the ceiling
+  // on what that night can deliver: a modest place can never host the city's great
+  // music evening, and paying for one is how a proprietor earns the right to.
+  hostExperience(characterId, {
+    buildingId, title, description = "", profile,
+    startsInGameMinutes = 0, durationGameMinutes, accessPrice = 0, capacity = null,
+  }) {
+    this.requireCharacter(characterId);
+    const building = this.requireBuilding(buildingId);
+    if (building.proprietorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the proprietor can host here");
+    if (building.status !== "ACTIVE") throw conflict("BUILDING_NOT_ACTIVE", `Building is ${building.status}`);
+    if (!building.capabilities.includes("host_event")) {
+      throw forbidden("CAPABILITY_MISSING", "This building cannot host events");
+    }
+    const normalizedProfile = normalizeExperienceProfile(profile, this.config.grammar);
+    const exceeded = this.config.grammar.profileDimensions
+      .filter((dimension) => (normalizedProfile[dimension] ?? 0) > (building.profile[dimension] ?? 0));
+    if (exceeded.length > 0) {
+      throw invalid("PROFILE_EXCEEDS_BUILDING",
+        `${building.name} cannot deliver ${exceeded.join(", ")} above its own profile`);
+    }
+    if (accessPrice > 0 && !building.capabilities.includes("sell_access")) {
+      throw forbidden("CAPABILITY_MISSING", "This building cannot charge admission");
+    }
+    const seats = capacity === null ? building.capacity : capacity;
+    if (!Number.isInteger(seats) || seats < 1 || seats > building.capacity) {
+      throw invalid("INVALID_CAPACITY", `Capacity must be between 1 and ${building.capacity}`);
+    }
+    if (!Number.isInteger(startsInGameMinutes) || startsInGameMinutes < 0) {
+      throw invalid("INVALID_SCHEDULE", "startsInGameMinutes must be a non-negative whole number");
+    }
+    if (!Number.isInteger(durationGameMinutes) || durationGameMinutes < 1) {
+      throw invalid("INVALID_DURATION", "An experience must last at least one world minute");
+    }
+    const startsAt = addGameMinutes(this.clock.now(), startsInGameMinutes);
+    return this.createEvent({
+      creatorId: characterId,
+      title, description,
+      locationId: building.locationId,
+      startsAt,
+      endsAt: addGameMinutes(startsAt, durationGameMinutes),
+      profile: normalizedProfile,
+      accessPrice,
+      capacity: seats,
+      buildingId,
+      // Admission funds the building, not the proprietor's pocket, so upkeep can be paid
+      // out of what the place actually earned. Distribution to the proprietor is a
+      // separate later decision.
+      accessDestinationType: "building",
+      accessDestinationId: buildingId,
+    });
   }
 
   activateWorldConfiguration({ version, schemaVersion = 1 }) {
@@ -588,10 +799,8 @@ export class World {
     if (character.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot move while ${character.activity.type}`);
     this.requireEnergy(character, this.config.energy.movementCost);
 
-    const configuredConnections = [...this.state.connections.values()];
-    const connection = this.state.connections.get(`${character.locationId}->${destinationId}`);
-    if (configuredConnections.length > 0 && !connection) throw invalid("UNREACHABLE_DESTINATION", "Destination is not reachable from the current location");
-    const durationGameMinutes = connection?.durationGameMinutes ?? this.config.movement.durationGameMinutes;
+    const durationGameMinutes = this.travelDurationBetween(character.locationId, destinationId);
+    if (durationGameMinutes === null) throw invalid("UNREACHABLE_DESTINATION", "Destination is not reachable from the current location");
     const energyEvent = this.changeEnergy(characterId, -this.config.energy.movementCost, "movement");
     const expectedEndAt = addGameMinutes(this.clock.now(), durationGameMinutes).toISOString();
     const movement = this.record("MOVEMENT_STARTED", {
@@ -924,6 +1133,7 @@ export class World {
   createEvent({
     creatorId = null, id = this.idGenerator(), title, locationId, startsAt, endsAt,
     profile = null, accessPrice = 0, capacity = null, description = null,
+    buildingId = null, accessDestinationType = null, accessDestinationId = null,
   }) {
     if (creatorId) this.requireCharacter(creatorId);
     this.requireLocation(locationId);
@@ -953,6 +1163,11 @@ export class World {
         accessPrice: price,
         capacity,
         ...(description ? { description: String(description).slice(0, 500) } : {}),
+        ...(buildingId ? { buildingId } : {}),
+        // A resident-hosted night pays its proprietor; an operator-configured one pays
+        // the system budget, so Credit supply stays auditable either way.
+        accessDestinationType: accessDestinationType ?? "system_budget",
+        accessDestinationId: accessDestinationId ?? this.config.economy.bootstrapBudgetId,
         profileTaxonomyVersion: this.config.grammar.profileTaxonomyVersion,
         experienceCommercePolicyVersion: this.config.experience.commercePolicyVersion,
       },
@@ -2047,6 +2262,41 @@ export class World {
         });
         break;
       }
+      // Authorship. These four mutate world structure rather than the character's own
+      // state, which is a class of command the protocol did not previously have.
+      case "acquire_plot": {
+        const event = this.acquirePlot(characterId, action.x, action.y);
+        result = this.actionResult(characterId, event, {
+          plotId: event.data.plotId, price: event.data.price,
+        });
+        break;
+      }
+      case "construct_building": {
+        const event = this.constructBuilding(characterId, action);
+        result = this.actionResult(characterId, event, {
+          buildingId: event.data.buildingId,
+          constructionCost: event.data.constructionCost,
+          capacity: event.data.capacity,
+          dailyUpkeep: event.data.dailyUpkeep,
+          completesAt: event.data.completesAt,
+        });
+        break;
+      }
+      case "fund_building": {
+        const event = this.fundBuilding(characterId, action.buildingId, action.credits);
+        result = this.actionResult(characterId, event, {
+          buildingId: event.data.buildingId, balance: event.data.balance,
+        });
+        break;
+      }
+      case "host_experience": {
+        const event = this.hostExperience(characterId, action);
+        result = this.actionResult(characterId, event, {
+          eventId: event.data.id, startsAt: event.data.startsAt, endsAt: event.data.endsAt,
+          accessPrice: event.data.accessPrice, capacity: event.data.capacity,
+        });
+        break;
+      }
       case "send_invitation": {
         const event = this.sendInvitation(characterId, action.targetCharacterId, {
           destinationType: action.destinationType,
@@ -2241,7 +2491,70 @@ export class World {
         this.endExperienceAttendance(character.id, activity.eventId, "experience_completed", activity.expectedEndAt);
       }
     }
+    this.completeConstruction(target);
+    this.chargeBuildingUpkeep(target);
     this.applyHappinessDecay(target);
+  }
+
+  // Construction is a building-scoped timer, not a character activity: a proprietor pays
+  // for the work rather than doing it, so they stay free while the place goes up. On
+  // completion the building becomes a real location, which is the first time anything in
+  // this world has created a location at runtime.
+  completeConstruction(targetWorldTime) {
+    const target = new Date(targetWorldTime);
+    for (const building of [...this.state.buildings.values()]) {
+      if (building.status !== "UNDER_CONSTRUCTION") continue;
+      if (new Date(building.completesAt) > target) continue;
+      const locationId = building.buildingId;
+      const started = this.record("LOCATION_DEFINED", {
+        worldTime: building.completesAt,
+        data: {
+          id: locationId, name: building.name,
+          x: building.x, y: building.y, buildingId: building.buildingId,
+        },
+      });
+      this.record("BUILDING_ACTIVATED", {
+        actorCharacterId: building.proprietorId,
+        causedByEventIds: [started.id],
+        worldTime: building.completesAt,
+        data: {
+          buildingId: building.buildingId, locationId,
+          proprietorId: building.proprietorId,
+          name: building.name, capacity: building.capacity,
+          capabilities: [...building.capabilities],
+          activatedAt: building.completesAt,
+        },
+      });
+    }
+  }
+
+  // Upkeep is what stops a building being a free permanent asset. It is charged from the
+  // building's own balance, which admission has been feeding, so an unused place bleeds
+  // and a busy one pays for itself.
+  chargeBuildingUpkeep(targetWorldTime) {
+    const target = new Date(targetWorldTime);
+    const intervalMs = this.config.city.upkeepIntervalWorldMinutes * 60_000;
+    for (const building of [...this.state.buildings.values()]) {
+      if (!["ACTIVE", "DELINQUENT"].includes(building.status)) continue;
+      const since = new Date(building.lastUpkeepAt ?? building.activatedAt);
+      const elapsed = Math.floor((target - since) / intervalMs);
+      if (elapsed < 1) continue;
+      for (let charge = 1; charge <= elapsed; charge += 1) {
+        const chargedAt = new Date(since.getTime() + charge * intervalMs).toISOString();
+        const current = this.state.buildings.get(building.buildingId);
+        const amount = current.upkeepPerInterval;
+        const type = current.balance >= amount ? "BUILDING_UPKEEP_PAID" : "BUILDING_UPKEEP_FAILED";
+        this.record(type, {
+          actorCharacterId: current.proprietorId,
+          worldTime: chargedAt,
+          data: {
+            buildingId: current.buildingId, proprietorId: current.proprietorId,
+            amount, balance: current.balance, chargedAt,
+            ...(type === "BUILDING_UPKEEP_FAILED" ? { shortfall: amount - current.balance } : {}),
+          },
+        });
+      }
+    }
   }
 
   restRecoveryFor(character) {
@@ -2515,6 +2828,17 @@ export class World {
         neglect: `Going ${this.config.happiness.decayWindowWorldMinutes / 1440} world day(s) without a resolved experience costs ${this.config.happiness.decayPerWorldDay} Happiness, down to a floor of ${this.config.happiness.decayFloor}, and every completed job costs ${this.config.happiness.completedWorkCost} more. Nothing punishes low Happiness directly. The cost is simply that you end with Credits and almost nothing lived, and the lived total is part of what a run is won on.`,
         livedTotal: "Happiness is two numbers. 'happiness' is how good your life is right now: bounded, and it saturates as it approaches either end. 'livedHappiness' is the unbounded total of everything you have actually lived, and together with Credits and relationships it is what a run is won on. A wonderful evening when you are already happy barely moves the first and counts in full toward the second, so there is never a point at which experiences stop being worth having.",
         privacy: "You see your own Happiness and preferences and never another character's.",
+      },
+      city: {
+        gridVersion: this.config.city.gridVersion,
+        grid: [this.config.city.width, this.config.city.height],
+        plotPrice: this.config.city.plotPricePerCell,
+        capabilities: [...this.config.city.capabilities],
+        instruction: "The city is a grid of buyable plots and you may build on it. Buy a plot, then construct a building on land you own: you name it, describe it, and choose what it delivers using the same profile dimensions your own preferences use. The world never decides what kind of place it is.",
+        cost: `Construction costs cells x (${this.config.city.structuralCostPerCell} + ${this.config.city.profileCostPerCell} x ambition^${this.config.city.ambitionExponent}), where ambition is the sum of your ten profile values divided by 100. The cost rises with the square of the total you promise, so a place that delivers everything is unaffordable and a focused one is cheap. Deciding what your place is for is the whole choice.`,
+        ceiling: "A building's profile is the ceiling on every experience you can host there. A venue with music 40 can never host the city's great music night; paying for music 90 is how you earn the right to.",
+        earning: "Admission to an experience you host funds the building, not your pocket. Upkeep is charged from that balance, so an unused building bleeds and a busy one pays for itself. You can also fund it from your own credits.",
+        capacityRule: `Capacity is ${this.config.city.capacityPerCell} per cell of footprint, so a bigger footprint holds more people and costs proportionally more to build.`,
       },
       // The context discipline is a stable rule, so it lives in the manifest rather
       // than in each runtime's private prompt. A stateless model that receives only
@@ -2898,9 +3222,9 @@ export class World {
       const locations = this.reachableLocations(character.locationId);
       for (const location of locations) {
         if (location.id !== character.locationId) actions.push({
-          type: "move", destinationId: location.id, energyCost: this.config.energy.movementCost,
-          durationGameMinutes: this.state.connections.get(`${character.locationId}->${location.id}`)?.durationGameMinutes
-            ?? this.config.movement.durationGameMinutes,
+          type: "move", destinationId: location.id, name: location.name,
+          energyCost: this.config.energy.movementCost,
+          durationGameMinutes: this.travelDurationBetween(character.locationId, location.id),
         });
       }
       for (const job of jobs.filter((item) => item.status === "accepted" && item.workerIds.includes(character.id))) {
@@ -2911,6 +3235,62 @@ export class World {
         actions.push({
           type: "rest", durationGameMinutes: this.config.energy.restDurationGameMinutes,
           expectedRecovery: this.restRecoveryFor(character),
+        });
+      }
+      // Authorship affordances are declared, not enumerated: an agent that has decided
+      // to build already knows which cell it wants, and enumerating 400 plots by four
+      // footprints would cost the product of two domains for no information.
+      const city = this.config.city;
+      const ownedPlots = [...this.state.plots.values()].filter((plot) => plot.ownerId === character.id);
+      actions.push({
+        type: "acquire_plot",
+        gridWidth: city.width, gridHeight: city.height,
+        pricePerPlot: city.plotPricePerCell,
+        ownedPlotIds: ownedPlots.map((plot) => plot.id),
+        credits: character.credits,
+      });
+      const freeOwnedPlots = ownedPlots.filter((plot) => !plot.buildingId);
+      if (freeOwnedPlots.length > 0) {
+        actions.push({
+          type: "construct_building",
+          buildableFrom: freeOwnedPlots.map((plot) => ({ x: plot.x, y: plot.y })),
+          maximumFootprint: { width: city.maximumFootprintWidth, height: city.maximumFootprintHeight },
+          capabilities: [...city.capabilities],
+          profileDimensions: [...this.config.grammar.profileDimensions],
+          capacityPerCell: city.capacityPerCell,
+          // Everything needed to work out the exact price before submitting, so the cost
+          // is never a surprise: cells x (structural + profile x ambition^exponent).
+          costFormula: {
+            structuralCostPerCell: city.structuralCostPerCell,
+            profileCostPerCell: city.profileCostPerCell,
+            ambitionExponent: city.ambitionExponent,
+            note: "ambition is the sum of your ten profile values divided by 100",
+          },
+          constructionMinutesPerCell: city.constructionMinutesPerCell,
+          upkeepDailyRate: city.upkeepDailyRate,
+          credits: character.credits,
+        });
+      }
+      const myBuildings = [...this.state.buildings.values()]
+        .filter((building) => building.proprietorId === character.id);
+      for (const building of myBuildings.filter((item) => item.status === "ACTIVE")) {
+        if (building.capabilities.includes("host_event")) {
+          actions.push({
+            type: "host_experience", buildingId: building.buildingId, name: building.name,
+            locationId: building.locationId,
+            profileCeiling: structuredClone(building.profile),
+            maximumCapacity: building.capacity,
+            canChargeAdmission: building.capabilities.includes("sell_access"),
+            maximumAccessPrice: this.config.experience.maximumAccessPrice,
+            balance: building.balance, upkeepPerInterval: building.upkeepPerInterval,
+          });
+        }
+      }
+      for (const building of myBuildings) {
+        actions.push({
+          type: "fund_building", buildingId: building.buildingId, name: building.name,
+          status: building.status, balance: building.balance,
+          upkeepPerInterval: building.upkeepPerInterval, credits: character.credits,
         });
       }
       for (const gathering of upcomingEvents) {
@@ -3197,11 +3577,28 @@ export class World {
     };
   }
 
+  // Travel duration, resolved in one place so the affordance, the catalog and the move
+  // command cannot disagree. An explicit connection wins where one exists; otherwise the
+  // grid decides, which is what makes a building on any cell reachable without an edge.
+  travelDurationBetween(fromLocationId, toLocationId) {
+    const connection = this.state.connections.get(`${fromLocationId}->${toLocationId}`);
+    if (connection) return connection.durationGameMinutes;
+    const from = this.state.locations.get(fromLocationId);
+    const to = this.state.locations.get(toLocationId);
+    const distance = gridDistance(from, to);
+    if (distance !== null) {
+      return Math.max(this.config.movement.minimumDurationGameMinutes,
+        distance * this.config.movement.minutesPerCell);
+    }
+    // A world with no connections and no coordinates is the pre-grid seeded world.
+    if (this.state.connections.size === 0) return this.config.movement.durationGameMinutes;
+    return null;
+  }
+
   reachableLocations(fromLocationId) {
-    if (this.state.connections.size === 0) return [...this.state.locations.values()];
-    return [...this.state.connections.values()]
-      .filter((connection) => connection.fromLocationId === fromLocationId)
-      .map((connection) => this.requireLocation(connection.toLocationId));
+    return [...this.state.locations.values()]
+      .filter((location) => location.id !== fromLocationId
+        && this.travelDurationBetween(fromLocationId, location.id) !== null);
   }
 
   minimumTravelWorldMinutes(fromLocationId, toLocationId) {

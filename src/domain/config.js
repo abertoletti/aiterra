@@ -30,6 +30,36 @@ export const defaultConfig = Object.freeze({
   },
   movement: {
     durationGameMinutes: 15,
+    // The grid replaces the configured connection graph. 400 cells would need 160,000
+    // explicit edges, so distance derives the duration instead and any cell is reachable
+    // from any other. Manhattan, because a city is walked along streets.
+    minutesPerCell: 5,
+    minimumDurationGameMinutes: 5,
+  },
+  // City, building, and experience grammar policy v2.
+  city: {
+    gridVersion: 1,
+    width: 20,
+    height: 20,
+    plotPricePerCell: 150,
+    maximumFootprintWidth: 2,
+    maximumFootprintHeight: 2,
+    capacityPerCell: 10,
+    capabilities: ["host_event", "create_job", "sell_access", "sell_service", "accept_donation"],
+    // constructionCost = cells x (structural + profile x ambition^exponent), where
+    // ambition is the sum of the ten profile dimensions over 100. Convex in the total
+    // promised and neutral about its distribution: promising everything is not
+    // forbidden, it is unaffordable.
+    structuralCostPerCell: 200,
+    profileCostPerCell: 300,
+    ambitionExponent: 2,
+    constructionMinutesPerCell: 20,
+    upkeepDailyRate: 0.03,
+    upkeepMinimum: 5,
+    upkeepIntervalWorldMinutes: 1440,
+    maximumBuildingsPerCharacter: 3,
+    nameMaximumLength: 80,
+    descriptionMaximumLength: 500,
   },
   // City, building, and experience grammar policy v1, shared-taxonomy scope.
   grammar: {

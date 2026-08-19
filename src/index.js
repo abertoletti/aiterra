@@ -11,6 +11,12 @@ import { createHttpServer } from "./server.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const config = makeConfig({
   clock: { realHoursPerGameDay: Number(process.env.GAME_DAY_REAL_HOURS ?? 4) },
+  // A pilot spans about three world hours, so a once-a-world-day charge would never
+  // fire and the economic pressure would be untestable. The operator can shorten the
+  // interval for a run; the policy default stays a world day.
+  ...(process.env.UPKEEP_INTERVAL_WORLD_MINUTES
+    ? { city: { upkeepIntervalWorldMinutes: Number(process.env.UPKEEP_INTERVAL_WORLD_MINUTES) } }
+    : {}),
 });
 const clock = new AcceleratedWorldClock(config.clock);
 const store = new JsonlEventStore(resolve(root, process.env.EVENT_LOG_PATH ?? ".data/world-events.jsonl"));

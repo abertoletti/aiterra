@@ -3,6 +3,8 @@ const MAX_SHARED_FACTS = 8;
 const ALLOWED_CONTEXT_FILTERS = [
   "locationId", "minimumCompensation", "feasibleOnly",
   "startsAfter", "startsBefore", "subjectCharacterId",
+  "tag", "minimumAffinity", "maximumPrice",
+  "availableOnly", "ownedByMe", "maximumDistance",
 ];
 
 export class DecisionValidationError extends Error {
@@ -118,6 +120,13 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "Your character should be pursuing something. Keep at least one active secondary goal whenever you have capacity for it, and propose one as soon as a perceived event gives you a reason: someone worth knowing better, a rivalry, work worth finding, a place or gathering worth reaching.",
         "A secondary goal needs a sourceEventId you actually perceived - take it from recentPermittedHistory or a pendingNotification - and a targetId listed in `known` (known.characterIds, known.locationIds, known.eventIds). Goals persist across decisions, so use them to stay on a plan instead of reconsidering from scratch each time.",
         "Abandon a goal explicitly when it is achieved or no longer makes sense, rather than leaving it to expire.",
+        // The first runs produced almost no attendance because every affordance to enter
+        // an experience only appears once you are already standing there, and nothing
+        // told the character to close that gap. It was obeying us again.
+        "A gathering you have not travelled to is still available to you. Request the `experiences` catalog to see what the whole city is offering, filter it by a tag you care about or by minimumAffinity, and if something suits you then `move` to its location first and attend once you arrive. Its affinity, price, both energy costs and how repetitive it would be for you are all disclosed before you commit.",
+        "Credits are for spending. Working without ever attending anything leaves you richer and with a life you did not live, and the lived total is part of what a run is won on.",
+        "You may also build. Request the `plots` catalog to see buyable land and the `buildings` catalog to see what already exists, then `acquire_plot` and `construct_building` to create a place that is yours: you choose its name, its description and what it delivers. Consult rules.city for the exact cost formula and the ceiling rule before choosing a profile, and prefer a focused profile over a broad one because breadth is priced out of reach.",
+        "Once your building is active you can `host_experience` there within its profile ceiling, charge admission if it can sell access, and `fund_building` to cover upkeep. Other residents will decide for themselves whether your night is worth their credits and energy — you cannot make them come.",
         ...contextProtocol,
         "Return JSON only, without markdown: {\"action\":{...},\"rationale\":\"one short sentence\"}.",
       ].join(" "),
@@ -189,6 +198,32 @@ function actionShapes(availableActions) {
   for (const type of types) {
     switch (type) {
       case "move": shapes.move = { type: "move", destinationId: "<an offered destinationId>" }; break;
+      case "acquire_plot": shapes.acquire_plot = {
+        type, x: "<integer 1..gridWidth>", y: "<integer 1..gridHeight>",
+      }; break;
+      case "construct_building": shapes.construct_building = {
+        type,
+        x: "<x of a plot you own>", y: "<y of a plot you own>",
+        width: "<1 or 2>", height: "<1 or 2, and you must own every cell of the rectangle>",
+        name: "<required, what you call the place>",
+        description: "<required, what it is; free text, no mechanical effect>",
+        profile: "<object of profile dimensions to 0-100; what the place delivers, priced convexly>",
+        capabilities: "<array from the offered capabilities>",
+      }; break;
+      case "host_experience": shapes.host_experience = {
+        type,
+        buildingId: "<one of your active buildings>",
+        title: "<required name of the night>",
+        description: "<required free text>",
+        profile: "<object of dimensions, none above the building's profileCeiling>",
+        startsInGameMinutes: "<integer, 0 or more>",
+        durationGameMinutes: "<integer, at least 1>",
+        accessPrice: "<integer credits, 0 for free>",
+        capacity: "<optional integer up to maximumCapacity>",
+      }; break;
+      case "fund_building": shapes.fund_building = {
+        type, buildingId: "<one of your buildings>", credits: "<positive integer>",
+      }; break;
       case "start_conversation": shapes.start_conversation = {
         type: "start_conversation",
         targetCharacterId: "<an offered targetCharacterId>",
@@ -343,6 +378,72 @@ export function validateAction(candidate, observation, history = []) {
     }
     case "rest":
       return { type };
+    // Authorship. The runner checks shape and bounds against the declared envelope; the
+    // server remains the authority on ownership, price and every other consequence.
+    case "acquire_plot": {
+      const envelope = templates[0] ?? {};
+      return {
+        type,
+        x: boundedInteger(candidate.x, "x", 1, envelope.gridWidth ?? 20),
+        y: boundedInteger(candidate.y, "y", 1, envelope.gridHeight ?? 20),
+      };
+    }
+    case "construct_building": {
+      const envelope = templates[0] ?? {};
+      const maximum = envelope.maximumFootprint ?? { width: 2, height: 2 };
+      const capabilities = Array.isArray(candidate.capabilities) ? [...new Set(candidate.capabilities)] : [];
+      if (capabilities.length === 0) throw new DecisionValidationError("A building needs at least one capability");
+      for (const capability of capabilities) {
+        if (!(envelope.capabilities ?? []).includes(capability)) {
+          throw new DecisionValidationError(`Capability ${capability} is not offered`);
+        }
+      }
+      return {
+        type,
+        x: boundedInteger(candidate.x, "x", 1, 20),
+        y: boundedInteger(candidate.y, "y", 1, 20),
+        width: boundedInteger(candidate.width ?? 1, "width", 1, maximum.width),
+        height: boundedInteger(candidate.height ?? 1, "height", 1, maximum.height),
+        name: text(candidate.name, "building name", 80),
+        description: text(candidate.description, "building description", 500),
+        profile: profileObject(candidate.profile, envelope.profileDimensions ?? []),
+        capabilities,
+      };
+    }
+    case "host_experience": {
+      const buildingId = text(candidate.buildingId, "buildingId", 100);
+      const envelope = templates.find((item) => item.buildingId === buildingId);
+      if (!envelope) throw new DecisionValidationError("That building is not one of yours to host in");
+      const profile = profileObject(candidate.profile, Object.keys(envelope.profileCeiling ?? {}));
+      for (const [dimension, value] of Object.entries(profile)) {
+        if (value > (envelope.profileCeiling?.[dimension] ?? 0)) {
+          throw new DecisionValidationError(`The building cannot deliver ${dimension} above ${envelope.profileCeiling?.[dimension] ?? 0}`);
+        }
+      }
+      const accessPrice = boundedInteger(candidate.accessPrice ?? 0, "accessPrice", 0,
+        envelope.canChargeAdmission ? (envelope.maximumAccessPrice ?? 200) : 0);
+      return {
+        type, buildingId,
+        title: text(candidate.title, "experience title", 120),
+        description: text(candidate.description, "experience description", 500),
+        profile,
+        startsInGameMinutes: boundedInteger(candidate.startsInGameMinutes ?? 0, "startsInGameMinutes", 0, 1440),
+        durationGameMinutes: boundedInteger(candidate.durationGameMinutes, "durationGameMinutes", 1, 1440),
+        accessPrice,
+        ...(candidate.capacity === undefined || candidate.capacity === null
+          ? {}
+          : { capacity: boundedInteger(candidate.capacity, "capacity", 1, envelope.maximumCapacity ?? 10) }),
+      };
+    }
+    case "fund_building": {
+      const buildingId = text(candidate.buildingId, "buildingId", 100);
+      const envelope = templates.find((item) => item.buildingId === buildingId);
+      if (!envelope) throw new DecisionValidationError("That building is not one of yours to fund");
+      return {
+        type, buildingId,
+        credits: boundedInteger(candidate.credits, "credits", 1, Math.max(1, envelope.credits ?? 1)),
+      };
+    }
     case "abandon_secondary_goal":
       return matchedIdentifierAction(type, "goalId", candidate, templates);
     case "propose_secondary_goal":
@@ -350,6 +451,37 @@ export function validateAction(candidate, observation, history = []) {
     default:
       throw new DecisionValidationError(`Action ${type} is not supported by the pilot runner`);
   }
+}
+
+function boundedInteger(value, label, minimum, maximum) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < minimum || number > maximum) {
+    throw new DecisionValidationError(`${label} must be an integer between ${minimum} and ${maximum}`);
+  }
+  return number;
+}
+
+// A profile is the one structured field an authoring action carries, so it is checked
+// here rather than trusted: unknown dimensions are rejected, never quietly dropped.
+function profileObject(value, allowedDimensions) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new DecisionValidationError("profile must be an object of profile dimensions");
+  }
+  const profile = {};
+  for (const [dimension, raw] of Object.entries(value)) {
+    if (allowedDimensions.length > 0 && !allowedDimensions.includes(dimension)) {
+      throw new DecisionValidationError(`${dimension} is not a profile dimension`);
+    }
+    const number = Number(raw);
+    if (!Number.isInteger(number) || number < 0 || number > 100) {
+      throw new DecisionValidationError(`profile ${dimension} must be an integer between 0 and 100`);
+    }
+    if (number > 0) profile[dimension] = number;
+  }
+  if (Object.keys(profile).length === 0) {
+    throw new DecisionValidationError("A profile must deliver at least one dimension above zero");
+  }
+  return profile;
 }
 
 export function safeFallbackAction(observation) {

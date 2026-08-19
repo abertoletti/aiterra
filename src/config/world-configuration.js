@@ -7,6 +7,7 @@ import { defaultConfig } from "../domain/config.js";
 // activation, which is exactly what this validator exists to prevent.
 const GRAMMAR = defaultConfig.grammar;
 const EXPERIENCE = defaultConfig.experience;
+const CITY = defaultConfig.city;
 
 export class WorldConfigurationError extends Error {
   constructor(message) {
@@ -38,10 +39,31 @@ export function validateWorldConfiguration(document) {
 
   const locationIds = uniqueIds(document.locations, "location");
   const locationKinds = new Set();
+  const occupiedCells = new Map();
   for (const location of document.locations) {
     text(location.name, "location name", 80);
     if (!["home", "workplace", "social_venue", "other"].includes(location.kind)) fail(`Location ${location.id} has an invalid kind`);
     locationKinds.add(location.kind);
+    // A seeded location sits on the grid like everything else, so one distance rule
+    // covers the whole city instead of two kinds of place with two travel models.
+    const placed = location.x !== undefined || location.y !== undefined;
+    if (placed) {
+      for (const axis of ["x", "y"]) {
+        const value = location[axis];
+        const limit = axis === "x" ? CITY.width : CITY.height;
+        if (!Number.isInteger(value) || value < 1 || value > limit) {
+          fail(`Location ${location.id} ${axis} must be an integer between 1 and ${limit}`);
+        }
+      }
+      const cell = `${location.x},${location.y}`;
+      if (occupiedCells.has(cell)) {
+        fail(`Locations ${occupiedCells.get(cell)} and ${location.id} occupy the same cell ${cell}`);
+      }
+      occupiedCells.set(cell, location.id);
+    }
+  }
+  if (occupiedCells.size > 0 && occupiedCells.size !== document.locations.length) {
+    fail("Either every location carries grid coordinates or none does; a half-placed city has two travel models");
   }
   for (const requiredKind of ["home", "workplace", "social_venue"]) {
     if (!locationKinds.has(requiredKind)) fail(`At least one ${requiredKind} location is required`);
@@ -139,7 +161,12 @@ export function activateWorldConfiguration(world, input) {
   if (world.currentStateVersion() !== 0) throw new WorldConfigurationError("World configuration can only activate on an empty event store");
   const activatedAt = world.clock.now();
   world.activateWorldConfiguration({ version: configuration.version, schemaVersion: configuration.schemaVersion });
-  for (const location of configuration.locations) world.defineLocation({ id: location.id, name: location.name });
+  for (const location of configuration.locations) {
+    world.defineLocation({
+      id: location.id, name: location.name,
+      x: location.x ?? null, y: location.y ?? null,
+    });
+  }
   for (const connection of configuration.connections) world.defineConnection(connection);
   for (const character of configuration.characters) world.createCharacter(character);
   if (configuration.bootstrapBudget) {

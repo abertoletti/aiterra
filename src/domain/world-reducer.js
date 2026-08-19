@@ -221,6 +221,59 @@ export function applyEvent(state, event) {
     case "EVENT_CREATED":
       state.gatherings.set(data.id, { ...structuredClone(data), attendees: new Set() });
       break;
+    case "PLOT_ACQUIRED": {
+      state.characters.get(data.ownerId).credits -= data.price;
+      state.plots.set(data.plotId, {
+        id: data.plotId, x: data.x, y: data.y, ownerId: data.ownerId, buildingId: null,
+      });
+      break;
+    }
+    case "BUILDING_CONSTRUCTION_STARTED": {
+      state.characters.get(data.proprietorId).credits -= data.constructionCost;
+      state.buildings.set(data.buildingId, {
+        ...structuredClone(data),
+        locationId: null, balance: 0, lastUpkeepAt: null, revenue: 0, upkeepPaid: 0,
+      });
+      // Occupying the cells at the start is what stops a second building being started
+      // on the same land while the first is still going up.
+      for (const plotId of data.plotIds) {
+        const plot = state.plots.get(plotId);
+        if (plot) plot.buildingId = data.buildingId;
+      }
+      break;
+    }
+    case "BUILDING_ACTIVATED": {
+      const building = state.buildings.get(data.buildingId);
+      building.status = "ACTIVE";
+      building.locationId = data.locationId;
+      building.activatedAt = data.activatedAt;
+      building.lastUpkeepAt = data.activatedAt;
+      break;
+    }
+    case "BUILDING_FUNDED": {
+      state.characters.get(data.characterId).credits -= data.credits;
+      state.buildings.get(data.buildingId).balance += data.credits;
+      break;
+    }
+    case "BUILDING_UPKEEP_PAID": {
+      const building = state.buildings.get(data.buildingId);
+      building.balance -= data.amount;
+      building.upkeepPaid += data.amount;
+      building.lastUpkeepAt = data.chargedAt;
+      break;
+    }
+    case "BUILDING_UPKEEP_FAILED": {
+      const building = state.buildings.get(data.buildingId);
+      building.status = "DELINQUENT";
+      building.lastUpkeepAt = data.chargedAt;
+      building.delinquentSince = data.chargedAt;
+      break;
+    }
+    case "BUILDING_REVENUE_RECORDED": {
+      const building = state.buildings.get(data.buildingId);
+      if (building) { building.balance += data.amount; building.revenue += data.amount; }
+      break;
+    }
     case "EVENT_ATTENDANCE_STARTED": {
       state.gatherings.get(data.eventId).attendees.add(data.characterId);
       state.characters.get(data.characterId).activity = {
@@ -258,6 +311,9 @@ export function applyEvent(state, event) {
       if (data.destinationType === "system_budget") {
         const budget = state.systemBudgets.get(data.destinationId);
         if (budget) budget.balance += data.price;
+      } else if (data.destinationType === "building") {
+        const building = state.buildings.get(data.destinationId);
+        if (building) { building.balance += data.price; building.revenue += data.price; }
       } else {
         const proprietor = state.characters.get(data.destinationId);
         if (proprietor) proprietor.credits += data.price;

@@ -15,6 +15,8 @@ export const ownerFeedTypes = new Set([
   "JOB_CREATED", "JOB_ACCEPTED", "JOB_STARTED", "JOB_COMPLETED", "JOB_CANCELLED", "JOB_FAILED", "JOB_EXPIRED",
   "EVENT_CREATED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED",
   "HAPPINESS_CHANGED", "HAPPINESS_DECAYED", "EXPERIENCE_HAPPINESS_RESOLVED", "EXPERIENCE_ACCESS_PAID",
+  "PLOT_ACQUIRED", "BUILDING_CONSTRUCTION_STARTED", "BUILDING_ACTIVATED", "BUILDING_FUNDED",
+  "BUILDING_UPKEEP_PAID", "BUILDING_UPKEEP_FAILED",
   "INVITATION_SENT", "INVITATION_ACCEPTED", "INVITATION_DECLINED", "INVITATION_EXPIRED",
   "COMMITMENT_CREATED", "COMMITMENT_REMINDER_SENT", "COMMITMENT_WINDOW_OPENED", "COMMITMENT_KEPT", "COMMITMENT_MISSED",
   "JOB_TEAM_MEMBER_JOINED", "JOB_TEAM_MEMBER_LEFT",
@@ -59,6 +61,7 @@ export function createEmptyState() {
     returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
     eventsById: new Map(), itemVersions: new Map(),
+    plots: new Map(), buildings: new Map(),
     experienceAttendance: new Map(), happinessResolutions: new Map(),
     characterProjectionVersions: new Map(), globalProjectionVersion: 0,
     conversationAppraisals: new Set(),
@@ -76,6 +79,7 @@ export function itemsTouchedByEvent(event) {
   const data = event.data ?? {};
   return [...new Set([
     data.id, data.jobId, data.eventId, data.invitationId, data.commitmentId, data.characterId,
+    data.buildingId, data.plotId,
     ...(data.workerIds ?? []),
   ].filter((value) => typeof value === "string"))];
 }
@@ -144,6 +148,34 @@ function normalizeProfileVector(vector, grammar, label) {
 // the per-person breakdown, the taxonomy version — which explain an evening but are not
 // contributions. Averaging those as if they were reports a taxonomy version of 1 as a
 // Happiness contribution, so the summed set is named once and read from here.
+export function plotKey(x, y) {
+  return `plot-${String(x).padStart(2, "0")}-${String(y).padStart(2, "0")}`;
+}
+
+// Manhattan distance on the city grid. A location without coordinates has none, which
+// is what keeps a pre-grid world working on the configured connection graph instead.
+export function gridDistance(from, to) {
+  if (!Number.isInteger(from?.x) || !Number.isInteger(to?.x)) return null;
+  return Math.abs(from.x - to.x) + Math.abs(from.y - to.y);
+}
+
+// The convex price of what a building promises to deliver. Cost rises with the square of
+// the total, so breadth is ruinous while a focused profile stays affordable - and focus
+// needs no rule, because affinity already pays more for a place that matters intensely
+// to somebody than for one that mildly suits everyone.
+export function buildingCost(profile, cells, city) {
+  const ambition = Object.values(profile ?? {}).reduce((sum, value) => sum + (value ?? 0), 0) / 100;
+  const perCell = city.structuralCostPerCell
+    + city.profileCostPerCell * Math.pow(ambition, city.ambitionExponent);
+  return { ambition: Math.round(ambition * 100) / 100, constructionCost: Math.round(cells * perCell) };
+}
+
+export function buildingUpkeep(constructionCost, city) {
+  const daily = Math.max(city.upkeepMinimum, Math.ceil(city.upkeepDailyRate * constructionCost));
+  const perInterval = Math.max(1, Math.ceil(daily * city.upkeepIntervalWorldMinutes / 1440));
+  return { dailyUpkeep: daily, upkeepPerInterval: perInterval };
+}
+
 export const happinessFactorNames = Object.freeze([
   "affinity", "presenceValue", "interaction", "participation", "crowd", "repetition", "variance",
 ]);
@@ -447,6 +479,12 @@ export function ownerFeedDetails(event) {
     worldDays: data.worldDays, previous: data.previous, value: data.value,
     delta: data.delta, floor: data.floor, lived: data.lived,
     happinessPolicyVersion: data.happinessPolicyVersion,
+  };
+  if (event.type.startsWith("BUILDING_") || event.type === "PLOT_ACQUIRED") return {
+    buildingId: data.buildingId, plotId: data.plotId, name: data.name,
+    constructionCost: data.constructionCost, amount: data.amount, credits: data.credits,
+    balance: data.balance, shortfall: data.shortfall, capacity: data.capacity,
+    capabilities: data.capabilities, price: data.price,
   };
   if (event.type === "EXPERIENCE_ACCESS_PAID") return {
     eventId: data.eventId, price: data.price,
