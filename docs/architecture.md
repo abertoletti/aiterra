@@ -18,7 +18,8 @@ World time is an accelerated clock with stable real/game epochs. The default fac
 | Method/path | Audience | Purpose |
 | --- | --- | --- |
 | `GET /health` | operations | Liveness and current world time |
-| `GET /api/characters/:id/observation` | authenticated brain | Character-scoped perception and available actions |
+| `GET /api/characters/:id/observation` | authenticated brain | Character-scoped perception and available actions; accepts `contextMode` and `contextVersion` |
+| `GET /api/characters/:id/context/:resource` | authenticated brain | Requested decision-scoped catalog; read-only, accepts filters, `limit`, and `offset` |
 | `GET /api/characters/:id/rules` | authenticated brain | Versioned character-safe world-rule manifest |
 | `POST /api/characters/:id/actions` | authenticated brain | Submit one structured intention; supports `Idempotency-Key` |
 | `GET /api/characters/:id/events` | authenticated brain | SSE notification stream with pending replay |
@@ -39,6 +40,8 @@ World time is an accelerated clock with stable real/game epochs. The default fac
 | `GET /api/metrics` | operator | Versioned product and simulation-health projection |
 
 Supported intentions are `move`, `start_conversation`, `send_message`, `end_conversation`, `remain_silent`, `ignore_event`, `appraise_interaction`, `send_invitation`, `respond_invitation`, `propose_secondary_goal`, `abandon_secondary_goal`, `accept_job`, `start_job`, `cancel_job`, `attend_event`, `rest`, and `record_decision`. Mechanical values are selected from server configuration or existing offers; raw deltas, balances, durations, and outcomes are not action fields.
+
+The observation defaults to `contextMode=full`, which embeds every known catalog and the rule manifest. `contextMode=progressive` follows the [progressive decision-context contract](product-backlog/rules/progressive-context-contract.md): the baseline carries per-resource summaries, terse affordances, and the manifest version plus digest instead of its body, and detail is requested through `/context/:resource` when the decision needs it. A runtime that echoes back the `contextVersion` it last received gets a delta of changed identifiers; past the contract's cap the summary returns `SUMMARY_OVERFLOW` instead of a partial list. `feasibleOnly` is the only filter that removes blocked items and reports how many it removed. Requesting a catalog reserves nothing.
 
 Every action request requires an `Idempotency-Key` header and the character-scoped `expectedStateVersion` returned by the latest observation. Operational audit events do not invalidate that projection version. Generated credentials persist only a SHA-256 hash; the full token is returned only by the creation response. Global operator routes require `OPERATOR_TOKEN` in shared environments.
 
