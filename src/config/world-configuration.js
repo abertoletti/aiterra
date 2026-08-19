@@ -115,6 +115,10 @@ export function validateWorldConfiguration(document) {
     }
     nonNegativeNumber(job.startsInGameMinutes ?? 0, `job ${job.id} startsInGameMinutes`);
     positiveNumber(job.offerDurationGameMinutes ?? 1_440, `job ${job.id} offerDurationGameMinutes`);
+    if (job.repeatable !== undefined && typeof job.repeatable !== "boolean") {
+      fail(`Job ${job.id} repeatable must be a boolean`);
+    }
+    if (job.cooldownGameMinutes !== undefined) positiveNumber(job.cooldownGameMinutes, `job ${job.id} cooldownGameMinutes`);
     if (job.fundingSource === "bootstrap") {
       if (!budget) fail(`Job ${job.id} requires a bootstrap budget`);
       reservedFromBudget += job.compensation;
@@ -190,6 +194,7 @@ export function activateWorldConfiguration(world, input) {
       id: job.id, title: job.title, locationId: job.locationId,
       durationGameMinutes: job.durationGameMinutes, compensation: job.compensation,
       requirements: job.requirements ?? {}, teamSize: job.teamSize ?? 1, scheduledStartAt, offerExpiresAt,
+      repeatable: job.repeatable ?? false, cooldownGameMinutes: job.cooldownGameMinutes ?? null,
     };
     if (job.fundingSource === "bootstrap") {
       world.createSystemJob({ budgetId: configuration.bootstrapBudget.id, ...common });

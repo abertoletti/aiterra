@@ -830,7 +830,7 @@ export class World {
     return movement;
   }
 
-  createJob({ creatorId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teamSize = 1, availableFrom, availableUntil, scheduledStartAt, offerExpiresAt }) {
+  createJob({ creatorId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teamSize = 1, availableFrom, availableUntil, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
     const creator = this.requireCharacter(creatorId);
     return this.publishJob({
       id, creatorId, fundingSourceType: "character", fundingSourceId: creatorId,
@@ -838,7 +838,7 @@ export class World {
       scheduledStartAt: scheduledStartAt ?? availableFrom,
       offerExpiresAt: offerExpiresAt ?? availableUntil,
       availableCredits: creator.credits,
-      visibility: "public",
+      visibility: "public", repeatable, cooldownGameMinutes,
     });
   }
 
@@ -851,7 +851,7 @@ export class World {
     });
   }
 
-  createSystemJob({ budgetId = this.config.economy.bootstrapBudgetId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teamSize = 1, scheduledStartAt, offerExpiresAt }) {
+  createSystemJob({ budgetId = this.config.economy.bootstrapBudgetId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teamSize = 1, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
     const budget = this.state.systemBudgets.get(budgetId);
     if (!budget) throw new DomainError("BUDGET_NOT_FOUND", `System budget ${budgetId} not found`, 404);
     const openSystemJobs = [...this.state.jobs.values()].filter((job) =>
@@ -863,11 +863,11 @@ export class World {
       id, creatorId: null, fundingSourceType: "system_budget", fundingSourceId: budgetId,
       title, locationId, durationGameMinutes, compensation, requirements, teamSize,
       scheduledStartAt, offerExpiresAt, availableCredits: budget.balance,
-      visibility: "public",
+      visibility: "public", repeatable, cooldownGameMinutes,
     });
   }
 
-  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, locationId, durationGameMinutes, compensation, requirements, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility }) {
+  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, locationId, durationGameMinutes, compensation, requirements, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
     // createJob and createSystemJob always generate one, but a direct call without an
     // id silently created a job keyed `undefined`, which nothing could ever reach.
     requiredId(id, "job id");
@@ -906,6 +906,13 @@ export class World {
         offerExpiresAt: expires.toISOString(),
         availableFrom: start.toISOString(),
         availableUntil: expires.toISOString(),
+        // A standing post rather than a one-off offer: it goes on cooldown when someone
+        // finishes it and comes back, so the board never empties and a resident can earn
+        // its way to a building instead of racing an expiry.
+        repeatable,
+        cooldownGameMinutes: repeatable
+          ? (cooldownGameMinutes ?? this.config.jobs.repeatCooldownGameMinutes)
+          : null,
         reservation: {
           id: reservationId,
           amount: compensation,
@@ -2501,9 +2508,41 @@ export class World {
         this.endExperienceAttendance(character.id, activity.eventId, "experience_completed", activity.expectedEndAt);
       }
     }
+    this.reopenRepeatableJobs(target);
     this.completeConstruction(target);
     this.chargeBuildingUpkeep(target);
     this.applyHappinessDecay(target);
+  }
+
+  // A standing post comes back after its cooldown instead of expiring. The board never
+  // empties, so a resident can work its way up to a building rather than racing the
+  // clock, and a run does not quietly run out of things to do.
+  reopenRepeatableJobs(targetWorldTime) {
+    const target = new Date(targetWorldTime);
+    for (const job of [...this.state.jobs.values()]) {
+      if (!job.repeatable || job.status !== "completed" || !job.reopensAt) continue;
+      if (new Date(job.reopensAt) > target) continue;
+      const funding = job.fundingSourceType === "system_budget"
+        ? this.state.systemBudgets.get(job.fundingSourceId)?.balance ?? 0
+        : this.state.characters.get(job.fundingSourceId)?.credits ?? 0;
+      // When the funder can no longer cover it the post simply stays closed. A world
+      // that has spent its bootstrap budget should run out of work, not out of rules.
+      if (funding < job.compensation) continue;
+      const reopenedAt = new Date(job.reopensAt);
+      this.record("JOB_REOPENED", {
+        worldTime: job.reopensAt,
+        data: {
+          jobId: job.id, reservationId: this.idGenerator(), amount: job.compensation,
+          currency: this.config.jobs.currency,
+          fundingSourceType: job.fundingSourceType, fundingSourceId: job.fundingSourceId,
+          reopenedAt: job.reopensAt,
+          scheduledStartAt: job.reopensAt,
+          startGraceUntil: addGameMinutes(reopenedAt, this.config.jobs.startGraceWorldHours * 60).toISOString(),
+          offerExpiresAt: addGameMinutes(reopenedAt, this.config.jobs.defaultOfferDurationWorldHours * 60).toISOString(),
+          escrowPolicyVersion: this.config.jobs.escrowPolicyVersion,
+        },
+      });
+    }
   }
 
   // Construction is a building-scoped timer, not a character activity: a proprietor pays

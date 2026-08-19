@@ -263,3 +263,64 @@ function sequentialIds(start = 1) {
   let current = start;
   return () => `event-${current++}`;
 }
+
+test("a standing post goes on cooldown and comes back instead of expiring", async () => {
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "commons", name: "Commons" });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 1_000 });
+  world.createCharacter({
+    id: "mira", name: "Mira", locationId: "commons", personality: [], goal: "Earn.",
+  });
+  world.createSystemJob({
+    budgetId: "budget", id: "sweep", title: "Sweep the commons", locationId: "commons",
+    durationGameMinutes: 10, compensation: 50, repeatable: true, cooldownGameMinutes: 30,
+  });
+
+  const budget = () => world.getPublicState().economy.systemBudgets.find((entry) => entry.id === "budget").balance;
+  assert.equal(budget(), 950, "the first cycle reserves its escrow");
+
+  world.acceptJob("mira", "sweep");
+  world.startJob("mira", "sweep");
+  clock.advanceGameMinutes(10);
+  world.advanceTo(clock.now());
+  assert.equal(world.state.jobs.get("sweep").status, "completed");
+  assert.equal(world.getObservation("mira").character.credits, 50, "and pays out on completion");
+
+  // Still on cooldown: a standing post is not instantly back.
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  assert.equal(world.state.jobs.get("sweep").status, "completed");
+
+  clock.advanceGameMinutes(15);
+  world.advanceTo(clock.now());
+  const reopened = world.state.jobs.get("sweep");
+  assert.equal(reopened.status, "open", "the board never empties");
+  assert.deepEqual(reopened.workerIds, []);
+  assert.equal(reopened.timesCompleted, 1);
+  assert.equal(budget(), 900, "and the next cycle reserves again");
+  assert.ok(world.getObservation("mira").availableActions
+    .some((action) => action.type === "accept_job" && action.jobId === "sweep"),
+  "so the same work can be done again");
+});
+
+test("a standing post stays closed once its funder cannot cover it", async () => {
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "commons", name: "Commons" });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 50 });
+  world.createCharacter({ id: "mira", name: "Mira", locationId: "commons", personality: [], goal: "Earn." });
+  world.createSystemJob({
+    budgetId: "budget", id: "sweep", title: "Sweep", locationId: "commons",
+    durationGameMinutes: 10, compensation: 50, repeatable: true, cooldownGameMinutes: 10,
+  });
+
+  world.acceptJob("mira", "sweep");
+  world.startJob("mira", "sweep");
+  clock.advanceGameMinutes(60);
+  world.advanceTo(clock.now());
+
+  // A world that has spent its bootstrap budget should run out of work, not out of rules.
+  assert.equal(world.state.jobs.get("sweep").status, "completed");
+  assert.equal(world.getPublicState().economy.systemBudgets.find((e) => e.id === "budget").balance, 0);
+});

@@ -59,14 +59,14 @@
   ],
   "bootstrapBudget": {
     "id": "local-pilot-bootstrap",
-    "credits": 5000
+    "credits": 25000
   },
   "characters": [
     {
       "id": "pilot-01",
       "name": "Mira",
       "locationId": "commons",
-      "credits": 900,
+      "credits": 180,
       "personality": [
         "Analytical",
         "Skeptical",
@@ -102,7 +102,7 @@
       "id": "pilot-02",
       "name": "Jonas",
       "locationId": "homes",
-      "credits": 800,
+      "credits": 150,
       "personality": [
         "Curious",
         "Diplomatic",
@@ -138,7 +138,7 @@
       "id": "pilot-03",
       "name": "Nia",
       "locationId": "workshop",
-      "credits": 1200,
+      "credits": 220,
       "personality": [
         "Competitive",
         "Inventive",
@@ -174,7 +174,7 @@
       "id": "pilot-04",
       "name": "Elias",
       "locationId": "commons",
-      "credits": 1100,
+      "credits": 200,
       "personality": [
         "Sociable",
         "Idealistic",
@@ -210,7 +210,7 @@
       "id": "pilot-05",
       "name": "Sora",
       "locationId": "workshop",
-      "credits": 1800,
+      "credits": 280,
       "personality": [
         "Reserved",
         "Strategic",
@@ -245,7 +245,7 @@
       "id": "pilot-06",
       "name": "Vera",
       "locationId": "commons",
-      "credits": 1700,
+      "credits": 260,
       "personality": [
         "Charming",
         "Calculating",
@@ -282,7 +282,7 @@
       "id": "pilot-07",
       "name": "Rook",
       "locationId": "workshop",
-      "credits": 1000,
+      "credits": 170,
       "personality": [
         "Hostile",
         "Dominating",
@@ -328,7 +328,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "market-inventory",
@@ -341,7 +343,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "festival-signs",
@@ -354,7 +358,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "commons-seating",
@@ -368,7 +374,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "community-needs-map",
@@ -383,7 +391,9 @@
       "teamSize": 2,
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "repair-benches",
@@ -396,7 +406,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "workshop-coordinator",
@@ -409,7 +421,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "prototype-storage-rack",
@@ -424,7 +438,9 @@
       "teamSize": 2,
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "workshop-safety-inspection",
@@ -437,7 +453,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "tool-lending-desk",
@@ -451,7 +469,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "courtyard-garden",
@@ -464,7 +484,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "welcome-packs",
@@ -478,7 +500,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "solar-meter-check",
@@ -491,7 +515,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "kitchen-roster",
@@ -505,7 +531,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "home-repair-rounds",
@@ -519,7 +547,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "oral-history-catalog",
@@ -532,7 +562,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "digitize-records",
@@ -545,7 +577,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "civic-ledger-index",
@@ -558,7 +592,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "restore-posters",
@@ -572,7 +608,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     },
     {
       "id": "route-proposal-research",
@@ -586,7 +624,9 @@
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 360
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
     }
   ],
   "events": []

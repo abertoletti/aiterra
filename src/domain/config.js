@@ -18,6 +18,9 @@ export const defaultConfig = Object.freeze({
   },
   jobs: {
     escrowPolicyVersion: 1,
+    // A repeatable post goes on cooldown when someone finishes it and returns, so the
+    // board never empties and nothing has to expire for the world to stay busy.
+    repeatCooldownGameMinutes: 30,
     currency: "credits",
     defaultOfferDurationWorldHours: 24,
     startGraceWorldHours: 2,

@@ -168,9 +168,41 @@ export function applyEvent(state, event) {
       }
       break;
     }
+    case "JOB_REOPENED": {
+      const job = state.jobs.get(data.jobId);
+      if (data.fundingSourceType === "system_budget") {
+        state.systemBudgets.get(data.fundingSourceId).balance -= data.amount;
+      } else {
+        state.characters.get(data.fundingSourceId).credits -= data.amount;
+      }
+      job.status = "open";
+      job.workerId = null;
+      job.workerIds = [];
+      job.reopensAt = null;
+      job.completedAt = null;
+      job.escrow = data.amount;
+      job.scheduledStartAt = data.scheduledStartAt;
+      job.startGraceUntil = data.startGraceUntil;
+      job.offerExpiresAt = data.offerExpiresAt;
+      job.availableUntil = data.offerExpiresAt;
+      job.reservation = {
+        id: data.reservationId, amount: data.amount, currency: data.currency,
+        originalFundingSource: { type: data.fundingSourceType, id: data.fundingSourceId },
+        createdAt: data.reopenedAt, expiresAt: data.offerExpiresAt,
+        policyVersion: data.escrowPolicyVersion, state: "reserved",
+      };
+      job.timesCompleted = job.timesCompleted ?? 0;
+      break;
+    }
     case "JOB_COMPLETED": {
       const job = state.jobs.get(data.jobId);
       job.status = "completed";
+      job.timesCompleted = (job.timesCompleted ?? 0) + 1;
+      if (job.repeatable) {
+        job.completedAt = event.worldTime;
+        job.reopensAt = new Date(new Date(event.worldTime).getTime()
+          + (job.cooldownGameMinutes ?? 0) * 60_000).toISOString();
+      }
       job.escrow = 0;
       job.reservation.state = "settled";
       job.terminalCause = "valid_completion";
