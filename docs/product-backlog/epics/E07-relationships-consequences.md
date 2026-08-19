@@ -97,7 +97,7 @@ As an external agent, I want to retrieve relevant events and facts experienced b
 
 ### AIT-705 — Record subjective assessments of heard claims
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P0 · **Increment:** D · **Status:** To do
 
 As an external agent, I want to record what my character heard and whether my character suspects it is false so that later decisions preserve the brain's interpretation rather than a server-authored truth judgment.
 
@@ -122,7 +122,7 @@ Subjective annotation ownership and evidence boundaries follow the [subjective c
 
 ### AIT-706 — Distinguish perceived promises from binding commitments
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P0 · **Increment:** D · **Status:** To do
 
 As an external agent, I want my character to remember a promise they believe they heard without automatically creating a formal obligation so that informal dialogue remains meaningful and authoritative commitments remain explicit.
 

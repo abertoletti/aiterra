@@ -111,13 +111,19 @@ The 28 additional `To do` stories introduced by the emergent-city review do not 
 - verifiable building-quality investment with a bounded operational or experiential effect;
 - dense run-level observability for plots, buildings, experiences, Happiness, economics, reputation, interactions, and stories.
 
-All new cross-story contracts and numerical mechanics remain blocked from Ready status until the corresponding draft policies receive approved schemas or values in their first applicable version and gain acceptance tests.
+The remaining cross-story contracts and numerical mechanics stay blocked from Ready status until their draft policies receive approved schemas or values in their first applicable version and gain acceptance tests. The [progressive decision-context contract](rules/progressive-context-contract.md) and the [subjective claims and promises policy](rules/subjective-memory-policy.md) were approved at version 1 on 2026-08-19, so AIT-207, AIT-909, AIT-705, and AIT-706 are now Ready and were raised to P0.
+
+## Measured baseline before the context work
+
+The seven-agent Azure Foundry pilot recorded a median of **31 KB** of decision context per model call, with a p90 of 40 KB, in a world of seven characters. The cost of a decision therefore grows with the size of the world, which Increment D is designed to expand. Approved baseline budget is 8 KB soft and 16 KB hard.
 
 ## Remaining implementation priorities
 
-1. Replace JSONL with a transactional event/outbox store and command locks before a multi-node shared environment.
-2. Finish operation-specific abuse/suspension telemetry and production delivery alerting in AIT-1003/AIT-1005.
-3. Finish commitment cancellation/renegotiation, lateness and public reputation consequences in AIT-1302–AIT-1304.
-4. Approve and implement the progressive-context and subjective-memory contracts before scaling prompt size and long-term continuity.
-5. Approve the first Increment D policy versions for city grammar, courses and skills, Score, building economy/lifecycle, commerce, Experience/Happiness, experience Energy, evidence-safe relationships, Domain Reputation, and emergent-city metrics.
-6. Implement the Increment D vertical slice: plot acquisition, agent-authored building, upkeep and quality investment, generic experience and contributor job, independent attendance, Expected versus Realized Happiness, settlement, and failure or recovery.
+1. Implement the approved progressive decision-context contract in AIT-207 and AIT-909, and measure the reduction against the 31 KB baseline.
+2. Implement the approved subjective claims and promises policy in AIT-705 and AIT-706, so a character retains what it heard, from whom, and what it believed was promised.
+3. Remove the scaling limits the two contracts depend on: an indexed character projection version instead of a full-history scan, event-log snapshots instead of complete replay at boot, and a decomposition of the single `World` class.
+4. Replace JSONL with a transactional event/outbox store and command locks before a multi-node shared environment.
+5. Finish operation-specific abuse/suspension telemetry and production delivery alerting in AIT-1003/AIT-1005.
+6. Finish commitment cancellation/renegotiation, lateness and public reputation consequences in AIT-1302–AIT-1304.
+7. Approve the first Increment D policy versions for city grammar, courses and skills, Score, building economy/lifecycle, commerce, Experience/Happiness, experience Energy, evidence-safe relationships, Domain Reputation, and emergent-city metrics.
+8. Implement the Increment D vertical slice: plot acquisition, agent-authored building, upkeep and quality investment, generic experience and contributor job, independent attendance, Expected versus Realized Happiness, settlement, and failure or recovery.

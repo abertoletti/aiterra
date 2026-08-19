@@ -13,6 +13,8 @@ These documents contain cross-story product decisions. A story remains the unit 
 | [Owner-feed pagination contract](owner-feed-pagination-contract.md) | 1 | AIT-801 |
 | [Job escrow policy](job-escrow-policy.md) | 1 | AIT-905, AIT-906, AIT-1602, AIT-1603, AIT-1607 |
 | [Product metrics dictionary](product-metrics-dictionary.md) | 1 | AIT-1002 |
+| [Progressive decision-context contract](progressive-context-contract.md) | 1 | AIT-207, AIT-909, AIT-1404, AIT-1502 |
+| [Subjective claims and promises policy](subjective-memory-policy.md) | 1 | AIT-705, AIT-706, AIT-707 |
 
 Changing a rule requires a new version, a compatibility or migration decision, and updated acceptance tests. Historical events retain the version that resolved them.
 
@@ -20,8 +22,6 @@ Changing a rule requires a new version, a compatibility or migration decision, a
 
 | Draft policy | Status | Stories | Main decisions still required |
 | --- | --- | --- | --- |
-| [Progressive decision-context contract](progressive-context-contract.md) | Draft | AIT-207, AIT-909, AIT-1404, AIT-1502 | schemas, pagination, invalidation, caching, limits |
-| [Subjective claims and promises policy](subjective-memory-policy.md) | Draft | AIT-705, AIT-706, AIT-707 | annotation schemas, confidence, retention, evidence links, evidence-safe consequences |
 | [Evidence-safe directional relationship policy](relationship-policy-v2.md) | Draft | AIT-707 | structured deception proof, formal promises, migration, compatibility |
 | [Course and skill progression policy](course-skill-progression-policy.md) | Draft | AIT-1201, AIT-1205 | curves, course catalog, exact effects, tradeoffs, interruption |
 | [Progression score policy](score-policy.md) | Draft | AIT-1203, AIT-1204 | components, normalization, weights, diminishing returns, compatibility |
