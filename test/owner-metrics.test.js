@@ -125,3 +125,79 @@ function storyWorld() {
   world.createCharacter({ id: "sara", name: "Sara", locationId: "square" });
   return { world, clock };
 }
+
+test("money is conserved: every credit is in a purse, a till, an escrow, or the budget", () => {
+  // The observer showed three of the four pots side by side with no total, so a reader added
+  // them, got more than the bootstrap budget, and reasonably concluded the books were wrong.
+  // They were not - escrow is held OUT of the budget and the residents' opening purses are a
+  // second issuance - but nothing said so, and buildings were genuinely missing, which meant
+  // the supply was under-reported the moment anyone built anything.
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "square", name: "Square", x: 5, y: 5 });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 10_000 });
+  world.createCharacter({
+    id: "vera", name: "Vera", locationId: "square", personality: [], goal: "Build.",
+    credits: 2_000,
+  });
+  world.createCharacter({
+    id: "nia", name: "Nia", locationId: "square", personality: [], goal: "Work.",
+    credits: 300, skills: { social: 40 },
+  });
+
+  const accounts = () => {
+    const { overview } = world.getPublicState();
+    return {
+      supply: overview.moneySupply,
+      held: overview.characterCredits + overview.buildingCredits
+        + overview.reservedCredits + overview.systemBudgetBalance,
+    };
+  };
+  const conserved = (what) => {
+    const { supply, held } = accounts();
+    assert.equal(held, supply, `credits went missing or appeared ${what}`);
+  };
+
+  assert.equal(accounts().supply, 12_300, "10,000 to the city and 2,300 to two residents");
+  conserved("at the start");
+
+  // Publishing a job moves budget into escrow. Neither is spent.
+  world.createSystemJob({
+    budgetId: "budget", id: "sweep", title: "Sweep", locationId: "square",
+    durationGameMinutes: 10, compensation: 90, requirements: { social: 30 },
+  });
+  conserved("when work is published");
+
+  // Completing it moves escrow into a purse.
+  world.acceptJob("nia", "sweep");
+  world.startJob("nia", "sweep");
+  clock.advanceGameMinutes(10);
+  world.advanceTo(clock.now());
+  assert.equal(world.getObservation("nia").character.credits, 390);
+  conserved("when work is paid");
+
+  // Building moves a purse into bricks - that money leaves the world, so the supply must
+  // fall with it rather than the books breaking.
+  const before = accounts().supply;
+  const built = world.constructBuilding("vera", {
+    x: 6, y: 6, width: 1, height: 1, name: "The Room", description: "A room.",
+    profile: { music: 40 }, capabilities: ["host_event", "sell_access"],
+  });
+  clock.advanceGameMinutes(30);
+  world.advanceTo(clock.now());
+  assert.equal(accounts().supply, before - built.data.constructionCost,
+    "construction spends credits out of existence, and the supply says so");
+  conserved("after building");
+
+  // Admission moves a purse into a building's till, which is the pot that used to be absent.
+  const gathering = world.hostExperience("vera", {
+    buildingId: built.data.buildingId, title: "A night", profile: { music: 40 },
+    durationGameMinutes: 120, accessPrice: 25,
+  });
+  world.startMove("nia", world.state.buildings.get(built.data.buildingId).locationId);
+  clock.advanceGameMinutes(10);
+  world.advanceTo(clock.now());
+  world.joinExperience("nia", gathering.data.id);
+  assert.equal(world.getPublicState().overview.buildingCredits, 25);
+  conserved("when a venue takes money at the door");
+});

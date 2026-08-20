@@ -310,6 +310,8 @@ export function applyEvent(state, event) {
       break;
     case "BUILDING_CONSTRUCTION_STARTED": {
       moveCredits(state, event, data.proprietorId, -data.constructionCost, "building_built", { buildingId: data.buildingId, name: data.name });
+      // Construction pays nobody: the credits become the building.
+      state.creditsRetired += data.constructionCost;
       state.buildings.set(data.buildingId, {
         ...structuredClone(data),
         locationId: null, balance: 0, lastUpkeepAt: null, revenue: 0, upkeepPaid: 0,
@@ -345,6 +347,8 @@ export function applyEvent(state, event) {
         if (proprietor) moveCredits(state, event, data.proprietorId, -data.fromProprietor, "building_upkeep", { buildingId: data.buildingId });
       }
       building.upkeepPaid += data.amount;
+      // Keeping a place standing costs, and that cost leaves the world too.
+      state.creditsRetired += data.amount;
       building.lastUpkeepAt = data.chargedAt;
       if (building.status === "DELINQUENT") building.status = "ACTIVE";
       break;

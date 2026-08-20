@@ -59,6 +59,11 @@ export function createEmptyState() {
     invitations: new Map(), commitments: new Map(),
     notifications: new Map(), knowledge: new Map(), actionReceipts: new Map(),
     systemBudgets: new Map(), platformIncident: null,
+    // Credits that left the world rather than changing hands. Construction and upkeep pay
+    // nobody: the money becomes a building, or the cost of keeping one standing. Without
+    // this the books look broken the moment anyone builds, because issuance stays flat
+    // while the pots fall.
+    creditsRetired: 0,
     returnSummaries: new Map(), storyDetailViews: new Set(), storyRatings: new Map(),
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
     eventsById: new Map(), itemVersions: new Map(),

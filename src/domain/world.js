@@ -3305,6 +3305,18 @@ export class World {
       .reduce((total, job) => total + Number(job.reservation?.amount ?? 0), 0);
     const systemBudgetBalance = [...this.state.systemBudgets.values()]
       .reduce((total, budget) => total + Number(budget.balance ?? 0), 0);
+    // Money sits in four places, and the panel showed three of them next to each other with
+    // no total - so a reader added them, got more than the bootstrap budget, and reasonably
+    // concluded something was wrong. Nothing was: escrow is held OUT of the budget, and the
+    // residents' opening purses are a second issuance that never touched it. Buildings were
+    // the genuinely missing pot: takings live there, so the supply was under-reported the
+    // moment anyone built anything.
+    const buildingCredits = [...this.state.buildings.values()]
+      .reduce((total, building) => total + Number(building.balance ?? 0), 0);
+    const issuedToCharacters = [...this.state.characters.values()]
+      .reduce((total, character) => total + Number(character.wallet?.opening ?? 0), 0);
+    const issuedToBudgets = [...this.state.systemBudgets.values()]
+      .reduce((total, budget) => total + Number(budget.initialCredits ?? 0), 0);
     return {
       worldTime: now.toISOString(),
       overview: {
@@ -3325,6 +3337,13 @@ export class World {
         characterCredits: characters.reduce((total, character) => total + Number(character.credits ?? 0), 0),
         reservedCredits,
         systemBudgetBalance,
+        buildingCredits,
+        issuedToCharacters,
+        issuedToBudgets,
+        creditsRetired: this.state.creditsRetired,
+        // What is still out there: everything ever issued, less what construction and upkeep
+        // took out of circulation for good.
+        moneySupply: issuedToCharacters + issuedToBudgets - this.state.creditsRetired,
       },
       characters,
       locations,

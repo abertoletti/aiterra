@@ -546,11 +546,26 @@ function renderEvents() {
 function renderEconomy() {
   const overview = state.world.overview;
   const budgets = state.world.economy.systemBudgets;
+  // Four pots and one supply. Three figures used to sit side by side with no total, so a
+  // reader added them, got more than the bootstrap budget, and reasonably concluded the books
+  // were wrong. They were not: escrow is held OUT of the budget, and the residents' opening
+  // purses are a second issuance that never touched it. Saying the supply and showing the
+  // identity is the difference between three numbers and a balance sheet.
+  const held = overview.characterCredits + overview.buildingCredits
+    + overview.reservedCredits + overview.systemBudgetBalance;
   economyOverview.innerHTML = `
+    <div class="supply-line ${held === overview.moneySupply ? "balanced" : "broken"}">
+      <span>Money supply</span>
+      <strong>${number(overview.moneySupply)}</strong>
+      <small>${number(overview.issuedToBudgets)} to the city + ${number(overview.issuedToCharacters)} to residents, issued once${
+  overview.creditsRetired ? `, less ${number(overview.creditsRetired)} spent into buildings and upkeep` : ""
+}${held === overview.moneySupply ? "" : ` · only ${number(held)} accounted for`}</small>
+    </div>
     <div class="economy-numbers">
-      ${economyMetric("Resident wallets", overview.characterCredits, "credits in circulation")}
-      ${economyMetric("Reserved escrow", overview.reservedCredits, "credits securing jobs")}
-      ${economyMetric("World budget", overview.systemBudgetBalance, "credits available")}
+      ${economyMetric("Resident wallets", overview.characterCredits, "in their purses")}
+      ${economyMetric("Building takings", overview.buildingCredits, "earned by venues")}
+      ${economyMetric("Reserved escrow", overview.reservedCredits, "held out of the budget")}
+      ${economyMetric("Unspent budget", overview.systemBudgetBalance, "left to fund work")}
     </div>
     <div class="rules-block">
       <h3>World operating rules</h3>
