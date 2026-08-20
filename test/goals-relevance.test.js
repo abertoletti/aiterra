@@ -49,7 +49,17 @@ test("secondary goals complete only from authoritative evidence and remain in hi
   const goal = world.getObservation("jack").character.secondaryGoals.find((item) => item.id === adopted.data.goal.id);
   assert.equal(goal.status, "completed");
   assert.ok(goal.evidenceEventId);
-  assert.ok(world.history.some((event) => event.type === "SECONDARY_GOAL_COMPLETED" && event.data.goalId === goal.id));
+  const completed = world.history.find((event) => event.type === "SECONDARY_GOAL_COMPLETED" && event.data.goalId === goal.id);
+  assert.ok(completed);
+
+  // Completion is a recorded fact, never a payout. Goals are self-proposed - and since
+  // pursue_goal, self-AUTHORED - so any Happiness, Credit, skill, or reputation attached
+  // here would be a mint an agent could run by setting goals it is about to satisfy.
+  // The absence of a reward is the design; this pins it against a well-meaning addition.
+  const rewards = world.history.filter((event) => event.causedByEventIds.includes(completed.id)
+    && ["HAPPINESS_CHANGED", "REPUTATION_CHANGED", "DOMAIN_REPUTATION_CHANGED",
+      "SKILL_CHANGED", "ENERGY_CHANGED", "CREDITS_TRANSFERRED"].includes(event.type));
+  assert.deepEqual(rewards, [], "completing a goal must grant nothing mechanical");
 });
 
 test("critical urgency is authoritative and cannot be manufactured by goal score", () => {

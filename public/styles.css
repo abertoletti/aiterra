@@ -410,6 +410,14 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 .goal-status { font-size: 10.5px; color: var(--muted); }
 .goal-row.completed .goal-what { text-decoration: line-through; opacity: .6; }
 
+/* The goal's own declared words, now that pursue_goal makes them the payload. */
+.goal-why {
+  grid-column: 2 / -1;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .owned-row { display: flex; flex-direction: column; gap: 2px; font-size: 12px; border-left: 2px solid var(--green); padding-left: 8px; }
 .owned-row.under_construction { border-left-color: var(--amber); }
 .owned-row.delinquent { border-left-color: var(--coral); }

@@ -231,8 +231,8 @@ function renderStandings() {
     { key: "credits", label: "Credits", of: (resident) => resident.credits },
     { key: "lived", label: "Lived", of: (resident) => round1(resident.livedHappiness ?? 0) },
     {
-      key: "bonds",
-      label: "Bonds",
+      key: "relationships",
+      label: "Relationships",
       of: (resident) => (resident.importantRelationships ?? [])
         .reduce((total, relationship) => total + Math.max(0, relationship.strength ?? 0), 0),
     },
@@ -337,7 +337,7 @@ function renderResidents() {
         </div>
         <div class="resident-card-tags">
           ${topSkills.map(([skill, value]) => `<span>${escapeHtml(skill)} ${value}</span>`).join("")}
-          ${bestDomain && bestDomain[1] > 0 ? `<span class="proven">proven ${escapeHtml(bestDomain[0])} ${round1(bestDomain[1])}</span>` : ""}
+          ${bestDomain && bestDomain[1] > 0 ? `<span class="proven">${escapeHtml(bestDomain[0])} reputation ${round1(bestDomain[1])}</span>` : ""}
           ${owned ? `<span class="built">${plural(owned, "building")}</span>` : ""}
         </div>
       </button>`;
@@ -772,6 +772,7 @@ function renderCharacter() {
         <span class="goal-kind">${escapeHtml(goal.kind)}</span>
         <span class="goal-what">${escapeHtml(String(goal.type ?? "").replace(/_/g, " "))}${goal.targetId ? ` → ${escapeHtml(goal.targetId)}` : ""}</span>
         <span class="goal-status">${escapeHtml(goal.status ?? "active")}</span>
+        ${goal.guidance ? `<span class="goal-why">${escapeHtml(goal.guidance)}</span>` : ""}
       </li>`).join("")
     : `<li class="goal-row"><span class="goal-what">No active goal</span></li>`;
 
@@ -813,14 +814,14 @@ function renderCharacter() {
       ${stat("Energy", `${character.energy} / ${rules.maximumEnergy}`)}
       ${stat("Credits", number(character.credits))}
       ${stat("Happiness", character.happiness, happinessTone)}
-      ${stat("Lived total", signed(round1(character.livedHappiness)), livedTone)}
+      ${stat("Lived", signed(round1(character.livedHappiness)), livedTone)}
     </div>
     <div class="stats secondary">
       ${stat("Reputation", round1(character.reputation))}
       ${stat("Score", character.score)}
       ${stat("Buildings", owned.length)}
     </div>
-    <div class="goal-block"><span>Long-term objective</span><p>${escapeHtml(character.goal)}</p></div>
+    <div class="goal-block"><span>Goal</span><p>${escapeHtml(character.goal)}</p></div>
     <div class="meter-block">
       <div class="minor-heading"><h3>Cares about</h3><span>affinity is computed from these</span></div>
       <div class="meters">${preferences || "<p class=\"empty-note\">No preferences recorded</p>"}</div>
