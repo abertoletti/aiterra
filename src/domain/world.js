@@ -2043,8 +2043,20 @@ export class World {
         data: { characterId: notification.characterId, conversationId: notification.conversationId, notificationEventId, explicit: false, outcome: "remain_silent" },
       });
       const waitingCharacterId = conversation?.participantIds.find((id) => id !== notification.characterId);
-      if (waitingCharacterId) {
-        this.applyRelationshipRule("expected_response_silence", {
+      // A deadline that lapsed is not the same as a person who chose to say nothing.
+      // In the two-hour pilot every single silence was an expired window - not one agent
+      // ever chose to stay quiet - and the world charged all of them a trust penalty,
+      // filling the relationship ledger with grudges nobody felt. So: an explicit silence
+      // (remainSilent) keeps the full penalty; a first lapsed window costs affection and
+      // adds friction but never trust; and a window lapsed by a runtime that is already
+      // missing its replies costs nothing at all, because the world has already concluded
+      // the brain is not answering and must not bill that twice as a personality.
+      const silentCharacter = this.state.characters.get(notification.characterId);
+      const runtimeAlreadyMissing = silentCharacter
+        ? silentCharacter.agentAvailability === "unavailable" || silentCharacter.consecutiveMissedResponses > 0
+        : false;
+      if (waitingCharacterId && !runtimeAlreadyMissing) {
+        this.applyRelationshipRule("response_window_missed", {
           fromId: waitingCharacterId,
           toId: notification.characterId,
           causedByEventIds: [silence.id],
@@ -2173,6 +2185,13 @@ export class World {
     if (receiptKey && this.state.actionReceipts.has(receiptKey)) {
       return structuredClone(this.state.actionReceipts.get(receiptKey).result);
     }
+    // Unavailability was a one-way door: nothing cleared the flag except a fresh connection
+    // test. In the pilot four runtimes were flagged in the first 23 minutes and then went on
+    // to submit 131 accepted actions between them, while the world kept refusing their jobs
+    // and conversations as "unavailable". An action arriving here is proof the runtime is
+    // answering, whatever the action turns out to be worth, so liveness is restored before
+    // any rule gets to read it.
+    this.verifyAgentRecovery(characterId);
     if (action.expectedStateVersion !== undefined) {
       if (!Number.isInteger(action.expectedStateVersion) || action.expectedStateVersion < 0) {
         throw invalid("INVALID_STATE_VERSION", "expectedStateVersion must be a non-negative integer");

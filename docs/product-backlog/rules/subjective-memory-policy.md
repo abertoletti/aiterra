@@ -104,6 +104,15 @@ Under approved relationship policy version 1, a subjective annotation may inform
 | `promise_kept` | objective outcome | no |
 | `promise_broken` | objective outcome | no |
 | `expected_response_silence` | silence | no |
+| `response_window_missed` | silence | no |
+
+Silence is split in two because a lapsed deadline is not a snub. `expected_response_silence`
+is charged only when a character explicitly chooses to say nothing, and it is the only
+silence rule that spends trust. `response_window_missed` covers a response window that
+simply ran out, costs affection and adds friction but leaves trust alone, and is skipped
+entirely when the silent character's runtime is already missing its replies — at that point
+the world has already recorded that the brain is not answering, and charging its partner's
+feelings for the same fact would turn an outage into a personality.
 
 A `suspected_lie` therefore cannot produce `lie_discovered`, and a `perceived_promise` cannot produce `promise_kept` or `promise_broken`. Those remain objective outcomes requiring authoritative evidence, and AIT-707 tightens their evidence requirements further in the prospective [evidence-safe relationship policy version 2](relationship-policy-v2.md).
 

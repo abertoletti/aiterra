@@ -132,7 +132,7 @@ export const defaultConfig = Object.freeze({
     maximumAccessPrice: 200,
   },
   relationship: {
-    policyVersion: 1,
+    policyVersion: 2,
     minimum: -100,
     maximum: 100,
     tensionMinimum: 0,
@@ -147,6 +147,7 @@ export const defaultConfig = Object.freeze({
       promise_kept: { affinity: 1, trust: 4, tension: -1, sourceType: "objective_outcome", category: "promise" },
       promise_broken: { affinity: -2, trust: -8, tension: 4, sourceType: "objective_outcome", category: "promise" },
       expected_response_silence: { affinity: -1, trust: -1, tension: 1, sourceType: "silence", category: "silence" },
+      response_window_missed: { affinity: -1, trust: 0, tension: 1, sourceType: "silence", category: "silence" },
     },
   },
   relevance: {

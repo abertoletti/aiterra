@@ -67,7 +67,11 @@ test("an expired expected turn resolves silence, ends the conversation, and reje
 
   assert.equal(world.getNotificationEnvelope(notification.id).status, "expired");
   assert.equal(world.getObservation("sara").activeConversations.length, 0);
-  assert.deepEqual(dimensions(world.getRelationship("jack", "sara")), { affinity: -1, trust: -1, tension: 1 });
+  // A lapsed window costs affection and adds friction, but never trust - trust is only
+  // spent by someone who chose to say nothing.
+  assert.deepEqual(dimensions(world.getRelationship("jack", "sara")), { affinity: -1, trust: 0, tension: 1 });
+  assert.ok(world.history.some((event) => event.type === "RELATIONSHIP_CHANGED"
+    && event.data.rule === "response_window_missed"));
   assert.ok(world.history.some((event) => event.type === "CONVERSATION_TURN_EXPIRED"));
   assert.ok(world.history.some((event) => event.type === "SILENCE_RESOLVED" && event.data.explicit === false));
   assert.throws(
@@ -190,7 +194,7 @@ test("typed appraisals and objective evidence map to versioned server deltas", (
   const trustChange = world.history.find((event) => event.type === "RELATIONSHIP_CHANGED"
     && event.data.rule === "promise_kept" && event.data.dimension === "trust");
   assert.equal(trustChange.data.sourceType, "objective_outcome");
-  assert.equal(trustChange.data.relationshipRuleVersion, 1);
+  assert.equal(trustChange.data.relationshipRuleVersion, 2);
 });
 
 test("contradictory reported claims coexist privately with source and reliability provenance", () => {
@@ -257,3 +261,55 @@ function socialWorld() {
 function dimensions(relationship) {
   return { affinity: relationship.affinity, trust: relationship.trust, tension: relationship.tension };
 }
+
+test("a runtime that is already missing replies is not also charged for the silence", () => {
+  // The pilot's relationship ledger was 18 punishments and 3 appreciations, and every one
+  // of the 18 was an expired window - not one agent ever chose to stay quiet. Once the
+  // world has decided a runtime is not answering, billing its partner's feelings for the
+  // same fact turns an outage into a personality.
+  const { world, clock } = socialWorld();
+  let real = new Date("2026-08-18T10:00:00.000Z");
+  const advance = (extraGameMinutes = 0) => {
+    clock.advanceGameMinutes(8 + extraGameMinutes);
+    real = new Date(real.getTime() + 120_000);
+    world.advanceTo(clock.now(), real);
+  };
+
+  world.startConversation("jack", "sara", "Are you there?");
+  world.markNotificationDelivered("sara", world.getPendingNotificationEvents("sara")[0].id, real);
+  advance(60);
+  const afterFirst = dimensions(world.getRelationship("jack", "sara"));
+  assert.deepEqual(afterFirst, { affinity: -1, trust: 0, tension: 1 }, "the first lapse still lands");
+
+  world.startConversation("jack", "sara", "Still there?");
+  world.markNotificationDelivered("sara", world.getPendingNotificationEvents("sara")[0].id, real);
+  advance(60);
+  assert.deepEqual(dimensions(world.getRelationship("jack", "sara")), afterFirst,
+    "a second lapse from a runtime already missing replies must cost nothing");
+});
+
+test("an arriving action proves the runtime answers and lifts unavailability", () => {
+  // Unavailability used to be a one-way door: four pilot runtimes were flagged in the first
+  // 23 minutes and then submitted 131 accepted actions between them while the world kept
+  // refusing their jobs and conversations as "unavailable".
+  const { world, clock } = socialWorld();
+  let real = new Date("2026-08-18T10:00:00.000Z");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    world.startConversation("jack", "sara", `Anyone home? ${attempt}`);
+    world.markNotificationDelivered("sara", world.getPendingNotificationEvents("sara")[0].id, real);
+    clock.advanceGameMinutes(68);
+    real = new Date(real.getTime() + 120_000);
+    world.advanceTo(clock.now(), real);
+  }
+  assert.equal(world.getObservation("sara").character.agentAvailability, "unavailable");
+
+  // Even an action the world goes on to refuse proves the runtime is answering: liveness is
+  // established by the arrival, not by the action turning out to be legal.
+  assert.throws(() => world.executeAgentAction("sara", { type: "rest" }),
+    (error) => error instanceof DomainError);
+
+  assert.equal(world.getObservation("sara").character.agentAvailability, "available");
+  assert.equal(world.getObservation("sara").character.consecutiveMissedResponses, 0);
+  assert.ok(world.history.some((event) => event.type === "AGENT_RECOVERY_VERIFIED"
+    && event.data.characterId === "sara"));
+});
