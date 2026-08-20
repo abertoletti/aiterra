@@ -9,6 +9,7 @@ const locationGrid = document.querySelector("#location-grid");
 const locationMeta = document.querySelector("#location-meta");
 const jobList = document.querySelector("#job-list");
 const jobMeta = document.querySelector("#job-meta");
+const boardSummary = document.querySelector("#board-summary");
 const eventList = document.querySelector("#event-list");
 const eventMeta = document.querySelector("#event-meta");
 const economyOverview = document.querySelector("#economy-overview");
@@ -449,6 +450,20 @@ function renderLocations() {
 function renderJobs() {
   const statuses = countBy(state.world.jobs, (job) => job.status);
   jobMeta.textContent = `${statuses.open ?? 0} open · ${statuses.running ?? 0} running · ${statuses.completed ?? 0} completed`;
+  // Work lives on a board in a square, and a resident reads only the board it is standing
+  // at. Grouping the open notices by square shows the market the way the residents meet it:
+  // four separate boards, not one city-wide list.
+  const squares = state.world.locations.filter((location) => !location.buildingId);
+  boardSummary.innerHTML = squares.map((square) => {
+    const open = state.world.jobs.filter((job) => job.status === "open"
+      && (job.boardLocationId ?? job.locationId) === square.id).length;
+    const here = state.world.characters.filter((person) => person.locationId === square.id).length;
+    return `<div class="board-tile${open === 0 ? " empty" : ""}">
+      <span class="board-name">${escapeHtml(square.name)}</span>
+      <strong>${open}</strong><span class="board-unit">open</span>
+      <span class="board-here">${here} here</span>
+    </div>`;
+  }).join("");
   const statusOrder = { running: 0, accepted: 1, open: 2, completed: 3, cancelled: 4, failed: 5, expired: 6 };
   const jobs = [...state.world.jobs].sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
   jobList.innerHTML = jobs.length ? jobs.map((job) => {

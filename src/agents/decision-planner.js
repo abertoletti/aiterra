@@ -109,9 +109,13 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
     invitations: observation.invitations ?? [],
     // Rarely changes, and carries the bulk of the bytes.
     recentConversations: observation.recentConversations ?? [],
+    // The map: real, fully described, not yet possible. It changes more slowly than the
+    // menu does, so it sits ahead of it in the prefix.
+    opportunities: observation.opportunities,
     availableActions: observation.availableActions,
     requiredActionShapes: actionShapes(observation.availableActions ?? []),
     availableJobs: observation.availableJobs ? observation.availableJobs.map(compactJob) : undefined,
+    jobBoards: observation.jobBoards,
     pendingNotifications: observation.pendingNotifications,
     activeConversations: observation.activeConversations,
     // The prompt names cityTonight three times as the way to find a night worth going
@@ -122,6 +126,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
     upcomingEvents: observation.upcomingEvents,
     nearby: observation.nearby,
     // The moment: this is where the prefix is expected to break.
+    cannotRightNow: observation.cannotRightNow,
     character: observation.character,
     decision: observation.decision,
     summaries: observation.summaries,
@@ -158,10 +163,12 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "A run ends and is judged on those three. Ending it rich, having built nothing and gone nowhere, is a poor run.",
         "",
         "## Every turn",
-        "- pick exactly ONE action from availableActions",
+        "- pick exactly ONE action from availableActions. Everything in it can be done right now: there is no feasibility to check.",
+        "- opportunities is the rest of the world: real, fully described, not yet possible. blockedBy says what stands in the way. This is what you plan from.",
+        "- cannotRightNow states a reason that blocks a whole class of action at once. Read it before concluding there is nothing to do.",
         "- match requiredActionShapes exactly; required fields must be non-empty",
         "- never invent an id, a number, an outcome, a balance or a fact",
-        "- feasibility.status=blocked means the server will likely reject it; try once only with a concrete reason, and never repeat a rejected action until state changes",
+        "- never repeat an action the server has already rejected until something has changed",
         "- never claim movement, work, attendance, possession or construction happened unless observation or history confirms it",
         "",
         "## If a reply is pending",
@@ -184,7 +191,8 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "   affinity is out of 100 and is what that night is worth TO YOU. A low one costs credits and Energy to be made LESS happy. Repeating the same night pays less each time.",
         "   A venue is open only while it has something on: a `move` to a shut one says BUILDING_CLOSED and carries opensAt to plan around.",
         "3. YOU CAN AFFORD A BUILDING AND HAVE NONE -> construct_building {x,y,...}. One action: pick any free cell and it is yours. Build near where people already are; check cityTonight and nearby for where that is. The affordance names cheapestUsefulBuilding and takenCells.",
-        "4. YOU ARE SHORT OF CREDITS -> accept_job -> move -> start_job. Credits exist to be spent, not banked.",
+        "4. YOU ARE SHORT OF CREDITS -> accept_job -> start_job. Credits exist to be spent, not banked.",
+        "   WORK IS FOUND IN THE SQUARES. Each square has its own notice board and you read only the one you are standing in. jobBoards lists every square, how many notices are waiting there and how far away it is. If this square has nothing for you, `move` to one that does - that trip IS looking for work.",
         "5. ENERGY LOW -> rest",
         "",
         "## Building, and then running it",

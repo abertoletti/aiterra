@@ -94,7 +94,7 @@ test("two complementary residents can form, start, and split a team job", () => 
     action.type === "accept_job" && action.jobId === "joint-build");
   assert.equal(ariaAction.requirementsMode, "team_coverage");
   assert.equal(ariaAction.openTeamSlots, 2);
-  assert.equal(ariaAction.feasibility.eligible, true, "the first complementary team member may join");
+  // Being in availableActions at all is now the guarantee that it can be joined.
   world.acceptJob("aria", "joint-build");
 
   const borinAction = world.getObservation("borin").availableActions.find((action) =>

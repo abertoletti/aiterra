@@ -1,62 +1,37 @@
 {
   "schemaVersion": 1,
-  "version": "local-seven-agent-pilot-v4-dynamic-action",
+  "version": "local-seven-agent-pilot-v5-four-squares",
   "locations": [
     {
-      "id": "homes",
-      "name": "Residential Court",
-      "kind": "home",
-      "x": 10,
-      "y": 7
-    },
-    {
-      "id": "commons",
-      "name": "Town Commons",
-      "kind": "social_venue",
-      "x": 10,
-      "y": 10
-    },
-    {
-      "id": "workshop",
-      "name": "Community Workshop",
+      "id": "foundry",
+      "name": "Foundry Square",
       "kind": "workplace",
-      "x": 12,
-      "y": 10
+      "x": 6,
+      "y": 6
+    },
+    {
+      "id": "market",
+      "name": "Market Square",
+      "kind": "social_venue",
+      "x": 13,
+      "y": 6
+    },
+    {
+      "id": "garden",
+      "name": "Garden Square",
+      "kind": "home",
+      "x": 6,
+      "y": 13
     },
     {
       "id": "archive",
-      "name": "Civic Archive",
+      "name": "Archive Square",
       "kind": "other",
-      "x": 10,
-      "y": 12
+      "x": 13,
+      "y": 13
     }
   ],
-  "connections": [
-    {
-      "fromLocationId": "homes",
-      "toLocationId": "commons",
-      "durationGameMinutes": 15,
-      "bidirectional": true
-    },
-    {
-      "fromLocationId": "commons",
-      "toLocationId": "workshop",
-      "durationGameMinutes": 10,
-      "bidirectional": true
-    },
-    {
-      "fromLocationId": "commons",
-      "toLocationId": "archive",
-      "durationGameMinutes": 10,
-      "bidirectional": true
-    },
-    {
-      "fromLocationId": "archive",
-      "toLocationId": "workshop",
-      "durationGameMinutes": 15,
-      "bidirectional": true
-    }
-  ],
+  "connections": [],
   "bootstrapBudget": {
     "id": "local-pilot-bootstrap",
     "credits": 25000
@@ -65,7 +40,7 @@
     {
       "id": "pilot-01",
       "name": "Mira",
-      "locationId": "commons",
+      "locationId": "market",
       "credits": 180,
       "personality": [
         "Analytical",
@@ -101,7 +76,7 @@
     {
       "id": "pilot-02",
       "name": "Jonas",
-      "locationId": "homes",
+      "locationId": "garden",
       "credits": 150,
       "personality": [
         "Curious",
@@ -137,7 +112,7 @@
     {
       "id": "pilot-03",
       "name": "Nia",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "credits": 220,
       "personality": [
         "Competitive",
@@ -173,7 +148,7 @@
     {
       "id": "pilot-04",
       "name": "Elias",
-      "locationId": "commons",
+      "locationId": "market",
       "credits": 200,
       "personality": [
         "Sociable",
@@ -209,7 +184,7 @@
     {
       "id": "pilot-05",
       "name": "Sora",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "credits": 280,
       "personality": [
         "Reserved",
@@ -244,7 +219,7 @@
     {
       "id": "pilot-06",
       "name": "Vera",
-      "locationId": "commons",
+      "locationId": "market",
       "credits": 260,
       "personality": [
         "Charming",
@@ -281,7 +256,7 @@
     {
       "id": "pilot-07",
       "name": "Rook",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "credits": 170,
       "personality": [
         "Hostile",
@@ -320,7 +295,7 @@
     {
       "id": "commons-host",
       "title": "Host the commons welcome table",
-      "locationId": "commons",
+      "locationId": "market",
       "durationGameMinutes": 5,
       "compensation": 60,
       "requirements": {
@@ -335,7 +310,7 @@
     {
       "id": "market-inventory",
       "title": "Organize the community market inventory",
-      "locationId": "commons",
+      "locationId": "market",
       "durationGameMinutes": 10,
       "compensation": 70,
       "requirements": {
@@ -350,7 +325,7 @@
     {
       "id": "festival-signs",
       "title": "Design signs for the evening gathering",
-      "locationId": "commons",
+      "locationId": "market",
       "durationGameMinutes": 10,
       "compensation": 65,
       "requirements": {
@@ -365,7 +340,7 @@
     {
       "id": "commons-seating",
       "title": "Set up seating around the commons",
-      "locationId": "commons",
+      "locationId": "market",
       "durationGameMinutes": 5,
       "compensation": 55,
       "requirements": {
@@ -381,7 +356,7 @@
     {
       "id": "community-needs-map",
       "title": "Map the community's most urgent needs",
-      "locationId": "commons",
+      "locationId": "market",
       "durationGameMinutes": 10,
       "compensation": 85,
       "requirements": {
@@ -398,7 +373,7 @@
     {
       "id": "repair-benches",
       "title": "Repair benches at the community workshop",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "durationGameMinutes": 10,
       "compensation": 80,
       "requirements": {
@@ -413,7 +388,7 @@
     {
       "id": "workshop-coordinator",
       "title": "Coordinate the workshop supply handoff",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "durationGameMinutes": 10,
       "compensation": 75,
       "requirements": {
@@ -428,7 +403,7 @@
     {
       "id": "prototype-storage-rack",
       "title": "Prototype a modular storage rack",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "durationGameMinutes": 10,
       "compensation": 95,
       "requirements": {
@@ -445,7 +420,7 @@
     {
       "id": "workshop-safety-inspection",
       "title": "Run a workshop safety inspection",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "durationGameMinutes": 10,
       "compensation": 90,
       "requirements": {
@@ -460,7 +435,7 @@
     {
       "id": "tool-lending-desk",
       "title": "Operate the tool lending desk",
-      "locationId": "workshop",
+      "locationId": "foundry",
       "durationGameMinutes": 5,
       "compensation": 60,
       "requirements": {
@@ -476,7 +451,7 @@
     {
       "id": "courtyard-garden",
       "title": "Refresh the residential courtyard garden",
-      "locationId": "homes",
+      "locationId": "garden",
       "durationGameMinutes": 5,
       "compensation": 55,
       "requirements": {
@@ -491,7 +466,7 @@
     {
       "id": "welcome-packs",
       "title": "Prepare welcome packs for new residents",
-      "locationId": "homes",
+      "locationId": "garden",
       "durationGameMinutes": 5,
       "compensation": 60,
       "requirements": {
@@ -507,7 +482,7 @@
     {
       "id": "solar-meter-check",
       "title": "Inspect the residential solar meters",
-      "locationId": "homes",
+      "locationId": "garden",
       "durationGameMinutes": 10,
       "compensation": 85,
       "requirements": {
@@ -522,7 +497,7 @@
     {
       "id": "kitchen-roster",
       "title": "Coordinate the shared kitchen roster",
-      "locationId": "homes",
+      "locationId": "garden",
       "durationGameMinutes": 5,
       "compensation": 65,
       "requirements": {
@@ -538,7 +513,7 @@
     {
       "id": "home-repair-rounds",
       "title": "Complete the residential repair rounds",
-      "locationId": "homes",
+      "locationId": "garden",
       "durationGameMinutes": 10,
       "compensation": 90,
       "requirements": {

@@ -136,11 +136,21 @@ test("occupied characters remain visible and a bounded conversation closes witho
   const { world, clock } = socialWorld();
   world.createCharacter({ id: "luca", name: "Luca", locationId: "neon" });
   const started = world.startConversation("jack", "sara", "Opening turn");
-  const busyAction = world.getObservation("luca").availableActions.find((action) =>
-    action.type === "start_conversation" && action.targetCharacterId === "sara");
-  assert.deepEqual(busyAction.feasibility, {
-    status: "occupied", eligible: false, blockingCode: "CONVERSATION_BUSY",
-  });
+  // Someone mid-conversation is not someone Luca can open one with, so they leave the menu
+  // of things he can do and stay on the map of people who are there, with the reason.
+  const luca = world.getObservation("luca");
+  assert.ok(!luca.availableActions.some((action) =>
+    action.type === "start_conversation" && action.targetCharacterId === "sara"));
+  const busyEntry = luca.opportunities.find((entry) =>
+    entry.type === "start_conversation" && entry.targetCharacterId === "sara");
+  assert.ok(busyEntry, "she is still a person standing there");
+  // Both of the only two people present are in that conversation, so nobody can be spoken
+  // to at all - and a cause that explains the whole class is stated once rather than copied
+  // onto each of them.
+  assert.deepEqual(luca.cannotRightNow.filter((reason) => reason.action === "start_conversation"),
+    [{ action: "start_conversation", code: "CONVERSATION_BUSY", affects: 2 }]);
+  assert.deepEqual(busyEntry.blockedBy, [],
+    "what is left on the entry is only what is specific to it, which here is nothing");
 
   const conversationId = started.data.conversationId;
   for (let turn = 2; turn <= 8; turn += 1) {

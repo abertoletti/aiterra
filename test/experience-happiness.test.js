@@ -4,6 +4,7 @@ import { ManualClock } from "../src/domain/clock.js";
 import { makeConfig } from "../src/domain/config.js";
 import { DomainError, World } from "../src/domain/world.js";
 import { InMemoryEventStore } from "../src/infra/event-store.js";
+import { byEvent, offered } from "./support/observation.js";
 
 const DIMENSIONS = [
   "music", "socializing", "learning", "competition", "spirituality",
@@ -456,9 +457,10 @@ test("an invented conversation topic is rejected, not ignored", () => {
 
 // One feasibility computation feeds the affordance, the catalog, and the command, so an
 // agent can never be told an evening is possible and then refused it.
+// The observation separates the menu from the map, so an offer is now a pair: the notice
+// itself, and whether it can be acted on right now.
 function attendanceOffer(world, characterId, eventId) {
-  return world.getObservation(characterId).availableActions
-    .find((action) => action.type === "attend_event" && action.eventId === eventId);
+  return offered(world.getObservation(characterId), byEvent("attend_event", eventId));
 }
 
 test("an unaffordable experience is disclosed as unaffordable, not discovered on rejection", () => {
@@ -466,10 +468,11 @@ test("an unaffordable experience is disclosed as unaffordable, not discovered on
   nightAtTheClub(world, clock, { id: "members-only", title: "Members only", accessPrice: 200 });
 
   const offer = attendanceOffer(world, "jack", "members-only");
-  assert.equal(offer.feasibility.eligible, false,
-    "an evening Jack cannot pay for must not be advertised as eligible");
-  assert.ok(offer.feasibility.blockingCodes.includes("INSUFFICIENT_CREDITS"),
+  assert.equal(offer.orderable, false,
+    "an evening Jack cannot pay for must not sit among the things he can do");
+  assert.ok(offer.entry.blockedBy.includes("INSUFFICIENT_CREDITS"),
     "and the reason has to be the actual one");
+  assert.equal(offer.entry.accessPrice, 200, "with the price still stated in full");
 
   assert.throws(() => world.joinExperience("jack", "members-only"),
     (error) => error instanceof DomainError && error.code === "INSUFFICIENT_CREDITS",
@@ -483,9 +486,9 @@ test("a full experience is disclosed as full, and opens up again when someone le
   world.joinExperience("sara", "friday-night");
 
   const full = attendanceOffer(world, "jack", "friday-night");
-  assert.equal(full.feasibility.eligible, false);
-  assert.ok(full.feasibility.blockingCodes.includes("EXPERIENCE_FULL"));
-  assert.equal(full.attendeeCount, 1);
+  assert.equal(full.orderable, false);
+  assert.ok(full.entry.blockedBy.includes("EXPERIENCE_FULL"));
+  assert.equal(full.entry.attendeeCount, 1);
   assert.throws(() => world.joinExperience("jack", "friday-night"),
     (error) => error instanceof DomainError && error.code === "EXPERIENCE_FULL");
 
@@ -493,8 +496,8 @@ test("a full experience is disclosed as full, and opens up again when someone le
   // emptied is open again rather than permanently full.
   world.leaveExperience("sara", "friday-night");
   const reopened = attendanceOffer(world, "jack", "friday-night");
-  assert.equal(reopened.attendeeCount, 0, "the departed attendee no longer occupies a place");
-  assert.equal(reopened.feasibility.eligible, true);
+  assert.equal(reopened.entry.attendeeCount, 0, "the departed attendee no longer occupies a place");
+  assert.equal(reopened.orderable, true);
   assert.equal(world.joinExperience("jack", "friday-night").data.characterId, "jack",
     "and the command agrees that it is now possible");
 });
@@ -684,7 +687,7 @@ test("the affordance, the catalog, and the join command never disagree", () => {
 
     const offer = attendanceOffer(world, "jack", "friday-night");
     if (scenario.expected === null) {
-      assert.equal(offer.feasibility.eligible, true, `${scenario.name}: affordance eligibility`);
+      assert.equal(offer.orderable, true, `${scenario.name}: affordance eligibility`);
       assert.doesNotThrow(() => world.joinExperience("jack", "friday-night"),
         `${scenario.name}: an eligible evening must be enterable`);
       continue;
@@ -692,7 +695,7 @@ test("the affordance, the catalog, and the join command never disagree", () => {
 
     assert.equal(catalogued.feasibility.blockingCode, scenario.expected,
       `${scenario.name}: the catalog must name the real reason`);
-    assert.ok(offer === undefined || offer.feasibility.eligible === false,
+    assert.ok(offer.entry === null || offer.orderable === false,
       `${scenario.name}: an affordance must never offer what the command refuses`);
     assert.throws(() => world.joinExperience("jack", "friday-night"),
       (error) => error instanceof DomainError && error.code === scenario.expected,

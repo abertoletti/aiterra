@@ -67,17 +67,50 @@ test("the checked-in seven-agent local pilot configuration is valid", () => {
   const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
   assert.equal(configuration.characters.length, 7);
   assert.equal(configuration.jobs.length, 20);
-  assert.equal(configuration.version, "local-seven-agent-pilot-v4-dynamic-action");
+  assert.equal(configuration.version, "local-seven-agent-pilot-v5-four-squares");
   assert.equal(configuration.jobs.filter((job) => job.teamSize === 2).length, 2);
   assert.ok(configuration.jobs.every((job) => job.durationGameMinutes <= 35));
+
+  // Four squares, one per quadrant, five notices on each board. The grid is the only source
+  // of distance now, so no hand-written edge can contradict the map everyone can see.
+  assert.deepEqual(configuration.locations.map((location) => location.id).sort(),
+    ["archive", "foundry", "garden", "market"]);
+  assert.deepEqual(configuration.connections, []);
+  for (const square of configuration.locations) {
+    assert.equal(configuration.jobs.filter((job) => job.locationId === square.id).length, 5,
+      `${square.id} holds its own five notices`);
+  }
 
   const world = emptyWorld();
   activateWorldConfiguration(world, configuration);
   const observation = world.getObservation("pilot-01");
-  assert.equal(observation.availableJobs.length, 20);
-  assert.equal(observation.availableActions.filter((action) => action.type === "accept_job").length, 20);
-  assert.ok(observation.availableActions.some((action) =>
-    action.type === "accept_job" && action.feasibility.blockingCodes.includes("WRONG_LOCATION")));
+
+  // pilot-01 stands in Market Square, so it reads Market Square's board and no other.
+  assert.equal(observation.character.locationId, "market");
+  assert.equal(observation.availableJobs.length, 5);
+  assert.equal(observation.availableActions.filter((action) => action.type === "accept_job").length, 4,
+    "four of the five notices on this board can be taken straight away");
+
+  // The fifth is on the map rather than the menu, and it is blocked by exactly one thing -
+  // a skill - which is the shape of a plan rather than the shape of noise. Under the old
+  // contract the same resident saw twenty notices, fifteen of them unreachable, and the
+  // loudest reason on them was that the work was in another part of town.
+  const reachable = observation.opportunities.filter((entry) => entry.type === "accept_job");
+  assert.equal(reachable.length, 1);
+  assert.deepEqual(reachable[0].blockedBy, ["SKILL_REQUIREMENT"]);
+  assert.ok(reachable[0].unmetRequirements.length > 0, "and it names what is missing");
+  assert.deepEqual(observation.cannotRightNow, [],
+    "work is possible here, so there is no class-wide reason to state");
+
+  // The other three squares are a reason to travel, stated as a count and a distance.
+  assert.deepEqual(observation.jobBoards.map((board) => board.locationId).sort(),
+    ["archive", "foundry", "garden", "market"]);
+  const elsewhere = observation.jobBoards.filter((board) => !board.here);
+  assert.equal(elsewhere.length, 3);
+  assert.ok(elsewhere.every((board) => board.openJobs === 5 && board.travelMinutes >= 35),
+    "each holds five notices, and each is a walk away");
+  assert.deepEqual(elsewhere.map((board) => board.travelMinutes), [35, 35, 70],
+    "two squares adjoin this one and the third is diagonally opposite");
 });
 
 function emptyWorld() {

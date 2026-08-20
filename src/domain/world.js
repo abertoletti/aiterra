@@ -2813,9 +2813,30 @@ export class World {
     const pendingNotifications = [...this.state.notifications.entries()]
       .filter(([, notification]) => notification.characterId === characterId && !isNotificationTerminal(notification.status))
       .map(([eventId, notification]) => ({ eventId, ...structuredClone(notification) }));
+    // A notice board is a physical thing standing in a square. You read the one you are
+    // standing at; the others are somewhere you have to walk to. This is what removes
+    // WRONG_LOCATION as noise - not by filtering it out of the view, but by making the
+    // world work the way the view already implied. Your own work follows you, because a
+    // commitment you took is not a notice you are browsing.
+    const boardHere = (job) => (job.boardLocationId ?? job.locationId) === character.locationId;
     const availableJobs = [...this.state.jobs.values()]
-      .filter((job) => job.status === "open" || job.workerIds.includes(characterId) || job.fundingSourceId === characterId)
+      .filter((job) => job.workerIds.includes(characterId) || job.fundingSourceId === characterId
+        || (job.status === "open" && boardHere(job)))
       .map((job) => publicJob(job, this.config.energy.workCost));
+    // What the other squares are holding, as a count. A resident should know a market
+    // exists without being shown its stock from across the city: that is the difference
+    // between a reason to travel and a reason to stay.
+    const jobBoards = [...this.state.locations.values()]
+      .filter((location) => !location.buildingId)
+      .map((location) => ({
+        locationId: location.id, name: location.name,
+        openJobs: [...this.state.jobs.values()].filter((job) => job.status === "open"
+          && (job.boardLocationId ?? job.locationId) === location.id).length,
+        travelMinutes: location.id === character.locationId
+          ? 0 : this.travelDurationBetween(character.locationId, location.id),
+        here: location.id === character.locationId,
+      }))
+      .sort((left, right) => left.travelMinutes - right.travelMinutes);
     const upcomingEvents = [...this.state.gatherings.values()]
       .filter((event) => new Date(event.endsAt) >= this.clock.now())
       // Price, capacity, and profile must survive this projection: the attend_event
@@ -2879,7 +2900,9 @@ export class World {
       // gathering more than one step away was effectively invisible. It is a handful of
       // compact rows and it is the difference between a city and a room.
       cityTonight: this.cityTonight(character, upcomingEvents),
-      availableActions,
+      // Where the work is, without shipping the work itself.
+      jobBoards,
+      ...availableActions,
       decision,
       decisionRequiredAt: decision.decisionRequiredAt,
       nextScheduledDecisionAt: decision.decisionRequiredAt,
@@ -3389,6 +3412,19 @@ export class World {
     return `${actorName} caused ${event.type.toLowerCase().replaceAll("_", " ")}.`;
   }
 
+  // Returns three things, because one list was doing two jobs. `availableActions` is the
+  // menu: everything in it can be ordered right now, and the prompt's "pick exactly ONE"
+  // points only here. `opportunities` is the map: everything that exists but is not yet
+  // possible, with every field it had before - pay, duration, skills, windows - because
+  // planning lives in what is not yet possible and stripping it would blind the agent.
+  // `cannotRightNow` is the bridge: when one cause explains a whole class, it is said once
+  // instead of being buried in a copy per item.
+  //
+  // The old shape handed Nia twenty-two entries under a key called "available", of which
+  // fourteen were traps, and every one of the fourteen was blocked by the same thing. She
+  // had to open twenty-two nested feasibility blocks to find the eight that were real, and
+  // she got it wrong. The world already knows which is which; making the model re-derive it
+  // every turn was work we were charging it for and then paying for again in mistakes.
   availableActions(character, nearby, conversations, recentConversations, jobs, upcomingEvents, invitations = [], commitments = []) {
     const actions = [];
     if (!character.activity) {
@@ -3614,7 +3650,52 @@ export class World {
     for (const goal of character.secondaryGoals.filter((item) => item.status === "active")) {
       actions.push({ type: "abandon_secondary_goal", goalId: goal.id });
     }
-    return actions;
+    return this.splitByFeasibility(actions);
+  }
+
+  // Blocked entries leave the menu and become the map, keeping every field. A cause shared
+  // by every entry of a class is lifted out and stated once; what stays on each entry is
+  // only what is specific to it, which is the part worth reading.
+  splitByFeasibility(actions) {
+    // Not every feasibility carries the plural form: conversation availability reports a
+    // single blockingCode and no array. Reading only the array dropped the reason silently,
+    // which is the one failure mode this whole split exists to prevent.
+    const codesOf = (feasibility) => feasibility.blockingCodes
+      ?? (feasibility.blockingCode ? [feasibility.blockingCode] : []);
+    const availableActions = [];
+    const blocked = [];
+    for (const action of actions) {
+      if (action.feasibility?.eligible === false) blocked.push(action);
+      else {
+        const { feasibility, ...orderable } = action;
+        availableActions.push(orderable);
+      }
+    }
+    const cannotRightNow = [];
+    const sharedByType = new Map();
+    for (const type of new Set(blocked.map((action) => action.type))) {
+      const group = blocked.filter((action) => action.type === type);
+      // A cause counts as shared only when there is something to share it with, it blocks
+      // every one of them, and nothing of that type is possible at all. Lifting a cause out
+      // of a class of one is not lifting, it is just moving it somewhere less obvious.
+      if (group.length < 2) continue;
+      if (availableActions.some((action) => action.type === type)) continue;
+      const shared = group
+        .map((action) => new Set(codesOf(action.feasibility)))
+        .reduce((carried, codes) => new Set([...carried].filter((code) => codes.has(code))));
+      if (shared.size === 0) continue;
+      sharedByType.set(type, shared);
+      for (const code of shared) cannotRightNow.push({ action: type, code, affects: group.length });
+    }
+    const opportunities = blocked.map((action) => {
+      const { feasibility, ...rest } = action;
+      const shared = sharedByType.get(action.type) ?? new Set();
+      return {
+        ...rest,
+        blockedBy: codesOf(feasibility).filter((code) => !shared.has(code)),
+      };
+    });
+    return { availableActions, opportunities, cannotRightNow };
   }
 
   conversationAvailability(first, second) {

@@ -122,12 +122,15 @@ test("a finished building is a venue: the city gets in when something is on", ()
   assert.throws(() => world.startMove("anna", building.locationId),
     (error) => error instanceof DomainError && error.code === "BUILDING_CLOSED");
 
-  // Shut is not hidden. The destination stays on the board with the reason, so a resident
-  // can plan around a closed door instead of being unable to see it.
-  const shutOffer = world.getObservation("anna").availableActions
-    .find((action) => action.type === "move" && action.destinationId === building.locationId);
-  assert.ok(shutOffer, "a closed venue is still listed as a destination");
-  assert.equal(shutOffer.feasibility.blockingCode, "BUILDING_CLOSED");
+  // Shut is not hidden. It leaves the menu of things that can be done now and joins the
+  // map of things that exist, with the reason, so a resident can plan around a closed door.
+  const anna = world.getObservation("anna");
+  assert.ok(!anna.availableActions.some((action) => action.destinationId === building.locationId),
+    "a shut venue is not something you can walk into right now");
+  const shutOffer = anna.opportunities
+    .find((entry) => entry.type === "move" && entry.destinationId === building.locationId);
+  assert.ok(shutOffer, "but it is still a place on the map");
+  assert.deepEqual(shutOffer.blockedBy, ["BUILDING_CLOSED"]);
 
   // The proprietor can always get in: someone has to open up.
   assert.ok(world.startMove("luca", building.locationId));
@@ -161,17 +164,16 @@ test("the doors open early enough to walk there before the start", () => {
     durationGameMinutes: 60, accessPrice: 10, startsInGameMinutes: lead + 10,
   });
 
-  const stillShut = world.getObservation("anna").availableActions
-    .find((action) => action.type === "move" && action.destinationId === buildingId);
-  assert.equal(stillShut.feasibility.eligible, false, "too early: the doors have not opened");
+  const stillShut = world.getObservation("anna").opportunities
+    .find((entry) => entry.type === "move" && entry.destinationId === buildingId);
+  assert.ok(stillShut, "too early: the doors have not opened, so it is on the map not the menu");
   assert.ok(stillShut.opensAt, "but the observation says when they will");
   assert.equal(stillShut.nextEventTitle, "Later Tonight");
 
   clock.advanceGameMinutes(11);
   const nowOpen = world.getObservation("anna").availableActions
     .find((action) => action.type === "move" && action.destinationId === buildingId);
-  assert.equal(nowOpen.feasibility.eligible, true,
-    "the doors open a lead time before the start, so the trip can begin");
+  assert.ok(nowOpen, "the doors open a lead time before the start, so the trip can begin");
   assert.ok(world.startMove("anna", buildingId));
 });
 

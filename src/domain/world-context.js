@@ -12,7 +12,7 @@
 // See docs/product-backlog/rules/progressive-context-contract.md.
 import { DomainError, derivedTags, gridDistance, profileAffinity, publicJob } from "./world-support.js";
 
-export const CONTEXT_CONTRACT_VERSION = 2;
+export const CONTEXT_CONTRACT_VERSION = 3;
 export const CONTEXT_RESOURCES = ["opportunities", "experiences", "plots", "buildings", "people"];
 export const CONTEXT_MODES = ["full", "progressive"];
 
@@ -256,10 +256,15 @@ function knownBuildings(world, characterId) {
 // plus anything this character works on or funds.
 function knownOpportunities(world, characterId) {
   const character = world.requireCharacter(characterId);
+  // The catalog reads the same board the observation reads. A requestable catalog that
+  // showed every square's notices would have let one question undo the geography: work is
+  // somewhere you go, so it has to be somewhere you go in both views. Your own work follows
+  // you regardless, because a commitment is not a notice you are browsing.
   return [...world.state.jobs.values()]
-    .filter((job) => job.status === "open"
-      || job.workerIds.includes(characterId)
-      || job.fundingSourceId === characterId)
+    .filter((job) => job.workerIds.includes(characterId)
+      || job.fundingSourceId === characterId
+      || (job.status === "open"
+        && (job.boardLocationId ?? job.locationId) === character.locationId))
     .sort((left, right) => (left.id < right.id ? -1 : 1))
     .map((job) => {
       const engaged = job.workerIds.includes(characterId) || job.fundingSourceId === characterId;

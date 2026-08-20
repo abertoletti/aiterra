@@ -185,40 +185,61 @@ test("work declares compatible social reactions and correlates a conversation wi
   assert.equal(world.getObservation("worker").character.activity.jobId, "shift");
 });
 
-test("ineligible jobs remain visible with requirements and authoritative rejection metadata", () => {
+test("a job you cannot yet do stays fully described, on the map rather than the menu", () => {
   const { world } = jobWorld();
-  world.defineLocation({ id: "archive", name: "Archive" });
   world.createJob({
     ...jobOffer(), id: "advanced-repair", title: "Advanced repair",
     requirements: { technical: 60 }, compensation: 100,
   });
-  world.createJob({
-    ...jobOffer(), id: "remote-ledger", title: "Remote ledger", locationId: "archive",
-    requirements: { business: 30 }, compensation: 100,
-  });
 
   const observation = world.getObservation("worker");
-  const action = observation.availableActions.find((item) => item.type === "accept_job" && item.jobId === "advanced-repair");
-  assert.equal(action.requirements.technical, 60);
-  assert.deepEqual(action.unmetRequirements, [{ skill: "technical", required: 60, actual: 0 }]);
-  assert.deepEqual(action.feasibility, {
-    status: "blocked", eligible: false,
-    blockingCode: "SKILL_REQUIREMENT", blockingCodes: ["SKILL_REQUIREMENT"],
-  });
-  const remote = observation.availableActions.find((item) => item.type === "accept_job" && item.jobId === "remote-ledger");
-  assert.equal(remote.locationId, "archive");
-  assert.equal(remote.executionEnergyCost, 15);
-  assert.deepEqual(remote.feasibility, {
-    status: "blocked", eligible: false,
-    blockingCode: "WRONG_LOCATION", blockingCodes: ["WRONG_LOCATION"],
-  });
+  assert.ok(!observation.availableActions.some((action) => action.jobId === "advanced-repair"),
+    "the menu holds only what can be ordered now");
+  const entry = observation.opportunities.find((item) => item.jobId === "advanced-repair");
+  assert.ok(entry, "but the notice is still readable in full");
+  assert.equal(entry.compensation, 100);
+  assert.equal(entry.executionEnergyCost, 15);
+  assert.equal(entry.requirements.technical, 60);
+  assert.deepEqual(entry.unmetRequirements, [{ skill: "technical", required: 60, actual: 0 }],
+    "and it says exactly what is missing, which is what makes it a plan");
+  assert.deepEqual(entry.blockedBy, ["SKILL_REQUIREMENT"]);
+  assert.deepEqual(observation.cannotRightNow, [],
+    "one blocked notice keeps its own reason: there is nothing to share it with");
+
   assert.throws(
     () => world.acceptJob("worker", "advanced-repair"),
     (error) => error instanceof DomainError && error.code === "SKILL_REQUIREMENT",
   );
 });
 
-test("busy agents still receive public job choices with every known blocker", () => {
+test("a notice board stands in a square, so another square's work is somewhere you walk to", () => {
+  // WRONG_LOCATION used to be the single loudest blocker in the observation - nine of the
+  // fourteen jobs offered to one resident carried it, none of which she could reach without
+  // travelling first. A board is a physical thing: you read the one you are standing at, and
+  // the others are a reason to go somewhere rather than noise in the list.
+  const { world } = jobWorld();
+  world.defineLocation({ id: "archive", name: "Archive", x: 9, y: 9 });
+  world.createJob({
+    ...jobOffer(), id: "remote-ledger", title: "Remote ledger", locationId: "archive",
+    requirements: { business: 0 }, compensation: 100,
+  });
+
+  const observation = world.getObservation("worker");
+  for (const list of ["availableActions", "opportunities"]) {
+    assert.ok(!observation[list].some((entry) => entry.jobId === "remote-ledger"),
+      `another square's notice is not in ${list}`);
+  }
+
+  // What it does get is the existence of the market and the cost of reaching it.
+  const board = observation.jobBoards.find((entry) => entry.locationId === "archive");
+  assert.ok(board, "the square itself is known");
+  assert.equal(board.openJobs, 1, "with how much work is waiting there");
+  assert.equal(board.here, false);
+  assert.ok(board.travelMinutes > 0, "and what the trip costs");
+  assert.ok(observation.jobBoards.some((entry) => entry.here), "including the one underfoot");
+});
+
+test("busy agents still see the whole notice, with every known blocker", () => {
   const { world } = jobWorld();
   world.createJob(jobOffer());
   world.acceptJob("worker", "shift");
@@ -228,13 +249,28 @@ test("busy agents still receive public job choices with every known blocker", ()
     requirements: { technical: 10 },
   });
 
-  const action = world.getObservation("worker").availableActions.find((item) =>
-    item.type === "accept_job" && item.jobId === "follow-up");
-  assert.deepEqual(action.feasibility, {
-    status: "blocked", eligible: false,
-    blockingCode: "ACTIVITY_CONFLICT",
-    blockingCodes: ["ACTIVITY_CONFLICT", "JOB_COMMITMENT_CONFLICT", "SKILL_REQUIREMENT"],
+  const single = world.getObservation("worker");
+  const entry = single.opportunities.find((item) => item.jobId === "follow-up");
+  assert.ok(entry, "a busy worker still reads the board");
+  assert.equal(entry.compensation, 50);
+  assert.deepEqual(entry.blockedBy,
+    ["ACTIVITY_CONFLICT", "JOB_COMMITMENT_CONFLICT", "SKILL_REQUIREMENT"],
+    "a lone notice carries all of its own reasons");
+
+  // Add a second unreachable notice and the causes they share are stated once instead of
+  // once per notice - the line that would have told Nia why all fourteen of hers failed.
+  world.createJob({
+    ...jobOffer(), id: "third-task", title: "Third task", compensation: 40,
+    requirements: { technical: 10 },
   });
+  const observation = world.getObservation("worker");
+  const hoisted = observation.cannotRightNow.filter((reason) => reason.action === "accept_job");
+  assert.deepEqual(hoisted.map((reason) => reason.code).sort(),
+    ["ACTIVITY_CONFLICT", "JOB_COMMITMENT_CONFLICT", "SKILL_REQUIREMENT"]);
+  assert.ok(hoisted.every((reason) => reason.affects === 2));
+  const now = observation.opportunities.find((item) => item.jobId === "follow-up");
+  assert.deepEqual(now.blockedBy, [],
+    "what stays on a notice is only what is specific to it");
 });
 
 function jobWorld() {
@@ -386,10 +422,11 @@ test("finishing a job frees the worker for a different one, not just the same on
 
   // "sweep" is finished but still on cooldown, so it has not reopened and still lists Mira.
   assert.equal(world.state.jobs.get("sweep").workerIds.includes("mira"), true);
-  const tidy = world.getObservation("mira").availableActions
+  const observation = world.getObservation("mira");
+  const tidy = observation.availableActions
     .find((action) => action.type === "accept_job" && action.jobId === "tidy");
-  assert.ok(tidy, "the other job is still offered");
-  assert.ok(!(tidy.feasibility.blockingCodes ?? []).includes("JOB_COMMITMENT_CONFLICT"),
+  assert.ok(tidy, "the other job is orderable, not merely visible");
+  assert.ok(!observation.cannotRightNow.some((reason) => reason.code === "JOB_COMMITMENT_CONFLICT"),
     "a finished job must not read as an active commitment");
 
   world.acceptJob("mira", "tidy");

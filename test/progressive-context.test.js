@@ -51,8 +51,9 @@ test("a progressive baseline fits the budget while a catalog of blocked items ex
   const characterIds = world.getPublicState().characters.map((character) => character.id);
   const caughtUp = world.currentStateVersion();
 
+  // Five notices per square, and the catalog reads the same board the observation does.
   const opportunities = world.inspectContext(characterIds[0], { resource: "opportunities" });
-  assert.ok(opportunities.count >= 20, `expected the pilot catalog, got ${opportunities.count} items`);
+  assert.equal(opportunities.count, 5, `expected one square's board, got ${opportunities.count} items`);
   assert.ok(opportunities.blockedCount > 0, "the budget claim only means something with blocked items present");
 
   let fullTotal = 0;
@@ -84,9 +85,12 @@ test("an offered opportunity carries the whole notice, so work is never chosen b
   const characterId = world.getPublicState().characters[0].id;
 
   for (const contextMode of ["full", "progressive"]) {
-    const offers = world.getObservation(characterId, { contextMode })
-      .availableActions.filter((action) => action.type === "accept_job");
-    assert.ok(offers.length >= 10, `${contextMode} must offer the open board`);
+    const observation = world.getObservation(characterId, { contextMode });
+    // One square's board, split between what can be taken now and what needs something
+    // first. Both halves are a notice and both must be readable in full.
+    const offers = [...observation.availableActions, ...observation.opportunities]
+      .filter((entry) => entry.type === "accept_job");
+    assert.equal(offers.length, 5, `${contextMode} must offer this square's whole board`);
     for (const offer of offers) {
       // The first pilot accepted four jobs and requested no catalog, because an
       // affordance sufficient to act on removes the reason to ask. These are the
@@ -95,8 +99,9 @@ test("an offered opportunity carries the whole notice, so work is never chosen b
         assert.notEqual(offer[field], undefined,
           `${contextMode}: accept_job must disclose ${field} or the choice is uninformed`);
       }
-      assert.ok(offer.feasibility.status, "and whether it can be acted on");
     }
+    assert.ok(observation.availableActions.some((action) => action.type === "accept_job"),
+      `${contextMode}: work that can be taken now sits in the menu`);
     // Pay genuinely varies across the board, which is why it has to be disclosed.
     assert.ok(new Set(offers.map((offer) => offer.compensation)).size > 1,
       "the pilot board pays different amounts for different work");
@@ -114,6 +119,7 @@ test("progressive and full disclose the same known items for the same world stat
     .items.map((job) => job.id).sort();
   assert.deepEqual(catalogJobIds, full.availableJobs.map((job) => job.id).sort(),
     "the requested catalog must expose exactly the opportunities the full observation embedded");
+  assert.equal(catalogJobIds.length, 5, "which is this square's board and no other");
 
   const catalogEventIds = world.inspectContext(characterId, { resource: "experiences", limit: 50 })
     .items.map((item) => item.id).sort();
@@ -162,7 +168,7 @@ test("everything the invitation envelope permits is sourceable and actually acce
   // The world ships no experiences: only residents host now. A protocol test should not
   // depend on the pilot world happening to carry one, so it supplies its own.
   world.createEvent({
-    id: "invitable-night", title: "A night to invite someone to", locationId: "commons",
+    id: "invitable-night", title: "A night to invite someone to", locationId: "market",
     startsAt: world.clock.now(),
     endsAt: new Date(world.clock.now().getTime() + 90 * 60_000),
     profile: { socializing: 70 },
@@ -199,7 +205,7 @@ test("the invitation affordance does not grow with the world", () => {
     .availableActions.filter((action) => action.type === "send_invitation");
 
   world.defineLocation({ id: "gallery", name: "Gallery" });
-  world.defineLocation({ id: "market", name: "Market" });
+  world.defineLocation({ id: "bazaar", name: "Bazaar" });
   world.createEvent({
     id: "gallery-opening", title: "Gallery opening", locationId: "gallery",
     startsAt: "2042-01-01T10:00:00.000Z", endsAt: "2042-01-01T12:00:00.000Z",
@@ -220,11 +226,11 @@ test("a summary reports blocked items rather than hiding them behind a low count
   const summary = world.getObservation(characterId, { contextMode: "progressive" })
     .summaries.find((item) => item.resource === "opportunities");
 
-  assert.ok(summary.count >= 20);
+  assert.equal(summary.count, 5, "one board, not the whole city");
   assert.ok(summary.feasibleCount < summary.count,
     "the pilot world must contain opportunities this character cannot act on");
   assert.equal(summary.requestAction, "inspect_opportunities");
-  assert.equal(summary.contextContractVersion, 2);
+  assert.equal(summary.contextContractVersion, 3);
 });
 
 test("a catalog keeps blocked items with their blockers, and feasibleOnly reports what it removed", () => {
@@ -315,7 +321,7 @@ test("requesting a catalog is read-only and recorded", () => {
   assert.equal(recorded.length, 2, "each request is recorded for telemetry");
   assert.equal(recorded[0].data.resource, "opportunities");
   assert.ok(recorded[0].data.bytes > 0);
-  assert.equal(recorded[0].data.contextContractVersion, 2);
+  assert.equal(recorded[0].data.contextContractVersion, 3);
 });
 
 test("catalog telemetry never advances the character projection version", () => {
@@ -352,10 +358,11 @@ test("pagination reports truncation without dropping items", () => {
   const { world } = pilotWorld();
   const characterId = world.getPublicState().characters[0].id;
 
-  const page = world.inspectContext(characterId, { resource: "opportunities", limit: 5 });
-  assert.equal(page.items.length, 5);
+  // One board holds five notices, so paginate below that to see truncation at all.
+  const page = world.inspectContext(characterId, { resource: "opportunities", limit: 3 });
+  assert.equal(page.items.length, 3);
   assert.ok(page.truncated);
-  assert.equal(page.nextOffset, 5);
+  assert.equal(page.nextOffset, 3);
 
   const collected = [];
   let offset = 0;
@@ -406,7 +413,7 @@ test("the rules manifest states the context discipline under a new version", () 
 
   assert.notEqual(manifest.version, "agent-rules-v1", "a manifest body change ships under a new version");
   assert.equal(manifest.version, "agent-rules-v3");
-  assert.equal(manifest.context.contractVersion, 2);
+  assert.equal(manifest.context.contractVersion, 3);
   assert.deepEqual(manifest.context.requestable,
     ["opportunities", "experiences", "plots", "buildings", "people"]);
   for (const field of ["instruction", "summaryReading", "caching", "authority"]) {
@@ -437,7 +444,9 @@ test("a full observation carries the job board, and both modes carry the city", 
   // a downstream length assertion caught it, so it gets its own guard.
   const full = world.getObservation(characterId);
   assert.ok(Array.isArray(full.availableJobs), "full mode must embed the job board");
-  assert.equal(full.availableJobs.length, 20);
+  assert.equal(full.availableJobs.length, 5, "the board of the square the character stands in");
+  assert.ok(Array.isArray(full.jobBoards), "and where the other boards are");
+  assert.equal(full.jobBoards.length, 4);
   assert.ok(Array.isArray(full.upcomingEvents));
 
   const progressive = world.getObservation(characterId, { contextMode: "progressive" });

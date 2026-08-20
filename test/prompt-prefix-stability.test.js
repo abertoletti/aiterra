@@ -32,6 +32,9 @@ function observation(overrides = {}) {
     cityTonight: [],
     summaries: [],
     availableActions: [{ type: "rest", durationGameMinutes: 30 }],
+    opportunities: [],
+    cannotRightNow: [],
+    jobBoards: [],
     decision: { reason: "scheduled", decisionRequiredAt: "2049-08-07T06:20:00.000Z" },
     ...overrides,
   };
@@ -44,7 +47,7 @@ test("the volatile fields sit at the end of the payload, and worldTime is last o
   const content = payload(observation());
 
   const stable = ["relationships", "knowledge", "commitments", "invitations",
-    "recentConversations", "availableActions"];
+    "recentConversations", "opportunities", "availableActions"];
   const volatile = ["character", "decision", "summaries", "worldTime"];
 
   for (const field of [...stable, ...volatile]) {
@@ -69,6 +72,8 @@ test("availableActions carries the bulk of the payload, so it sits inside the st
   const content = payload(observation());
   assert.ok(positionOf(content, "availableActions") < positionOf(content, "character"),
     "availableActions must precede the character's changing state");
+  assert.ok(positionOf(content, "opportunities") < positionOf(content, "availableActions"),
+    "the map changes more slowly than the menu, so it sits ahead of it");
   assert.ok(positionOf(content, "requiredActionShapes") < positionOf(content, "worldTime"),
     "the shapes are derived from the actions and belong beside them");
 });
@@ -102,4 +107,18 @@ test("a requested catalog does not push the stable fields out of the prefix", ()
   assert.ok(positionOf(content, "catalogs") >= 0, "the catalog is present");
   assert.ok(positionOf(content, "availableActions") < positionOf(content, "catalogs"),
     "a one-off catalog belongs after the stable fields");
+});
+
+test("the prompt points \"pick exactly ONE\" at the menu, and names the map and the reason", () => {
+  // One key used to do two jobs: twenty-two entries under a name that said "available", of
+  // which fourteen could not be done. The instruction has to point at the list where every
+  // line is true, and the other two lists have to be named or they will not be read.
+  const spec = buildDecisionMessages(observation())[0].content;
+  assert.match(spec, /pick exactly ONE action from availableActions/);
+  assert.match(spec, /opportunities is the rest of the world/);
+  assert.match(spec, /cannotRightNow states a reason that blocks a whole class/);
+  assert.match(spec, /WORK IS FOUND IN THE SQUARES/,
+    "and that finding work means walking to another square's board");
+  assert.doesNotMatch(spec, /feasibility\.status=blocked/,
+    "no entry in the menu carries a feasibility any more, so the old rule would misdirect");
 });

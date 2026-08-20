@@ -18,7 +18,7 @@ test("five isolated agent workers use the public protocol for conversation, rela
   integrationConfiguration.version = "five-agent-protocol-integration-test";
   integrationConfiguration.characters = integrationConfiguration.characters.filter((character) => Number(character.id.slice(-2)) <= 5);
   const integrationLocations = {
-    "pilot-01": "commons", "pilot-02": "commons", "pilot-03": "commons", "pilot-04": "workshop", "pilot-05": "workshop",
+    "pilot-01": "market", "pilot-02": "market", "pilot-03": "market", "pilot-04": "foundry", "pilot-05": "foundry",
   };
   for (const character of integrationConfiguration.characters) {
     character.locationId = integrationLocations[character.id];
