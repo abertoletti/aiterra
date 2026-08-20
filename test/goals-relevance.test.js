@@ -77,6 +77,40 @@ test("critical urgency is authoritative and cannot be manufactured by goal score
   assert.equal(criticalResult.data.level, "CRITICAL");
 });
 
+test("a pursue_plan goal is self-authored memory: it renders back, never self-completes, and takes no target", () => {
+  // The v8 pilot's best plan - "save 2001 then build" - was re-derived from scratch every
+  // turn because no goal type could hold it. The plan's own words are the whole payload.
+  const { world, clock } = goalWorld();
+  const source = world.establishRelationship({ fromId: "jack", toId: "sara", affinity: 10 });
+
+  const adopted = world.proposeSecondaryGoal("jack", {
+    sourceEventId: source.id,
+    type: "pursue_plan",
+    priority: "high",
+    declaredReason: "Save 2001 credits for a 1x1 music venue: work needs-survey, rest, then build.",
+  });
+  const rendered = world.getObservation("jack").character.secondaryGoals
+    .find((goal) => goal.id === adopted.data.goal.id);
+  assert.equal(rendered.type, "pursue_plan");
+  assert.equal(rendered.targetId, null);
+  assert.match(rendered.guidance, /2001 credits/, "the plan's own words return in the observation");
+
+  // Nothing the world can verify completes a plan; only its author ends it.
+  clock.advanceGameMinutes(60);
+  world.advanceTo(clock.now());
+  assert.equal(world.getObservation("jack").character.secondaryGoals
+    .find((goal) => goal.id === adopted.data.goal.id).status, "active");
+  world.abandonSecondaryGoal("jack", adopted.data.goal.id);
+  assert.equal(world.getObservation("jack").character.secondaryGoals
+    .find((goal) => goal.id === adopted.data.goal.id).status, "abandoned");
+
+  // A target on a plan would be an invented mechanical handle riding a validated field.
+  assert.throws(() => world.proposeSecondaryGoal("jack", {
+    sourceEventId: source.id, type: "pursue_plan", targetId: "neon",
+    declaredReason: "A plan with a smuggled target.",
+  }), (error) => error.code === "GOAL_TARGET_NOT_ALLOWED");
+});
+
 function goalWorld() {
   const config = makeConfig();
   const clock = new ManualClock("2042-01-01T10:00:00.000Z");

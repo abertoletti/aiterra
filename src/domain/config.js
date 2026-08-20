@@ -288,12 +288,18 @@ export const defaultConfig = Object.freeze({
     wakeAt: "HIGH",
   },
   goals: {
-    policyVersion: 1,
+    // v2 adds pursue_plan. Nia formed the v8 pilot's best plan - "I need 2001 credits for
+    // a 1x1 venue... I'll accept needs-survey, then rest, then build" - and re-derived it
+    // from scratch every turn, because no goal type could hold it: the vocabulary covered
+    // people, places, and work, and a plan is none of those. A pursue_plan goal is
+    // self-authored memory: no target, no automatic completion, just the plan's own words
+    // returning in every observation until it is abandoned or expires.
+    policyVersion: 2,
     maximumActiveSecondaryGoals: 3,
     defaultSecondaryGoalWorldDays: 7,
     secondaryTypes: [
       "strengthen_relationship", "avoid_character", "attend_event",
-      "resolve_conflict", "visit_location", "find_work",
+      "resolve_conflict", "visit_location", "find_work", "pursue_plan",
     ],
   },
   timing: {

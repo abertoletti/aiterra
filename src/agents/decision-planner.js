@@ -224,6 +224,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- keep at least one active secondary goal whenever you have capacity",
         "- propose_secondary_goal needs a sourceEventId you actually perceived (from recentPermittedHistory or a pendingNotification) and a targetId listed in `known`",
         "- goals persist: use them to stay on a plan instead of reconsidering from scratch",
+        "- a plan stated in a rationale is gone next turn; a goal returns every turn in character.secondaryGoals with its declaredReason. Formed a multi-step plan - save 2000 then build, finish a course then take the post it opens? Pin it: goal type pursue_plan, targetId null, the plan and its numbers in declaredReason.",
         "- abandon one explicitly when it is achieved or no longer makes sense",
         "",
         "## Also available",
@@ -781,7 +782,9 @@ function validateGoalTarget(type, targetId, observation) {
   ].filter(Boolean));
   const knownEvents = new Set(known.eventIds ?? (observation.upcomingEvents ?? []).map((item) => item.id));
 
-  if (["strengthen_relationship", "avoid_character", "resolve_conflict"].includes(type)) {
+  if (type === "pursue_plan") {
+    if (targetId) throw new DecisionValidationError("A pursue_plan goal carries its plan in declaredReason and takes no target");
+  } else if (["strengthen_relationship", "avoid_character", "resolve_conflict"].includes(type)) {
     if (!targetId || !knownCharacters.has(targetId)) throw new DecisionValidationError("The secondary goal character target is not known");
   } else if (type === "visit_location") {
     if (!targetId || !knownLocations.has(targetId)) throw new DecisionValidationError("The visit-location target is not visible");
