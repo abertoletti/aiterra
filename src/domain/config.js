@@ -84,9 +84,9 @@ export const defaultConfig = Object.freeze({
     // or above this value. An authored tag list could claim what the profile does not.
     tagThreshold: 30,
   },
-  // Experience and Happiness policy v1.
+  // Experience and Happiness policy v2: v1 plus the repetition grace run.
   happiness: {
-    policyVersion: 1,
+    policyVersion: 2,
     minimum: 0,
     maximum: 100,
     initial: 50,
@@ -117,6 +117,11 @@ export const defaultConfig = Object.freeze({
     repetitionPerPriorAttendance: 1.5,
     repetitionMinimum: -5,
     repetitionWindowWorldDays: 7,
+    // The first few similar evenings are free. The penalty used to bite from the SECOND
+    // visit, and in the v8 pilot it warned every guest of the city's first venue off its
+    // second night - a rule meant to stop a rut taxed loyalty before a habit existed, and
+    // a venue needs regulars before it can have bored ones.
+    repetitionFreeAttendances: 5,
     varianceBound: 1.5,
     decayPerWorldDay: 1,
     decayWindowWorldMinutes: 1440,

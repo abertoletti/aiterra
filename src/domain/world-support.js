@@ -308,6 +308,18 @@ export function topicFitFor(preferences, topics, policy) {
   return policy.topicFitNeutral + ((average - 50) / 50) * policy.topicFitRange;
 }
 
+// The repetition penalty, in one place for the resolution and the disclosed outlook so the
+// number stated before the ticket and the one charged after cannot disagree. The first
+// repetitionFreeAttendances similar evenings inside the window cost nothing; past the free
+// run each further repeat costs more, down to the floor.
+export function repetitionFactor(priorSimilarAttendances, policy) {
+  const beyondFree = Math.max(0, priorSimilarAttendances + 1 - policy.repetitionFreeAttendances);
+  const factor = Math.max(policy.repetitionMinimum, -policy.repetitionPerPriorAttendance * beyondFree);
+  // Inside the free run the product is -0, which reads and serializes as a penalty that
+  // was not applied; the same normalization round2 carries.
+  return factor === 0 ? 0 : factor;
+}
+
 export function experienceAttendanceKey(eventId, characterId) {
   return `${eventId}:${characterId}`;
 }

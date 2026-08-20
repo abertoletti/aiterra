@@ -4,6 +4,7 @@ import { ManualClock } from "../src/domain/clock.js";
 import { makeConfig } from "../src/domain/config.js";
 import { DomainError, World } from "../src/domain/world.js";
 import { InMemoryEventStore } from "../src/infra/event-store.js";
+import { repetitionFactor } from "../src/domain/world-support.js";
 import { byEvent, offered } from "./support/observation.js";
 
 const DIMENSIONS = [
@@ -239,10 +240,11 @@ test("happiness saturates toward the bounds", () => {
   assert.ok(happiness > 90 && happiness < 100, `saturating, not pinned: ${happiness}`);
 });
 
-test("repeating the same venue makes the evening worse", () => {
+test("a habit is free until it is a rut: repetition bites only past the free run, then worsens", () => {
   const { world, clock } = experienceWorld();
+  const free = world.config.happiness.repetitionFreeAttendances;
   const factors = [];
-  for (let night = 1; night <= 3; night += 1) {
+  for (let night = 1; night <= free + 2; night += 1) {
     world.createEvent({
       id: `night-${night}`, title: `Night ${night}`, locationId: "club",
       startsAt: clock.now(), endsAt: new Date(clock.now().getTime() + 120 * 60_000),
@@ -254,10 +256,15 @@ test("repeating the same venue makes the evening worse", () => {
     factors.push(world.history.filter((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED").at(-1).data.factors);
   }
 
-  assert.equal(factors[0].repetition, 0, "the first visit is not a repeat");
-  assert.equal(factors[1].repetition, -1.5);
-  assert.equal(factors[2].repetition, -3);
-  assert.ok(factors[2].affinity === factors[0].affinity, "the venue did not change, only the repetition");
+  // The v8 pilot's first venue lost every guest to a penalty that bit from the second
+  // visit: a rule meant to stop a rut taxed loyalty before a habit existed. The free run
+  // is deliberate - a venue needs regulars before it can have bored ones.
+  for (let night = 0; night < free; night += 1) {
+    assert.equal(factors[night].repetition, 0, `visit ${night + 1} sits inside the free run`);
+  }
+  assert.ok(factors[free].repetition < 0, "the visit after the free run starts costing");
+  assert.ok(factors[free + 1].repetition < factors[free].repetition, "and each further one costs more");
+  assert.ok(factors[free + 1].affinity === factors[0].affinity, "the venue did not change, only the repetition");
 });
 
 test("neglect decays happiness, and working costs it too", () => {
@@ -307,7 +314,7 @@ test("the rules manifest tells a stateless model what moves happiness", () => {
   const { world } = experienceWorld();
   const manifest = world.getAgentRules("jack");
 
-  assert.equal(manifest.happiness.policyVersion, 1);
+  assert.equal(manifest.happiness.policyVersion, 2);
   assert.deepEqual(manifest.happiness.range, [0, 100]);
   assert.deepEqual(manifest.happiness.profileDimensions, DIMENSIONS);
   for (const field of ["instruction", "experienceValue", "pursuit", "neglect", "privacy"]) {
@@ -593,8 +600,12 @@ test("every public experience in the city is discoverable, with what it delivers
   assert.deepEqual(garden.tags, ["nature", "relaxation", "spirituality"],
     "tags are derived from the profile, so they cannot claim what it does not deliver");
   assert.equal(garden.attendanceEnergyCost, 3);
-  assert.deepEqual(garden.repetition, { priorSimilarAttendances: 0, windowWorldDays: 7, factor: 0 },
-    "repetition is private history, so it has to be disclosed or the penalty is a surprise");
+  assert.deepEqual(garden.repetition, {
+    priorSimilarAttendances: 0,
+    freeAttendances: world.config.happiness.repetitionFreeAttendances,
+    windowWorldDays: 7,
+    factor: 0,
+  }, "repetition is private history, so it has to be disclosed or the penalty is a surprise");
 });
 
 test("a resident can narrow the city to what it cares about, and is told what was left out", () => {
@@ -722,8 +733,11 @@ test("what a repeat will cost is stated before the ticket is bought, not after",
   const after = offered(world.getObservation("jack"), byEvent("attend_event", "again"));
   assert.equal(after.entry.repetition.priorSimilarAttendances, 1,
     "the resolved evening counts against the next one like it");
-  assert.ok(after.entry.repetition.factor < 0,
-    "and the penalty already earned is stated before the ticket is bought");
+  assert.equal(after.entry.repetition.factor,
+    repetitionFactor(1, world.config.happiness),
+    "the disclosed factor is the one rule the resolution will also charge");
+  assert.ok(after.entry.repetition.freeAttendances > 1,
+    "and the notice says how long the habit stays free, so the count is readable as a budget");
   assert.ok(after.entry.repetition.windowWorldDays > 0, "with the window it applies over");
 
   // The same warning reaches the city-wide listing, which is where a night is chosen.

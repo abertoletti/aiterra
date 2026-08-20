@@ -12,7 +12,7 @@ import {
   appraisalOutcomeKey, dominantDimension, evenPreferences, experienceAttendanceKey,
   normalizeExperienceProfile, normalizePreferences, normalizeTopics, topicFitFor,
   profileAffinity, round2, derivedTags,
-  buildingCost, buildingUpkeep, courseEffectsFor, gridDistance, hostingEnergyCost, plotKey, skillGainsFor,
+  buildingCost, buildingUpkeep, courseEffectsFor, gridDistance, hostingEnergyCost, plotKey, repetitionFactor, skillGainsFor,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
   normalizeFact, normalizeGoal, normalizeRelationship, normalizeSkills,
@@ -669,8 +669,8 @@ export class World {
       ? clamp(others.length - 1, -policy.crowdBound, policy.crowdBound)
       : clamp(Math.round((others.length / capacity) * 4) - 2, -policy.crowdBound, policy.crowdBound);
 
-    const repetition = Math.max(policy.repetitionMinimum,
-      -policy.repetitionPerPriorAttendance * this.similarPriorAttendances(characterId, gathering, worldTime));
+    const repetition = repetitionFactor(
+      this.similarPriorAttendances(characterId, gathering, worldTime), policy);
 
     // Drawn once, here, and recorded below. Two residents with identical preferences at
     // the identical gathering do not come away with identical evenings — but the
@@ -799,9 +799,11 @@ export class World {
     const priorSimilarAttendances = this.similarPriorAttendances(characterId, gathering, null);
     return {
       priorSimilarAttendances,
+      // How much of the free run is disclosed with the count, so a brain can tell "my
+      // fourth night here is still free" from "the next one starts costing".
+      freeAttendances: policy.repetitionFreeAttendances,
       windowWorldDays: policy.repetitionWindowWorldDays,
-      factor: round2(Math.max(policy.repetitionMinimum,
-        -policy.repetitionPerPriorAttendance * priorSimilarAttendances)),
+      factor: round2(repetitionFactor(priorSimilarAttendances, policy)),
     };
   }
 
