@@ -85,35 +85,53 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
   // In progressive mode the observation omits the manifest body and the runtime supplies
   // the copy it cached by version.
   const activeRules = observation.rules ?? rules ?? null;
+  // Ordered most-stable-first, because the provider caches by exact prefix and one changed
+  // byte discards everything after it. Measured across 1,001 real observations, field by
+  // field, comparing each against the same character's previous one: character identity,
+  // relationships, knowledge, commitments and invitations never changed; recentConversations
+  // changed 2% of the time; availableActions 28% - and it is 13.5 KB of an 18 KB payload,
+  // so where it sits decides almost everything. summaries changed 54% of the time and
+  // worldTime 100%.
+  //
+  // worldTime was first. It is the smallest field in the prompt at 0.03 KB and the only one
+  // that changes every single call, so it invalidated the whole payload at its first byte:
+  // nothing in the user message was ever cached, which matches the 16.3% overall hit rate
+  // coming entirely from the system message. Simulating this order against the same
+  // observations caches 70% of the payload instead of none.
+  //
+  // The order is load-bearing. Moving a volatile field earlier silently costs money without
+  // failing anything, which is why prompt-prefix-stability.test.js pins it.
   const context = {
-    worldTime: observation.worldTime,
-    rulesVersion: observation.rulesVersion,
-    // In progressive mode the observation omits the manifest body and the runtime
-    // supplies the copy it cached by version.
-    decision: observation.decision,
-    character: observation.character,
-    nearby: observation.nearby,
+    // Never changed in the measurement.
     relationships: observation.relationships,
-    activeConversations: observation.activeConversations,
-    recentConversations: observation.recentConversations ?? [],
     knowledge: observation.knowledge,
+    commitments: observation.commitments ?? [],
+    invitations: observation.invitations ?? [],
+    // Rarely changes, and carries the bulk of the bytes.
+    recentConversations: observation.recentConversations ?? [],
+    availableActions: observation.availableActions,
+    requiredActionShapes: actionShapes(observation.availableActions ?? []),
     availableJobs: observation.availableJobs ? observation.availableJobs.map(compactJob) : undefined,
-    upcomingEvents: observation.upcomingEvents,
+    pendingNotifications: observation.pendingNotifications,
+    activeConversations: observation.activeConversations,
     // The prompt names cityTonight three times as the way to find a night worth going
     // to. It was computed into every observation and then dropped here, so the model was
     // told to consult a field it had never seen - and asked for the experiences catalog
     // 65 times, every one empty, at a full extra call each.
     cityTonight: observation.cityTonight,
-    pendingNotifications: observation.pendingNotifications,
-    invitations: observation.invitations ?? [],
-    commitments: observation.commitments ?? [],
+    upcomingEvents: observation.upcomingEvents,
+    nearby: observation.nearby,
+    // The moment: this is where the prefix is expected to break.
+    character: observation.character,
+    decision: observation.decision,
     summaries: observation.summaries,
-    // Only the catalogs this decision actually asked for.
-    catalogs: Object.keys(catalogs).length > 0 ? catalogs : undefined,
-    availableActions: observation.availableActions,
-    requiredActionShapes: actionShapes(observation.availableActions ?? []),
     recentActionFailures: recentActionFailures.slice(-5),
     recentPermittedHistory: history.slice(-12).map(compactHistoryEvent),
+    // Only the catalogs this decision actually asked for, and only on the turn it asked.
+    catalogs: Object.keys(catalogs).length > 0 ? catalogs : undefined,
+    rulesVersion: observation.rulesVersion,
+    // Last on purpose: it changes every call and everything after it would be uncacheable.
+    worldTime: observation.worldTime,
   };
   const contextProtocol = progressive && contextRequestsRemaining > 0
     ? [
