@@ -20,7 +20,7 @@ const worldEventCount = document.querySelector("#world-event-count");
 const cityMap = document.querySelector("#city-map");
 const cityMeta = document.querySelector("#city-meta");
 const buildingList = document.querySelector("#building-list");
-const residentsTable = document.querySelector("#residents-table");
+const residentsRoster = document.querySelector("#residents-roster");
 const residentsMeta = document.querySelector("#residents-meta");
 const standings = document.querySelector("#standings");
 const standingsMeta = document.querySelector("#standings-meta");
@@ -49,7 +49,12 @@ function showPage(name) {
 
 tabs.addEventListener("click", (clickEvent) => {
   const tab = clickEvent.target.closest(".tab");
-  if (tab) showPage(tab.dataset.page);
+  if (!tab) return;
+  showPage(tab.dataset.page);
+  // Opening a page is the moment its numbers should be current, so navigation re-renders
+  // from the freshest fetched state - the one moment a redraw cannot yank anything the
+  // reader was holding open.
+  if (state.world) renderAll();
 });
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1)));
 showPage(location.hash.slice(1));
@@ -60,29 +65,52 @@ select.addEventListener("change", () => {
   loadCharacterTimeline();
 });
 
-await refresh();
-setInterval(refresh, 5_000);
+await fullRefresh();
+setInterval(liveRefresh, 5_000);
 
-async function refresh() {
+async function loadData() {
+  const [stateResponse, timelineResponse] = await Promise.all([
+    fetch("/api/state"),
+    fetch("/api/timeline"),
+  ]);
+  if (!stateResponse.ok || !timelineResponse.ok) throw new Error("The world is temporarily unavailable.");
+  state.world = await stateResponse.json();
+  state.worldTimeline = (await timelineResponse.json()).items;
+  state.selectedId ??= state.world.characters[0]?.id;
+  worldTime.textContent = formatWorldTime(state.world.worldTime);
+}
+
+async function fullRefresh() {
   try {
-    const [stateResponse, timelineResponse] = await Promise.all([
-      fetch("/api/state"),
-      fetch("/api/timeline"),
-    ]);
-    if (!stateResponse.ok || !timelineResponse.ok) throw new Error("The world is temporarily unavailable.");
-    state.world = await stateResponse.json();
-    state.worldTimeline = (await timelineResponse.json()).items;
-    state.selectedId ??= state.world.characters[0]?.id;
-    worldTime.textContent = formatWorldTime(state.world.worldTime);
-    renderPicker();
-    renderWorldOverview();
-    renderCharacter();
-    renderWorldActivity();
+    await loadData();
+    renderAll();
     await loadCharacterTimeline();
   } catch (error) {
     panel.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
     worldSummary.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
   }
+}
+
+// The 5-second tick feeds only what streams: the clock, the two timelines, and the health
+// badge. It used to re-render every panel, which slammed shut whatever the reader had open
+// - the wallet ledger closed itself mid-read every five seconds. Panels re-render on the
+// reader's own actions instead: load, tab change, resident selection.
+async function liveRefresh() {
+  try {
+    await loadData();
+    renderWorldActivity();
+    updateHealthBadge();
+    await loadCharacterTimeline();
+  } catch {
+    worldTime.textContent = "world unreachable";
+  }
+}
+
+function renderAll() {
+  renderPicker();
+  renderWorldOverview();
+  renderCharacter();
+  renderWorldActivity();
 }
 
 function renderPicker() {
@@ -122,6 +150,12 @@ function renderWorldOverview() {
 // A run once ran for two hours while four of seven brains had stopped answering. The
 // world kept ticking, events kept flowing, and nothing on this dashboard said so. A
 // resident whose brain is not answering is not a quiet resident, it is a stopped one.
+function updateHealthBadge() {
+  const stopped = state.world.characters.filter((resident) => resident.agentAvailability !== "available");
+  healthBadge.textContent = stopped.length ? String(stopped.length) : "";
+  healthBadge.className = `tab-badge ${stopped.length ? "alert" : ""}`;
+}
+
 function renderHealth() {
   const residents = state.world.characters;
   const runtime = state.world.runtime ?? { connectedAgentBrains: 0, eventStreamConnections: 0 };
@@ -130,8 +164,7 @@ function renderHealth() {
   const struggling = residents.filter((resident) =>
     resident.agentAvailability === "available" && (resident.consecutiveMissedResponses ?? 0) > 0);
 
-  healthBadge.textContent = stopped.length ? String(stopped.length) : "";
-  healthBadge.className = `tab-badge ${stopped.length ? "alert" : ""}`;
+  updateHealthBadge();
 
   healthSummary.innerHTML = [
     summaryCard("Brains answering", `${residents.length - stopped.length} / ${residents.length}`,
@@ -262,55 +295,57 @@ function renderStandings() {
 
 // Everyone at once. The selected-resident panel answers "what is this person like";
 // this answers "who is winning, and who is having a bad time", which is the question an
-// observer actually opens the page with.
+// observer actually opens the page with. One card per life, not one row per record:
+// the eight-column table read as a spreadsheet, and the two numbers that tell a life
+// apart - what it has lived and what it can still spend - drowned between the others.
 function renderResidents() {
   const residents = [...state.world.characters]
     .sort((left, right) => right.livedHappiness - left.livedHappiness);
   const buildings = state.world.city?.buildings ?? [];
-  const lived = residents.map((resident) => Math.abs(resident.livedHappiness ?? 0));
-  const livedScale = Math.max(1, ...lived);
 
   residentsMeta.textContent = `${residents.length} residents · sorted by what they have lived`;
-  residentsTable.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Resident</th><th>Doing</th>
-          <th class="num">Happiness</th><th class="num">Lived</th>
-          <th class="num">Credits</th><th class="num">Energy</th><th class="num">Built</th>
-          <th>Cares most about</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${residents.map((resident) => {
+  residentsRoster.innerHTML = residents.map((resident) => {
+    const location = locationById(resident.locationId)?.name ?? resident.locationId ?? "nowhere yet";
+    const activity = describeActivity(resident.activity, location);
+    const down = resident.agentAvailability !== "available";
     const owned = buildings.filter((building) => building.proprietorId === resident.id).length;
-    const top = Object.entries(resident.preferences ?? {})
-      .sort(([, left], [, right]) => right - left).slice(0, 3)
-      .map(([dimension]) => dimension).join(", ");
     const livedValue = round1(resident.livedHappiness ?? 0);
-    const livedWidth = Math.round((Math.abs(livedValue) / livedScale) * 100);
-    const activity = describeActivity(resident.activity, locationById(resident.locationId)?.name ?? resident.locationId);
+    const bestDomain = Object.entries(resident.domainReputation ?? {})
+      .sort(([, left], [, right]) => right - left)[0];
+    const topSkills = Object.entries(resident.skills ?? {})
+      .sort(([, left], [, right]) => right - left).slice(0, 2);
     return `
-          <tr class="${resident.id === state.selectedId ? "selected" : ""}">
-            <td><button class="resident-link" data-resident="${escapeHtml(resident.id)}">${escapeHtml(resident.name)}</button></td>
-            <td class="doing">${escapeHtml(activity.title)}</td>
-            <td class="num"><span class="happiness-chip ${resident.happiness >= 60 ? "good" : resident.happiness <= 35 ? "poor" : ""}">${resident.happiness}</span></td>
-            <td class="num">
-              <span class="lived ${livedValue < 0 ? "poor" : livedValue > 0 ? "good" : ""}">${signed(livedValue)}</span>
-              <span class="lived-track"><span class="lived-fill ${livedValue < 0 ? "poor" : "good"} ${fillClass(livedWidth, 100)}"></span></span>
-            </td>
-            <td class="num">${number(resident.credits)}</td>
-            <td class="num">${resident.energy}</td>
-            <td class="num">${owned || "—"}</td>
-            <td class="cares">${escapeHtml(top)}</td>
-          </tr>`;
-  }).join("")}
-      </tbody>
-    </table>`;
+      <button class="resident-card ${resident.id === state.selectedId ? "selected" : ""} ${down ? "brain-down" : ""}"
+        data-resident="${escapeHtml(resident.id)}">
+        <div class="resident-card-top">
+          <span class="avatar" aria-hidden="true">${escapeHtml(resident.name[0])}</span>
+          <span class="resident-card-name">
+            <strong>${escapeHtml(resident.name)}</strong>
+            <small>${escapeHtml(activity.title)} · ${escapeHtml(location)}</small>
+          </span>
+          <i class="presence-dot ${down ? "down" : "up"}" title="${down ? `brain ${escapeHtml(resident.agentAvailability)}` : "brain answering"}"></i>
+        </div>
+        <div class="resident-card-figures">
+          <span class="figure"><small>lived</small><strong class="${livedValue < 0 ? "poor" : livedValue > 0 ? "good" : ""}">${signed(livedValue)}</strong></span>
+          <span class="figure"><small>credits</small><strong>${number(resident.credits)}</strong></span>
+          <span class="figure"><small>happiness</small><strong><span class="happiness-chip ${resident.happiness >= 60 ? "good" : resident.happiness <= 35 ? "poor" : ""}">${resident.happiness}</span></strong></span>
+          <span class="figure"><small>reputation</small><strong>${round1(resident.reputation)}</strong></span>
+        </div>
+        <div class="resident-card-energy" title="energy ${resident.energy} / ${state.world.rules.maximumEnergy}">
+          <span class="meter-track"><span class="meter-fill ${fillClass(resident.energy, state.world.rules.maximumEnergy)}"></span></span>
+          <small>${resident.energy}</small>
+        </div>
+        <div class="resident-card-tags">
+          ${topSkills.map(([skill, value]) => `<span>${escapeHtml(skill)} ${value}</span>`).join("")}
+          ${bestDomain && bestDomain[1] > 0 ? `<span class="proven">proven ${escapeHtml(bestDomain[0])} ${round1(bestDomain[1])}</span>` : ""}
+          ${owned ? `<span class="built">${plural(owned, "building")}</span>` : ""}
+        </div>
+      </button>`;
+  }).join("");
 
-  for (const button of residentsTable.querySelectorAll(".resident-link")) {
-    button.addEventListener("click", () => {
-      state.selectedId = button.dataset.resident;
+  for (const card of residentsRoster.querySelectorAll(".resident-card")) {
+    card.addEventListener("click", () => {
+      state.selectedId = card.dataset.resident;
       select.value = state.selectedId;
       renderResidents();
       renderCharacter();
@@ -700,7 +735,10 @@ function renderCharacter() {
   // resident can hold skill 50 and reputation 0 in the same column, and hiding the zero
   // made that look like a missing row instead of a missing record. Values are public;
   // the causes are this resident's own, newest first, and open on request like the wallet.
+  // The full taxonomy from the server when it ships it, so even a domain nobody in this
+  // world has touched (fitness) renders at zero rather than reading as nonexistent.
   const domainNames = [...new Set([
+    ...(state.world.rules.reputationDomains ?? []),
     ...Object.keys(character.skills ?? {}),
     ...Object.keys(character.domainReputation ?? {}),
   ])];
@@ -712,7 +750,7 @@ function renderCharacter() {
     .join("");
   const reputationCauses = (character.reputationLog ?? []).slice(0, 10);
   const reputationLedger = reputationCauses.length
-    ? `<details class="wallet-details">
+    ? `<details class="wallet-details" data-keep="reputation">
         <summary>${plural(reputationCauses.length, "recent cause")}</summary>
         <ol class="wallet-ledger">${reputationCauses.map((entry) => `
           <li class="wallet-row ${entry.delta > 0 ? "in" : "out"}">
@@ -748,6 +786,11 @@ function renderCharacter() {
 
   const happinessTone = character.happiness >= 60 ? "good" : character.happiness <= 35 ? "poor" : "";
   const livedTone = character.livedHappiness > 0 ? "good" : character.livedHappiness < 0 ? "poor" : "";
+
+  // A redraw must never close what the reader opened: remember which disclosures were
+  // open and reopen them after the panel is rebuilt.
+  const openDisclosures = new Set([...panel.querySelectorAll("details[data-keep][open]")]
+    .map((disclosure) => disclosure.dataset.keep));
 
   panel.innerHTML = `
     <div class="identity">
@@ -808,6 +851,10 @@ function renderCharacter() {
       <div class="minor-heading"><h3>Relationships</h3><span>directional</span></div>
       <ul>${relationships || "<li><span>No relationships yet</span></li>"}</ul>
     </div>`;
+
+  for (const disclosure of panel.querySelectorAll("details[data-keep]")) {
+    if (openDisclosures.has(disclosure.dataset.keep)) disclosure.open = true;
+  }
 }
 
 // A labelled bar. Ten preference rows have to stay readable at a glance, so the label
@@ -847,7 +894,7 @@ function wallet(character) {
       <div class="out"><span>Spent</span><strong>−${number(purse.spent)}</strong></div>
       <div class="balance"><span>Balance</span><strong>${number(character.credits)}</strong></div>
     </div>
-    <details class="wallet-details">
+    <details class="wallet-details" data-keep="wallet">
       <summary>${purse.entries.length} movement${purse.entries.length === 1 ? "" : "s"}</summary>
       <ol class="wallet-ledger">${rows}</ol>
     </details>`;

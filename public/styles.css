@@ -446,8 +446,102 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 #timeline > li:first-child .event-copy p,
 #world-activity > li:first-child p { font-weight: 500; }
 
-/* Everyone at once. The resident panel answers "what is this person like"; this answers
-   "who is winning and who is having a bad time", which is what an observer opens with. */
+/* Everyone at once, one card per life. The eight-column table read as a spreadsheet;
+   a card leads with the two numbers a run is judged on and keeps the rest quiet. */
+.resident-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.resident-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 13px 11px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color .15s ease, transform .15s ease;
+}
+
+.resident-card:hover { border-color: var(--green); transform: translateY(-1px); }
+.resident-card:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.resident-card.selected { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+.resident-card.brain-down { border-color: rgba(229, 104, 79, .55); }
+
+.resident-card-top { display: flex; align-items: center; gap: 9px; }
+.resident-card .avatar { width: 34px; height: 34px; border-radius: 10px; font-size: 16px; }
+.resident-card.brain-down .avatar { background: var(--coral); }
+
+.resident-card-name { min-width: 0; flex: 1; }
+.resident-card-name strong { display: block; font-size: 13.5px; letter-spacing: -.01em; }
+.resident-card-name small {
+  display: block;
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.presence-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
+.presence-dot.up { background: #24a475; }
+.presence-dot.down { background: var(--coral); box-shadow: 0 0 0 3px rgba(229, 104, 79, .2); }
+
+.resident-card-figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.resident-card-figures .figure small {
+  display: block;
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.resident-card-figures .figure strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.resident-card-figures .figure strong.good { color: var(--green); }
+.resident-card-figures .figure strong.poor { color: var(--coral); }
+.resident-card-figures .happiness-chip { font-size: 11px; min-width: 26px; padding: 1px 5px; }
+
+.resident-card-energy { display: flex; align-items: center; gap: 7px; }
+.resident-card-energy .meter-track { flex: 1; }
+.resident-card-energy small { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+.resident-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.resident-card-tags span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(104, 115, 110, .1);
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: capitalize;
+}
+
+.resident-card-tags .proven { background: var(--mint); color: #0b4a37; }
+.resident-card-tags .built { background: rgba(70, 110, 132, .14); color: var(--blue); }
+
+/* The health page still reads as a table: rows of the same measurement. */
 .residents-table { overflow-x: auto; margin-top: 4px; }
 .residents-table table { border-collapse: collapse; width: 100%; font-size: 12px; }
 

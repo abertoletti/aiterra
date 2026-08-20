@@ -60,8 +60,12 @@ test("a wallet shows the balances and keeps the ledger behind a disclosure", () 
   for (const total of ["Opened with", "Earned", "Spent", "Balance"]) {
     assert.ok(script.includes(total), `the wallet must state ${total}`);
   }
-  assert.match(script, /<details class="wallet-details">/,
+  assert.match(script, /<details class="wallet-details" data-keep="wallet">/,
     "the ledger opens on request rather than filling the panel");
+  // And what the reader opened stays open: the panel redraw must reopen marked
+  // disclosures, or every refresh slams the ledger shut mid-read.
+  assert.match(script, /details\[data-keep\]\[open\]/,
+    "open disclosures survive a panel re-render");
   assert.match(script, /purse\.opening/);
 
   // The profile is a full-width band above the story: at 360px in a sticky column it pushed

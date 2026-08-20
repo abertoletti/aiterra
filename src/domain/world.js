@@ -4174,6 +4174,10 @@ export class World {
         version: this.config.rules.version,
         realHoursPerGameDay: this.config.clock.realHoursPerGameDay,
         unavailableAfterMissedResponses: this.config.timing.unavailableAfterMissedResponses,
+        // The observer renders every domain a resident could prove, zeros included, so the
+        // taxonomy has to reach it rather than be guessed from whichever skills happen to
+        // have values.
+        reputationDomains: [...this.config.skills.set],
         maximumEnergy: this.config.energy.maximum,
         movementEnergyCost: this.config.energy.movementCost,
         workEnergyCost: this.config.energy.workCost,
