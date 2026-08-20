@@ -417,6 +417,7 @@ export function publicCharacter(character) {
     locationId: character.locationId, activity: character.activity, energy: character.energy,
     credits: character.credits, skills: character.skills, reputation: character.reputation, score: character.score,
     agentAvailability: character.agentAvailability, consecutiveMissedResponses: character.consecutiveMissedResponses,
+    skillsLearned: structuredClone(character.skillsLearned ?? {}),
     // AIT-1501: a character sees its own Happiness and its own preference vector, and
     // never another character's. Credits answer whether it can afford something,
     // Energy whether it can sustain it, Happiness whether any of it is worth living.

@@ -668,3 +668,60 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 .board-tile strong { font-size: 19px; line-height: 1; }
 .board-tile .board-unit { font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .board-tile .board-here { grid-column: 1 / -1; font-size: 10px; color: var(--muted); }
+
+/* A resident-funded role is a different animal from a city post: someone's takings pay it,
+   the notice hangs in a square, and the work happens somewhere else. */
+.job-row.employed { border-left: 2px solid var(--green); }
+.employer-badge {
+  font-size: 9.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--mint);
+  color: #0b4a37;
+}
+
+.building-roles { list-style: none; margin: 8px 0 10px; padding: 0; display: grid; gap: 4px; }
+.building-roles li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11.5px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: rgba(104, 115, 110, .07);
+}
+.building-roles .role-wage { font-variant-numeric: tabular-nums; font-weight: 600; }
+.building-roles .role-who { color: var(--muted); font-size: 10.5px; }
+
+/* Skills move now, so what was learned matters more than where the bar sits. */
+.meter.grown .meter-fill { background: var(--green); }
+.meter-gain { font-style: normal; color: var(--green); font-weight: 700; margin-left: 3px; font-size: 9.5px; }
+
+/* Bar widths as classes, in five-point steps. The page's CSP forbids both an inline style
+   attribute and a style mutation from script, so every bar used to render empty; five-point
+   granularity is invisible on a meter and keeps the header strict. */
+.meter-fill.fill-0, .lived-fill.fill-0 { width: 0%; }
+.meter-fill.fill-5, .lived-fill.fill-5 { width: 5%; }
+.meter-fill.fill-10, .lived-fill.fill-10 { width: 10%; }
+.meter-fill.fill-15, .lived-fill.fill-15 { width: 15%; }
+.meter-fill.fill-20, .lived-fill.fill-20 { width: 20%; }
+.meter-fill.fill-25, .lived-fill.fill-25 { width: 25%; }
+.meter-fill.fill-30, .lived-fill.fill-30 { width: 30%; }
+.meter-fill.fill-35, .lived-fill.fill-35 { width: 35%; }
+.meter-fill.fill-40, .lived-fill.fill-40 { width: 40%; }
+.meter-fill.fill-45, .lived-fill.fill-45 { width: 45%; }
+.meter-fill.fill-50, .lived-fill.fill-50 { width: 50%; }
+.meter-fill.fill-55, .lived-fill.fill-55 { width: 55%; }
+.meter-fill.fill-60, .lived-fill.fill-60 { width: 60%; }
+.meter-fill.fill-65, .lived-fill.fill-65 { width: 65%; }
+.meter-fill.fill-70, .lived-fill.fill-70 { width: 70%; }
+.meter-fill.fill-75, .lived-fill.fill-75 { width: 75%; }
+.meter-fill.fill-80, .lived-fill.fill-80 { width: 80%; }
+.meter-fill.fill-85, .lived-fill.fill-85 { width: 85%; }
+.meter-fill.fill-90, .lived-fill.fill-90 { width: 90%; }
+.meter-fill.fill-95, .lived-fill.fill-95 { width: 95%; }
+.meter-fill.fill-100, .lived-fill.fill-100 { width: 100%; }
+

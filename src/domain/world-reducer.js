@@ -29,6 +29,7 @@ export function applyEvent(state, event) {
       state.characters.set(data.id, {
         ...structuredClone(data), activity: null, reputation: 0, score: 0,
         agentAvailability: "available", consecutiveMissedResponses: 0,
+        skillsLearned: {},
         secondaryGoals: [],
       });
       state.knowledge.set(data.id, new Map());
@@ -202,6 +203,10 @@ export function applyEvent(state, event) {
     case "SKILL_CHANGED": {
       const character = state.characters.get(data.characterId);
       character.skills[data.skill] = data.value;
+      // What a resident has learned, kept as a running total rather than re-derived from
+      // history: skills used to be fixed, so the number was the whole story, and now the
+      // interesting part is how far it has moved.
+      character.skillsLearned[data.skill] = (character.skillsLearned[data.skill] ?? 0) + data.delta;
       break;
     }
     case "JOB_COMPLETED": {

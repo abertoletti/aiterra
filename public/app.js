@@ -294,7 +294,7 @@ function renderResidents() {
             <td class="num"><span class="happiness-chip ${resident.happiness >= 60 ? "good" : resident.happiness <= 35 ? "poor" : ""}">${resident.happiness}</span></td>
             <td class="num">
               <span class="lived ${livedValue < 0 ? "poor" : livedValue > 0 ? "good" : ""}">${signed(livedValue)}</span>
-              <span class="lived-track"><span class="lived-fill ${livedValue < 0 ? "poor" : "good"}" style="width:${livedWidth}%"></span></span>
+              <span class="lived-track"><span class="lived-fill ${livedValue < 0 ? "poor" : "good"} ${fillClass(livedWidth, 100)}"></span></span>
             </td>
             <td class="num">${number(resident.credits)}</td>
             <td class="num">${resident.energy}</td>
@@ -411,6 +411,20 @@ function renderCity() {
           <span>balance ${number(building.balance)}</span>
           <span>${number(building.dailyUpkeep)}/day upkeep</span>
         </div>
+        ${(() => {
+    // A venue that earns and never hires is a venue whose money stops moving. Showing the
+    // roles it has open makes the difference between takings and a wage bill visible.
+    const roles = state.world.jobs.filter((job) => job.fundingSourceType === "building"
+      && job.fundingSourceId === building.buildingId
+      && !["completed", "failed", "cancelled", "expired"].includes(job.status));
+    if (roles.length === 0) return "";
+    return `<ul class="building-roles">${roles.map((role) => {
+      const staff = (role.workerIds ?? []).map(characterById).filter(Boolean);
+      return `<li><span class="role-title">${escapeHtml(role.title)}</span>
+        <span class="role-wage">${number(role.compensation)} cr</span>
+        <span class="role-who">${staff.length ? escapeHtml(staff.map((person) => person.name).join(", ")) : "unfilled"}</span></li>`;
+    }).join("")}</ul>`;
+  })()}
         <p class="routes">Can: ${escapeHtml(building.capabilities.join(" · "))}</p>
         ${building.status === "UNDER_CONSTRUCTION" && building.completesAt
     ? `<p class="routes">Opens at ${escapeHtml(formatTime(building.completesAt))}</p>` : ""}
@@ -447,6 +461,10 @@ function renderLocations() {
   }).join("");
 }
 
+function buildingById(buildingId) {
+  return state.world.city?.buildings.find((building) => building.buildingId === buildingId) ?? null;
+}
+
 function renderJobs() {
   const statuses = countBy(state.world.jobs, (job) => job.status);
   jobMeta.textContent = `${statuses.open ?? 0} open · ${statuses.running ?? 0} running · ${statuses.completed ?? 0} completed`;
@@ -470,17 +488,32 @@ function renderJobs() {
     const location = locationById(job.locationId);
     const workers = (job.workerIds ?? [job.workerId]).map(characterById).filter(Boolean);
     const requirements = Object.entries(job.requirements ?? {}).filter(([, value]) => value > 0);
+    // A resident-funded role hangs on a public square and is worked somewhere else, so the
+    // two places have to be told apart. A city post is read where it is done.
+    const board = locationById(job.boardLocationId ?? job.locationId);
+    const employer = job.fundingSourceType === "building"
+      ? buildingById(job.fundingSourceId)
+      : null;
+    const advertised = (job.boardLocationId ?? job.locationId) !== job.locationId;
     return `
-      <article class="job-row">
+      <article class="job-row${employer ? " employed" : ""}">
         <div class="job-primary">
-          <div class="job-title-line"><span class="status-badge status-${escapeHtml(job.status)}">${escapeHtml(job.status)}</span><h3>${escapeHtml(job.title)}</h3></div>
-          <p>${escapeHtml(location?.name ?? job.locationId)}${workers.length ? ` · ${job.teamSize > 1 ? "team" : "assigned to"} <strong>${workers.map((worker) => escapeHtml(worker.name)).join(", ")}</strong>` : " · unassigned"}</p>
+          <div class="job-title-line">
+            <span class="status-badge status-${escapeHtml(job.status)}">${escapeHtml(job.status)}</span>
+            ${employer ? `<span class="employer-badge">${escapeHtml(employer.name)}</span>` : ""}
+            <h3>${escapeHtml(job.title)}</h3>
+          </div>
+          <p>${advertised
+    ? `posted at <strong>${escapeHtml(board?.name ?? job.boardLocationId)}</strong> · worked at ${escapeHtml(location?.name ?? job.locationId)}`
+    : escapeHtml(location?.name ?? job.locationId)
+}${workers.length ? ` · ${job.teamSize > 1 ? "team" : "assigned to"} <strong>${workers.map((worker) => escapeHtml(worker.name)).join(", ")}</strong>` : " · unassigned"}</p>
         </div>
         <dl class="job-facts">
           <div><dt>Pay</dt><dd>${number(job.compensation)} cr</dd></div>
           <div><dt>Duration</dt><dd>${formatDuration(job.durationGameMinutes)}</dd></div>
           <div><dt>Energy</dt><dd>${job.energyCost} / ${state.world.rules.maximumEnergy}</dd></div>
           <div><dt>Requirements</dt><dd>${requirements.length ? requirements.map(([skill, value]) => `${humanize(skill)} ${value}+`).join(", ") : "None"}</dd></div>
+          <div><dt>Paid by</dt><dd>${employer ? `${escapeHtml(employer.name)}'s takings` : "the city budget"}</dd></div>
           ${job.teamSize > 1 ? `<div><dt>Team</dt><dd>${workers.length} / ${job.teamSize} · collective coverage</dd></div>` : ""}
         </dl>
         <div class="job-window">
@@ -565,9 +598,13 @@ function renderCharacter() {
     .map(([dimension, value]) => meter(dimension, value, 100, value >= 70 ? "strong" : value <= 20 ? "faint" : ""))
     .join("");
 
+  // Skills used to be fixed, so a number was the whole story. Now work teaches, and what
+  // this resident has learned is more interesting than where it happens to stand.
+  const learned = character.skillsLearned ?? {};
   const skills = Object.entries(character.skills ?? {})
     .sort(([, left], [, right]) => right - left)
-    .map(([skill, value]) => meter(skill, value, 100)).join("");
+    .map(([skill, value]) => meter(skill, value, 100, learned[skill] ? "grown" : "",
+      learned[skill] ? `+${learned[skill]}` : null)).join("");
 
   const goals = [
     ...(character.primaryGoal ? [{ ...character.primaryGoal, kind: "primary" }] : []),
@@ -648,13 +685,27 @@ function renderCharacter() {
 
 // A labelled bar. Ten preference rows have to stay readable at a glance, so the label
 // and the number sit on one line and the bar carries the comparison.
-function meter(label, value, maximum, tone = "") {
-  const width = Math.max(0, Math.min(100, (value / maximum) * 100));
+// The page's own Content-Security-Policy is style-src 'self', which blocks inline style
+// attributes - so every meter bar in the observer rendered at zero width and nothing said
+// so except a console error nobody was reading. Widths are carried as data attributes and
+// applied from script, which the policy allows.
+// The page's own Content-Security-Policy is style-src 'self', which blocks an inline style
+// attribute AND a style mutation from script. Every bar in the observer therefore rendered at
+// zero width, and the city map lost its column count, with nothing to show for it but console
+// errors nobody was reading. Widths are a class in five-point steps instead: invisible on a
+// bar, and it keeps the header strict rather than adding 'unsafe-inline' to make one CSS
+// property work.
+function fillClass(value, maximum) {
+  const percent = Math.max(0, Math.min(100, (value / maximum) * 100));
+  return `fill-${Math.round(percent / 5) * 5}`;
+}
+
+function meter(label, value, maximum, tone = "", gained = null) {
   return `
     <div class="meter ${tone}">
       <span class="meter-label">${escapeHtml(label)}</span>
-      <span class="meter-track"><span class="meter-fill" style="width:${width}%"></span></span>
-      <span class="meter-value">${value}</span>
+      <span class="meter-track"><span class="meter-fill ${fillClass(value, maximum)}"></span></span>
+      <span class="meter-value">${value}${gained ? `<i class="meter-gain">${escapeHtml(gained)}</i>` : ""}</span>
     </div>`;
 }
 
