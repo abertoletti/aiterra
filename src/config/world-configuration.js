@@ -100,7 +100,9 @@ export function validateWorldConfiguration(document) {
   const budget = document.bootstrapBudget ?? null;
   if (budget) {
     validId(budget.id, "bootstrap budget id");
-    nonNegativeNumber(budget.credits, "bootstrap budget credits");
+    // An unlimited treasury has no figure to validate: what it will pay out is decided by
+    // how much work residents do, not by a number written down in advance.
+    if (!budget.unlimited) nonNegativeNumber(budget.credits, "bootstrap budget credits");
   }
   uniqueIds(document.jobs, "job");
   const reservedByCharacter = new Map();
@@ -110,6 +112,7 @@ export function validateWorldConfiguration(document) {
     locationReference(job.locationId, locationIds, `job ${job.id} location`);
     positiveNumber(job.durationGameMinutes, `job ${job.id} durationGameMinutes`);
     positiveNumber(job.compensation, `job ${job.id} compensation`);
+    if (job.energyCost !== undefined) positiveNumber(job.energyCost, `job ${job.id} energyCost`);
     if (!Number.isInteger(job.teamSize ?? 1) || (job.teamSize ?? 1) < 1 || (job.teamSize ?? 1) > 5) {
       fail(`Job ${job.id} teamSize must be an integer between 1 and 5`);
     }
@@ -127,7 +130,7 @@ export function validateWorldConfiguration(document) {
       reservedByCharacter.set(job.creatorId, (reservedByCharacter.get(job.creatorId) ?? 0) + job.compensation);
     }
   }
-  if (budget && reservedFromBudget > budget.credits) fail("Bootstrap jobs exceed the configured bootstrap budget");
+  if (budget && !budget.unlimited && reservedFromBudget > budget.credits) fail("Bootstrap jobs exceed the configured bootstrap budget");
   for (const [characterId, reserved] of reservedByCharacter) {
     if (reserved > characterCredits.get(characterId)) fail(`Jobs created by ${characterId} exceed that character's credits`);
   }
@@ -174,7 +177,11 @@ export function activateWorldConfiguration(world, input) {
   for (const connection of configuration.connections) world.defineConnection(connection);
   for (const character of configuration.characters) world.createCharacter(character);
   if (configuration.bootstrapBudget) {
-    world.bootstrapEconomy({ budgetId: configuration.bootstrapBudget.id, credits: configuration.bootstrapBudget.credits });
+    world.bootstrapEconomy({
+      budgetId: configuration.bootstrapBudget.id,
+      credits: configuration.bootstrapBudget.credits,
+      unlimited: Boolean(configuration.bootstrapBudget.unlimited),
+    });
   }
   for (const event of configuration.events) {
     const startsAt = addGameMinutes(activatedAt, event.startsInGameMinutes);
@@ -194,6 +201,7 @@ export function activateWorldConfiguration(world, input) {
       id: job.id, title: job.title, locationId: job.locationId,
       durationGameMinutes: job.durationGameMinutes, compensation: job.compensation,
       requirements: job.requirements ?? {}, teamSize: job.teamSize ?? 1, scheduledStartAt, offerExpiresAt,
+      energyCost: job.energyCost ?? null,
       repeatable: job.repeatable ?? false, cooldownGameMinutes: job.cooldownGameMinutes ?? null,
     };
     if (job.fundingSource === "bootstrap") {

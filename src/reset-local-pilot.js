@@ -16,7 +16,7 @@ if (await serverIsReachable(baseUrl)) {
 
 const targets = findResetTargets(pilotDataRoot);
 if (targets.length === 0) {
-  console.log("The local seven-agent pilot is already clean.");
+  console.log("The local pilot is already clean.");
   process.exit(0);
 }
 

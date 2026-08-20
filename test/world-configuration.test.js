@@ -63,13 +63,38 @@ test("the checked-in example world configuration is valid", () => {
   assert.equal(configuration.version, "internal-pilot-v1");
 });
 
-test("the checked-in seven-agent local pilot configuration is valid", () => {
+test("the checked-in ten-agent local pilot configuration is valid", () => {
   const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
-  assert.equal(configuration.characters.length, 7);
+  assert.equal(configuration.characters.length, 10);
   assert.equal(configuration.jobs.length, 20);
-  assert.equal(configuration.version, "local-seven-agent-pilot-v5-four-squares");
-  assert.equal(configuration.jobs.filter((job) => job.teamSize === 2).length, 2);
-  assert.ok(configuration.jobs.every((job) => job.durationGameMinutes <= 35));
+  assert.equal(configuration.version, "local-ten-agent-pilot-v6-four-squares");
+  assert.equal(configuration.jobs.filter((job) => job.teamSize === 2).length, 3);
+
+  // Effort is the currency of work, and the board has to make that legible: pay tracks the
+  // energy a post costs, with a premium for the skill it demands. Every post used to cost
+  // the same 15 energy whatever it was, so a five-minute errand and an hour of skilled
+  // labour were indistinguishable to a resident deciding how to spend its day.
+  const rate = (job) => job.compensation / job.energyCost;
+  for (const job of configuration.jobs) {
+    assert.ok(job.energyCost >= 3 && job.energyCost <= 40, `${job.id} costs a sane amount of effort`);
+    assert.ok(rate(job) >= 4 && rate(job) <= 7, `${job.id} pays a rate in the band`);
+    const hardest = Math.max(0, ...Object.values(job.requirements ?? {}));
+    assert.ok(job.energyCost >= Math.round(job.durationGameMinutes / 1.8),
+      `${job.id} costs at least what its length implies`);
+    if (hardest === 0) assert.ok(rate(job) < 4.5, `${job.id} asks nothing, so it pays the base rate`);
+  }
+  // A real spread, not twenty variations of one job.
+  const minutes = configuration.jobs.map((job) => job.durationGameMinutes);
+  assert.ok(Math.min(...minutes) <= 5 && Math.max(...minutes) >= 50, "from an errand to half a shift");
+  const pay = configuration.jobs.map((job) => job.compensation);
+  assert.ok(Math.max(...pay) / Math.min(...pay) >= 10, "the best post is worth many times the smallest");
+
+  // Every square keeps an unskilled errand, so nobody is ever locked out of earning.
+  for (const square of ["market", "foundry", "garden", "archive"]) {
+    assert.ok(configuration.jobs.some((job) => job.locationId === square
+      && Object.keys(job.requirements ?? {}).length === 0),
+    `${square} keeps a notice anyone can take`);
+  }
 
   // Four squares, one per quadrant, five notices on each board. The grid is the only source
   // of distance now, so no hand-written edge can contradict the map everyone can see.
@@ -85,20 +110,25 @@ test("the checked-in seven-agent local pilot configuration is valid", () => {
   activateWorldConfiguration(world, configuration);
   const observation = world.getObservation("pilot-01");
 
-  // pilot-01 stands in Market Square, so it reads Market Square's board and no other.
-  assert.equal(observation.character.locationId, "market");
+  // pilot-01 stands in Archive Square, so it reads Archive Square's board and no other.
+  assert.equal(observation.character.locationId, "archive");
   assert.equal(observation.availableJobs.length, 5);
-  assert.equal(observation.availableActions.filter((action) => action.type === "accept_job").length, 4,
-    "four of the five notices on this board can be taken straight away");
+  assert.equal(observation.availableActions.filter((action) => action.type === "accept_job").length, 3,
+    "three of the five notices on this board can be taken straight away");
 
   // The fifth is on the map rather than the menu, and it is blocked by exactly one thing -
   // a skill - which is the shape of a plan rather than the shape of noise. Under the old
   // contract the same resident saw twenty notices, fifteen of them unreachable, and the
   // loudest reason on them was that the work was in another part of town.
+  // The two out of reach are each short of one skill and nothing else, which is the shape of
+  // a plan rather than the shape of noise. One of the three she can take is a team post she
+  // could not cover alone: coverage is collective, so joining is a bet on a partner.
   const reachable = observation.opportunities.filter((entry) => entry.type === "accept_job");
-  assert.equal(reachable.length, 1);
-  assert.deepEqual(reachable[0].blockedBy, ["SKILL_REQUIREMENT"]);
-  assert.ok(reachable[0].unmetRequirements.length > 0, "and it names what is missing");
+  assert.equal(reachable.length, 2);
+  for (const entry of reachable) {
+    assert.deepEqual(entry.blockedBy, ["SKILL_REQUIREMENT"]);
+    assert.ok(entry.unmetRequirements.length > 0, `${entry.jobId} names what is missing`);
+  }
   assert.deepEqual(observation.cannotRightNow, [],
     "work is possible here, so there is no class-wide reason to state");
 

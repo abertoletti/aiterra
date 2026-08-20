@@ -29,6 +29,10 @@ export const defaultConfig = Object.freeze({
   economy: {
     bootstrapBudgetId: "world-bootstrap",
     bootstrapCredits: 10_000,
+    // Whether the city's treasury is bottomless. The engine supports both; which one a world
+    // runs is a game-design decision and belongs in that world's configuration. Off here, so
+    // a bounded budget stays the explicit default and every test says which it means.
+    unlimitedCityBudget: false,
     maximumOpenSystemJobs: 20,
   },
   movement: {

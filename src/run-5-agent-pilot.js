@@ -7,10 +7,11 @@ import { AgentDecisionPlanner } from "./agents/decision-planner.js";
 import { PilotConsoleLogger } from "./agents/pilot-console-logger.js";
 
 const environment = process.env;
-const characterIds = (environment.PILOT_AGENT_IDS ?? "pilot-01,pilot-02,pilot-03,pilot-04,pilot-05,pilot-06,pilot-07")
+const characterIds = (environment.PILOT_AGENT_IDS
+  ?? "pilot-01,pilot-02,pilot-03,pilot-04,pilot-05,pilot-06,pilot-07,pilot-08,pilot-09,pilot-10")
   .split(",").map((value) => value.trim()).filter(Boolean);
-if (characterIds.length !== 7 || new Set(characterIds).size !== 7) {
-  throw new Error("PILOT_AGENT_IDS must contain exactly seven unique character IDs");
+if (characterIds.length === 0 || new Set(characterIds).size !== characterIds.length) {
+  throw new Error("PILOT_AGENT_IDS must contain at least one character ID and no duplicates");
 }
 
 const agentTokens = jsonObjectEnvironment(environment, "AGENT_TOKENS_JSON");
@@ -39,7 +40,7 @@ const logger = new PilotConsoleLogger({
   agentFilter: environment.PILOT_CONSOLE_AGENT,
   agentNames: {
     "pilot-01": "Mira", "pilot-02": "Jonas", "pilot-03": "Nia", "pilot-04": "Elias", "pilot-05": "Sora",
-    "pilot-06": "Vera", "pilot-07": "Rook",
+    "pilot-06": "Vera", "pilot-07": "Rook", "pilot-08": "Kai", "pilot-09": "Amara", "pilot-10": "Piet",
   },
   agentIds: characterIds,
   activityLogPath,
@@ -77,13 +78,13 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-console.log(`Starting seven-agent pilot against ${baseUrl}`);
+console.log(`Starting ${characterIds.length}-agent pilot against ${baseUrl}`);
 console.log(`Model: ${environment.AZURE_FOUNDRY_MODEL}; rate limit: ${environment.PILOT_MAX_MODEL_CALLS ?? 10} calls per agent every ${environment.PILOT_MODEL_CALL_WINDOW_MS ?? 60_000} ms`);
 console.log(`The pilot will stop after ${durationMinutes} minutes or on Ctrl+C.`);
 console.log(`Live activity: ${environment.PILOT_LOG_LEVEL ?? environment.PILOT_CONSOLE_MODE ?? "INFO"}${environment.PILOT_CONSOLE_AGENT ? ` (main console only: ${environment.PILOT_CONSOLE_AGENT})` : ""}`);
 console.log(`Activity log: ${activityLogPath}`);
 console.log(`Per-agent logs: ${agentLogDirectory}`);
-console.log(`Main terminal agent feed: ${logger.printAgentActivityToMain ? "combined" : "disabled (use the seven separate consoles)"}`);
+console.log(`Main terminal agent feed: ${logger.printAgentActivityToMain ? "combined" : "disabled (use the separate per-agent consoles)"}`);
 
 try {
   await supervisor.start();
@@ -135,7 +136,7 @@ async function readHealth(url) {
 }
 
 async function readMetrics(url, operatorToken, from, through) {
-  const query = new URLSearchParams({ from, through, environment: "local-pilot", isTest: "true", testRunId: "local-seven-agent-pilot" });
+  const query = new URLSearchParams({ from, through, environment: "local-pilot", isTest: "true", testRunId: "local-ten-agent-pilot" });
   const response = await fetch(`${url.replace(/\/$/, "")}/api/metrics?${query}`, {
     headers: operatorToken ? { Authorization: `Bearer ${operatorToken}` } : {},
   });

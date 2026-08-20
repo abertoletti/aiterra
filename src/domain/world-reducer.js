@@ -8,7 +8,12 @@ import { coPresenceKey, experienceAttendanceKey, relationshipKey, round2 } from 
 // kinds of purse now that a building can employ people, and four places in this reducer used
 // to branch on the type by hand - so one of them was always going to be forgotten.
 function moveFunding(state, event, type, id, amount, reason) {
-  if (type === "system_budget") state.systemBudgets.get(id).balance += amount;
+  if (type === "system_budget") {
+    const budget = state.systemBudgets.get(id);
+    if (amount < 0) budget.drawn -= amount;
+    else budget.returned += amount;
+    if (!budget.unlimited) budget.balance += amount;
+  }
   else if (type === "building") state.buildings.get(id).balance += amount;
   else moveCredits(state, event, id, amount, reason);
 }
@@ -151,6 +156,10 @@ export function applyEvent(state, event) {
     case "ECONOMY_BOOTSTRAPPED":
       state.systemBudgets.set(data.budgetId, {
         id: data.budgetId, initialCredits: data.credits, balance: data.credits,
+        unlimited: Boolean(data.unlimited),
+        // An unlimited city has no remaining balance worth reporting, so what it has drawn
+        // and had returned is tracked instead: the net is the money it has put into the world.
+        drawn: 0, returned: 0,
         currency: data.currency, createdAt: event.worldTime,
       });
       break;

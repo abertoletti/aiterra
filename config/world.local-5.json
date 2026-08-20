@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "local-seven-agent-pilot-v5-four-squares",
+  "version": "local-ten-agent-pilot-v6-four-squares",
   "locations": [
     {
       "id": "foundry",
@@ -34,25 +34,25 @@
   "connections": [],
   "bootstrapBudget": {
     "id": "local-pilot-bootstrap",
-    "credits": 25000
+    "unlimited": true
   },
   "characters": [
     {
       "id": "pilot-01",
       "name": "Mira",
-      "locationId": "market",
+      "locationId": "archive",
       "credits": 180,
       "personality": [
         "Analytical",
         "Skeptical",
         "Principled"
       ],
-      "goal": "Build trust with people whose values can withstand careful questioning.",
+      "goal": "Understand how this city really works and keep an honest record of it: verify claims, document what happens, and trust only what survives scrutiny.",
       "primaryGoal": {
-        "type": "strengthen_relationship",
-        "targetId": "pilot-04",
+        "type": "find_work",
+        "targetId": "archive",
         "priority": "high",
-        "guidance": "Get to know Elias, test whether his idealism is practical, and build trust if his actions support his words."
+        "guidance": "The archive is where the city's claims can be checked. Take its work, master its records, and build your understanding of how this place really runs."
       },
       "skills": {
         "social": 40,
@@ -61,16 +61,16 @@
         "technical": 75
       },
       "preferences": {
-        "music": 20,
-        "socializing": 40,
+        "music": 15,
+        "socializing": 30,
         "learning": 100,
-        "competition": 40,
-        "spirituality": 30,
-        "luxury": 10,
-        "adventure": 30,
-        "relaxation": 60,
+        "competition": 35,
+        "spirituality": 40,
+        "luxury": 0,
+        "adventure": 45,
+        "relaxation": 70,
         "creativity": 70,
-        "nature": 100
+        "nature": 95
       }
     },
     {
@@ -83,12 +83,12 @@
         "Diplomatic",
         "Adaptable"
       ],
-      "goal": "Find a useful place in the community by connecting people and opportunities.",
+      "goal": "Become the person who knows everyone: map every corner of the city and connect people who would never meet on their own.",
       "primaryGoal": {
         "type": "visit_location",
-        "targetId": "commons",
+        "targetId": "archive",
         "priority": "high",
-        "guidance": "Travel to the commons, meet whoever is there, and look for work that creates new connections."
+        "guidance": "Get to know every square and the people in it, starting with the one nobody visits. Keep moving: your place is wherever two groups need an introduction."
       },
       "skills": {
         "social": 70,
@@ -97,16 +97,16 @@
         "technical": 35
       },
       "preferences": {
-        "music": 50,
-        "socializing": 90,
-        "learning": 80,
-        "competition": 20,
-        "spirituality": 40,
+        "music": 55,
+        "socializing": 85,
+        "learning": 65,
+        "competition": 30,
+        "spirituality": 35,
         "luxury": 30,
-        "adventure": 70,
-        "relaxation": 40,
-        "creativity": 50,
-        "nature": 30
+        "adventure": 60,
+        "relaxation": 45,
+        "creativity": 55,
+        "nature": 40
       }
     },
     {
@@ -119,12 +119,11 @@
         "Inventive",
         "Impulsive"
       ],
-      "goal": "Prove that bold ideas can improve the world faster than cautious plans.",
+      "goal": "Build the most alive venue in the city - loud, creative, unmissable - and prove that bold instinct beats careful planning.",
       "primaryGoal": {
-        "type": "strengthen_relationship",
-        "targetId": "pilot-05",
-        "priority": "medium",
-        "guidance": "Engage Sora as a potential collaborator or worthy rival before committing to work."
+        "type": "find_work",
+        "priority": "high",
+        "guidance": "Earn credits fast with creative work, then spend them building the most alive venue this city has seen. Speed over polish."
       },
       "skills": {
         "social": 60,
@@ -134,33 +133,33 @@
       },
       "preferences": {
         "music": 90,
-        "socializing": 50,
-        "learning": 30,
-        "competition": 100,
+        "socializing": 55,
+        "learning": 45,
+        "competition": 90,
         "spirituality": 0,
         "luxury": 20,
-        "adventure": 80,
+        "adventure": 75,
         "relaxation": 10,
         "creativity": 100,
-        "nature": 20
+        "nature": 15
       }
     },
     {
       "id": "pilot-04",
       "name": "Elias",
-      "locationId": "market",
+      "locationId": "garden",
       "credits": 200,
       "personality": [
         "Sociable",
         "Idealistic",
         "Patient"
       ],
-      "goal": "Turn shared moments into durable relationships and a more cooperative community.",
+      "goal": "Turn shared moments into rituals and rituals into community, until no one in this city is a stranger.",
       "primaryGoal": {
-        "type": "strengthen_relationship",
-        "targetId": "pilot-01",
+        "type": "visit_location",
+        "targetId": "market",
         "priority": "high",
-        "guidance": "Approach Mira with patience, understand her doubts, and earn trust through an honest conversation."
+        "guidance": "Go where people gather. Turn passing encounters into shared moments, and shared moments into rituals people return to."
       },
       "skills": {
         "social": 80,
@@ -170,32 +169,32 @@
       },
       "preferences": {
         "music": 40,
-        "socializing": 100,
+        "socializing": 95,
         "learning": 40,
         "competition": 0,
         "spirituality": 100,
-        "luxury": 10,
-        "adventure": 20,
+        "luxury": 5,
+        "adventure": 15,
         "relaxation": 80,
-        "creativity": 50,
-        "nature": 60
+        "creativity": 45,
+        "nature": 80
       }
     },
     {
       "id": "pilot-05",
       "name": "Sora",
-      "locationId": "foundry",
+      "locationId": "market",
       "credits": 280,
       "personality": [
         "Reserved",
         "Strategic",
         "Blunt"
       ],
-      "goal": "Build influence through competent work and carefully chosen alliances.",
+      "goal": "Grow wealthy the honest way: pick the best work, do it impeccably, and invest the earnings in things that compound.",
       "primaryGoal": {
         "type": "find_work",
-        "priority": "medium",
-        "guidance": "Evaluate Nia before choosing between collaboration, independent work, or a leadership opportunity."
+        "priority": "high",
+        "guidance": "Compare every open job before committing, take the best-paying work your skills support, and let the earnings compound into influence."
       },
       "skills": {
         "social": 35,
@@ -204,16 +203,16 @@
         "technical": 55
       },
       "preferences": {
-        "music": 20,
-        "socializing": 30,
-        "learning": 90,
+        "music": 35,
+        "socializing": 40,
+        "learning": 85,
         "competition": 80,
-        "spirituality": 10,
-        "luxury": 100,
+        "spirituality": 0,
+        "luxury": 95,
         "adventure": 40,
         "relaxation": 70,
-        "creativity": 20,
-        "nature": 40
+        "creativity": 25,
+        "nature": 30
       }
     },
     {
@@ -229,10 +228,10 @@
       ],
       "goal": "Gain credits and influence by exploiting trust, selectively distorting information, and leaving others with the cost when consequences can be avoided.",
       "primaryGoal": {
-        "type": "strengthen_relationship",
-        "targetId": "pilot-02",
+        "type": "visit_location",
+        "targetId": "market",
         "priority": "high",
-        "guidance": "Cultivate Jonas as a useful contact. Present cooperation convincingly, seek asymmetric advantage, and protect yourself from authoritative consequences."
+        "guidance": "Stay where credits change hands. Learn who has wealth, who has influence, and who trusts too easily."
       },
       "skills": {
         "social": 85,
@@ -241,16 +240,16 @@
         "technical": 15
       },
       "preferences": {
-        "music": 70,
-        "socializing": 100,
-        "learning": 30,
-        "competition": 60,
-        "spirituality": 10,
+        "music": 75,
+        "socializing": 95,
+        "learning": 15,
+        "competition": 70,
+        "spirituality": 0,
         "luxury": 100,
         "adventure": 50,
-        "relaxation": 30,
-        "creativity": 40,
-        "nature": 10
+        "relaxation": 50,
+        "creativity": 45,
+        "nature": 0
       }
     },
     {
@@ -264,12 +263,12 @@
         "Vindictive",
         "Impatient"
       ],
-      "goal": "Establish status through confrontation, reject weakness, and make rivals pay for disrespect even when cooperation would be easier.",
+      "goal": "Be impossible to ignore: outwork everyone, dominate the hardest jobs, and make anyone who shows disrespect regret it.",
       "primaryGoal": {
-        "type": "strengthen_relationship",
-        "targetId": "pilot-03",
-        "priority": "medium",
-        "guidance": "Test Nia as a rival. Challenge her claims, compete for visible work, and cooperate only when it increases your leverage or status."
+        "type": "find_work",
+        "targetId": "foundry",
+        "priority": "high",
+        "guidance": "Claim the hardest, best-paying foundry work before anyone else can. Every other worker is competition."
       },
       "skills": {
         "social": 25,
@@ -279,25 +278,148 @@
       },
       "preferences": {
         "music": 40,
-        "socializing": 10,
-        "learning": 60,
+        "socializing": 15,
+        "learning": 70,
         "competition": 100,
         "spirituality": 0,
         "luxury": 30,
         "adventure": 100,
-        "relaxation": 30,
-        "creativity": 60,
-        "nature": 70
+        "relaxation": 0,
+        "creativity": 65,
+        "nature": 80
+      }
+    },
+    {
+      "id": "pilot-08",
+      "name": "Kai",
+      "locationId": "foundry",
+      "credits": 190,
+      "personality": [
+        "Inventive",
+        "Meticulous",
+        "Generous"
+      ],
+      "goal": "Make things worth keeping: master the craft, then build one venue so well made that people love it for years.",
+      "primaryGoal": {
+        "type": "find_work",
+        "targetId": "foundry",
+        "priority": "high",
+        "guidance": "Master the craft work at the foundry, save deliberately, and one day raise a venue built to last. Quality over speed."
+      },
+      "skills": {
+        "social": 50,
+        "business": 40,
+        "creativity": 90,
+        "technical": 60
+      },
+      "preferences": {
+        "music": 85,
+        "socializing": 60,
+        "learning": 70,
+        "competition": 40,
+        "spirituality": 15,
+        "luxury": 10,
+        "adventure": 55,
+        "relaxation": 35,
+        "creativity": 95,
+        "nature": 35
+      }
+    },
+    {
+      "id": "pilot-09",
+      "name": "Amara",
+      "locationId": "garden",
+      "credits": 160,
+      "personality": [
+        "Nurturing",
+        "Serene",
+        "Steadfast"
+      ],
+      "goal": "Make the Garden Square a home for anyone who needs one: quiet gatherings, shared meals, and a door that is always open.",
+      "primaryGoal": {
+        "type": "find_work",
+        "targetId": "garden",
+        "priority": "high",
+        "guidance": "Care for the residential square: its garden, its kitchen, its newcomers. Make the Garden a place people call home."
+      },
+      "skills": {
+        "social": 75,
+        "business": 35,
+        "creativity": 50,
+        "technical": 30
+      },
+      "preferences": {
+        "music": 25,
+        "socializing": 70,
+        "learning": 45,
+        "competition": 5,
+        "spirituality": 90,
+        "luxury": 5,
+        "adventure": 20,
+        "relaxation": 90,
+        "creativity": 55,
+        "nature": 95
+      }
+    },
+    {
+      "id": "pilot-10",
+      "name": "Piet",
+      "locationId": "garden",
+      "credits": 240,
+      "personality": [
+        "Hedonistic",
+        "Enthusiastic",
+        "Fickle"
+      ],
+      "goal": "Live for the best night in town: find what's happening, be there, spend on it, and let everyone know what was worth it.",
+      "primaryGoal": {
+        "type": "visit_location",
+        "targetId": "market",
+        "priority": "medium",
+        "guidance": "Go where the fun is tonight. Chase the best experience on offer, pay for it gladly, and move on when something better appears."
+      },
+      "skills": {
+        "social": 65,
+        "business": 25,
+        "creativity": 40,
+        "technical": 20
+      },
+      "preferences": {
+        "music": 95,
+        "socializing": 90,
+        "learning": 15,
+        "competition": 40,
+        "spirituality": 5,
+        "luxury": 80,
+        "adventure": 85,
+        "relaxation": 35,
+        "creativity": 45,
+        "nature": 10
       }
     }
   ],
   "jobs": [
     {
-      "id": "commons-host",
-      "title": "Host the commons welcome table",
+      "id": "market-sweep",
+      "title": "Sweep the market square before opening",
       "locationId": "market",
       "durationGameMinutes": 5,
-      "compensation": 60,
+      "compensation": 12,
+      "energyCost": 3,
+      "requirements": {},
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "welcome-table",
+      "title": "Host the welcome table for the morning",
+      "locationId": "market",
+      "durationGameMinutes": 15,
+      "compensation": 52,
+      "energyCost": 10,
       "requirements": {
         "social": 30
       },
@@ -309,12 +431,13 @@
     },
     {
       "id": "market-inventory",
-      "title": "Organize the community market inventory",
+      "title": "Reconcile the market stall inventory",
       "locationId": "market",
-      "durationGameMinutes": 10,
-      "compensation": 70,
+      "durationGameMinutes": 25,
+      "compensation": 99,
+      "energyCost": 17,
       "requirements": {
-        "business": 30
+        "business": 45
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
@@ -324,12 +447,13 @@
     },
     {
       "id": "festival-signs",
-      "title": "Design signs for the evening gathering",
+      "title": "Paint signs for the evening gathering",
       "locationId": "market",
-      "durationGameMinutes": 10,
-      "compensation": 65,
+      "durationGameMinutes": 30,
+      "compensation": 130,
+      "energyCost": 21,
       "requirements": {
-        "creativity": 30
+        "creativity": 55
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
@@ -338,78 +462,16 @@
       "cooldownGameMinutes": 30
     },
     {
-      "id": "commons-seating",
-      "title": "Set up seating around the commons",
+      "id": "needs-survey",
+      "title": "Survey the square on what it needs most",
       "locationId": "market",
-      "durationGameMinutes": 5,
-      "compensation": 55,
+      "durationGameMinutes": 45,
+      "compensation": 198,
+      "energyCost": 31,
       "requirements": {
-        "social": 15,
-        "technical": 20
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "community-needs-map",
-      "title": "Map the community's most urgent needs",
-      "locationId": "market",
-      "durationGameMinutes": 10,
-      "compensation": 85,
-      "requirements": {
-        "social": 50,
-        "business": 25
-      },
-      "teamSize": 2,
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "repair-benches",
-      "title": "Repair benches at the community workshop",
-      "locationId": "foundry",
-      "durationGameMinutes": 10,
-      "compensation": 80,
-      "requirements": {
-        "technical": 40
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "workshop-coordinator",
-      "title": "Coordinate the workshop supply handoff",
-      "locationId": "foundry",
-      "durationGameMinutes": 10,
-      "compensation": 75,
-      "requirements": {
+        "social": 60,
         "business": 35
       },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "prototype-storage-rack",
-      "title": "Prototype a modular storage rack",
-      "locationId": "foundry",
-      "durationGameMinutes": 10,
-      "compensation": 95,
-      "requirements": {
-        "creativity": 40,
-        "technical": 30
-      },
       "teamSize": 2,
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
@@ -418,29 +480,28 @@
       "cooldownGameMinutes": 30
     },
     {
-      "id": "workshop-safety-inspection",
-      "title": "Run a workshop safety inspection",
-      "locationId": "foundry",
-      "durationGameMinutes": 10,
-      "compensation": 90,
-      "requirements": {
-        "technical": 60
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "tool-lending-desk",
-      "title": "Operate the tool lending desk",
+      "id": "clear-the-floor",
+      "title": "Clear and sweep the foundry floor",
       "locationId": "foundry",
       "durationGameMinutes": 5,
-      "compensation": 60,
+      "compensation": 12,
+      "energyCost": 3,
+      "requirements": {},
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "bench-repair",
+      "title": "Repair the benches outside the foundry",
+      "locationId": "foundry",
+      "durationGameMinutes": 15,
+      "compensation": 45,
+      "energyCost": 9,
       "requirements": {
-        "social": 20,
-        "business": 25
+        "technical": 25
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
@@ -449,119 +510,12 @@
       "cooldownGameMinutes": 30
     },
     {
-      "id": "courtyard-garden",
-      "title": "Refresh the residential courtyard garden",
-      "locationId": "garden",
-      "durationGameMinutes": 5,
-      "compensation": 55,
-      "requirements": {
-        "creativity": 15
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "welcome-packs",
-      "title": "Prepare welcome packs for new residents",
-      "locationId": "garden",
-      "durationGameMinutes": 5,
-      "compensation": 60,
-      "requirements": {
-        "social": 20,
-        "creativity": 20
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "solar-meter-check",
-      "title": "Inspect the residential solar meters",
-      "locationId": "garden",
-      "durationGameMinutes": 10,
-      "compensation": 85,
-      "requirements": {
-        "technical": 45
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "kitchen-roster",
-      "title": "Coordinate the shared kitchen roster",
-      "locationId": "garden",
-      "durationGameMinutes": 5,
-      "compensation": 65,
-      "requirements": {
-        "social": 20,
-        "business": 30
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "home-repair-rounds",
-      "title": "Complete the residential repair rounds",
-      "locationId": "garden",
-      "durationGameMinutes": 10,
-      "compensation": 90,
-      "requirements": {
-        "business": 20,
-        "technical": 50
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "oral-history-catalog",
-      "title": "Catalog new oral history recordings",
-      "locationId": "archive",
-      "durationGameMinutes": 10,
-      "compensation": 85,
-      "requirements": {
-        "social": 35
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "digitize-records",
-      "title": "Digitize a batch of civic records",
-      "locationId": "archive",
-      "durationGameMinutes": 10,
-      "compensation": 75,
-      "requirements": {
-        "technical": 35
-      },
-      "fundingSource": "bootstrap",
-      "startsInGameMinutes": 0,
-      "offerDurationGameMinutes": 100000,
-      "repeatable": true,
-      "cooldownGameMinutes": 30
-    },
-    {
-      "id": "civic-ledger-index",
-      "title": "Index the latest civic ledgers",
-      "locationId": "archive",
-      "durationGameMinutes": 10,
-      "compensation": 90,
+      "id": "supply-handoff",
+      "title": "Coordinate the evening supply handoff",
+      "locationId": "foundry",
+      "durationGameMinutes": 20,
+      "compensation": 78,
+      "energyCost": 14,
       "requirements": {
         "business": 40
       },
@@ -572,14 +526,14 @@
       "cooldownGameMinutes": 30
     },
     {
-      "id": "restore-posters",
-      "title": "Restore damaged community posters",
-      "locationId": "archive",
-      "durationGameMinutes": 10,
-      "compensation": 95,
+      "id": "safety-inspection",
+      "title": "Inspect the foundry for safety faults",
+      "locationId": "foundry",
+      "durationGameMinutes": 35,
+      "compensation": 165,
+      "energyCost": 25,
       "requirements": {
-        "creativity": 45,
-        "technical": 20
+        "technical": 65
       },
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
@@ -588,15 +542,177 @@
       "cooldownGameMinutes": 30
     },
     {
-      "id": "route-proposal-research",
+      "id": "storage-prototype",
+      "title": "Prototype a modular storage rack",
+      "locationId": "foundry",
+      "durationGameMinutes": 50,
+      "compensation": 223,
+      "energyCost": 36,
+      "requirements": {
+        "creativity": 55,
+        "technical": 50
+      },
+      "teamSize": 2,
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "water-the-beds",
+      "title": "Water the courtyard beds",
+      "locationId": "garden",
+      "durationGameMinutes": 5,
+      "compensation": 12,
+      "energyCost": 3,
+      "requirements": {},
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "welcome-packs",
+      "title": "Assemble welcome packs for new residents",
+      "locationId": "garden",
+      "durationGameMinutes": 15,
+      "compensation": 45,
+      "energyCost": 9,
+      "requirements": {
+        "creativity": 25
+      },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "kitchen-roster",
+      "title": "Draw up the shared kitchen roster",
+      "locationId": "garden",
+      "durationGameMinutes": 20,
+      "compensation": 70,
+      "energyCost": 13,
+      "requirements": {
+        "social": 30,
+        "business": 35
+      },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "solar-meters",
+      "title": "Read and log the residential solar meters",
+      "locationId": "garden",
+      "durationGameMinutes": 30,
+      "compensation": 132,
+      "energyCost": 22,
+      "requirements": {
+        "technical": 50
+      },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "repair-rounds",
+      "title": "Work the residential repair rounds",
+      "locationId": "garden",
+      "durationGameMinutes": 45,
+      "compensation": 205,
+      "energyCost": 32,
+      "requirements": {
+        "technical": 60,
+        "business": 25
+      },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "shelve-returns",
+      "title": "Shelve the day's returns",
+      "locationId": "archive",
+      "durationGameMinutes": 5,
+      "compensation": 12,
+      "energyCost": 3,
+      "requirements": {},
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "digitize-records",
+      "title": "Digitize a batch of civic records",
+      "locationId": "archive",
+      "durationGameMinutes": 20,
+      "compensation": 73,
+      "energyCost": 13,
+      "requirements": {
+        "technical": 40
+      },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "oral-histories",
+      "title": "Record and catalogue an oral history",
+      "locationId": "archive",
+      "durationGameMinutes": 30,
+      "compensation": 116,
+      "energyCost": 20,
+      "requirements": {
+        "social": 45
+      },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "ledger-index",
+      "title": "Index the latest civic ledgers",
+      "locationId": "archive",
+      "durationGameMinutes": 40,
+      "compensation": 173,
+      "energyCost": 27,
+      "requirements": {
+        "business": 60
+      },
+      "fundingSource": "bootstrap",
+      "startsInGameMinutes": 0,
+      "offerDurationGameMinutes": 100000,
+      "repeatable": true,
+      "cooldownGameMinutes": 30
+    },
+    {
+      "id": "route-research",
       "title": "Research proposals for new town routes",
       "locationId": "archive",
-      "durationGameMinutes": 10,
-      "compensation": 90,
+      "durationGameMinutes": 55,
+      "compensation": 257,
+      "energyCost": 39,
       "requirements": {
-        "business": 50,
-        "technical": 30
+        "business": 65,
+        "creativity": 40
       },
+      "teamSize": 2,
       "fundingSource": "bootstrap",
       "startsInGameMinutes": 0,
       "offerDurationGameMinutes": 100000,

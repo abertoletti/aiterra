@@ -164,7 +164,8 @@ test("the invitation affordance is one aimed declaration, in either context mode
 
 test("everything the invitation envelope permits is sourceable and actually accepted", () => {
   const { world } = pilotWorld();
-  const characterId = "pilot-01";
+  // pilot-05 starts at the market with company; the envelope test needs someone nearby to invite.
+  const characterId = "pilot-05";
   // The world ships no experiences: only residents host now. A protocol test should not
   // depend on the pilot world happening to carry one, so it supplies its own.
   world.createEvent({

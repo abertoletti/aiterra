@@ -153,7 +153,7 @@ class ScriptedPilotPlanner {
     if (id === "pilot-02") throw new DecisionValidationError("Wait for Mira to start the intended test conversation");
 
     const jobByCharacter = {
-      "pilot-03": "festival-signs", "pilot-04": "repair-benches", "pilot-05": "workshop-coordinator",
+      "pilot-03": "festival-signs", "pilot-04": "bench-repair", "pilot-05": "supply-handoff",
     };
     const jobId = jobByCharacter[id];
     const startJob = actions.find((item) => item.type === "start_job" && item.jobId === jobId);

@@ -145,10 +145,13 @@ test("money is conserved: every credit is in a purse, a till, an escrow, or the 
     credits: 300, skills: { social: 40 },
   });
 
+  // With a bounded treasury the unspent budget is one of the pots; the supply is what has
+  // been issued to residents plus what the city has actually put in, less what construction
+  // and upkeep burned.
   const accounts = () => {
     const { overview } = world.getPublicState();
     return {
-      supply: overview.moneySupply,
+      supply: overview.moneySupply + overview.systemBudgetBalance,
       held: overview.characterCredits + overview.buildingCredits
         + overview.reservedCredits + overview.systemBudgetBalance,
     };

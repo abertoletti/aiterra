@@ -8,7 +8,10 @@ const outputPath = resolve(outputArgument >= 0 ? process.argv[outputArgument + 1
 const upgradeSeven = process.argv.includes("--upgrade-seven");
 if (existsSync(outputPath) && !upgradeSeven) throw new Error(`Refusing to overwrite existing environment file ${outputPath}`);
 
-const characterIds = ["pilot-01", "pilot-02", "pilot-03", "pilot-04", "pilot-05", "pilot-06", "pilot-07"];
+const characterIds = [
+  "pilot-01", "pilot-02", "pilot-03", "pilot-04", "pilot-05",
+  "pilot-06", "pilot-07", "pilot-08", "pilot-09", "pilot-10",
+];
 const agentTokens = Object.fromEntries(characterIds.map((id) => [id, secret()]));
 const ownerTokens = Object.fromEntries(characterIds.map((id) => [`owner-${id}`, secret()]));
 const ownerCharacters = Object.fromEntries(characterIds.map((id) => [`owner-${id}`, [id]]));
@@ -17,7 +20,7 @@ if (existsSync(outputPath) && upgradeSeven) {
   process.exit(0);
 }
 const document = [
-  "# Generated local seven-agent pilot environment. Never commit this file.",
+  "# Generated local ten-agent pilot environment. Never commit this file.",
   "HOST=127.0.0.1",
   "PORT=3000",
   "AITERRA_BASE_URL=http://127.0.0.1:3000",
@@ -93,7 +96,7 @@ function upgradeExistingEnvironment(path) {
   });
   for (const [key, value] of replacements) if (!seen.has(key)) upgraded.push(`${key}=${value}`);
   writeFileSync(path, upgraded.join("\n"), "utf8");
-  console.log(`Upgraded ${path} for the seven-agent pilot without replacing existing provider credentials.`);
+  console.log(`Upgraded ${path} for the ten-agent pilot without replacing existing provider credentials.`);
 }
 
 function parseObject(value, label) {

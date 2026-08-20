@@ -551,21 +551,25 @@ function renderEconomy() {
   // were wrong. They were not: escrow is held OUT of the budget, and the residents' opening
   // purses are a second issuance that never touched it. Saying the supply and showing the
   // identity is the difference between three numbers and a balance sheet.
-  const held = overview.characterCredits + overview.buildingCredits
-    + overview.reservedCredits + overview.systemBudgetBalance;
+  // With an unlimited treasury a remaining balance is not a fact about anything: what the
+  // city has PUT IN is the figure that says whether the economy is running.
+  const held = overview.characterCredits + overview.buildingCredits + overview.reservedCredits
+    + (overview.cityUnlimited ? 0 : overview.systemBudgetBalance);
   economyOverview.innerHTML = `
     <div class="supply-line ${held === overview.moneySupply ? "balanced" : "broken"}">
       <span>Money supply</span>
       <strong>${number(overview.moneySupply)}</strong>
-      <small>${number(overview.issuedToBudgets)} to the city + ${number(overview.issuedToCharacters)} to residents, issued once${
+      <small>${number(overview.issuedToCharacters)} to residents at the start + ${number(overview.cityInjected)} paid in by the city for work done${
   overview.creditsRetired ? `, less ${number(overview.creditsRetired)} spent into buildings and upkeep` : ""
 }${held === overview.moneySupply ? "" : ` · only ${number(held)} accounted for`}</small>
     </div>
     <div class="economy-numbers">
       ${economyMetric("Resident wallets", overview.characterCredits, "in their purses")}
       ${economyMetric("Building takings", overview.buildingCredits, "earned by venues")}
-      ${economyMetric("Reserved escrow", overview.reservedCredits, "held out of the budget")}
-      ${economyMetric("Unspent budget", overview.systemBudgetBalance, "left to fund work")}
+      ${economyMetric("Reserved escrow", overview.reservedCredits, "securing open posts")}
+      ${overview.cityUnlimited
+    ? economyMetric("City injected", overview.cityInjected, "paid for work · unlimited")
+    : economyMetric("Unspent budget", overview.systemBudgetBalance, "left to fund work")}
     </div>
     <div class="rules-block">
       <h3>World operating rules</h3>

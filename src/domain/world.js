@@ -874,7 +874,11 @@ export class World {
   }
 
   fundingBalance(type, id) {
-    if (type === "system_budget") return this.state.systemBudgets.get(id)?.balance ?? 0;
+    if (type === "system_budget") {
+      const budget = this.state.systemBudgets.get(id);
+      if (!budget) return 0;
+      return budget.unlimited ? Number.POSITIVE_INFINITY : budget.balance;
+    }
     if (type === "building") return this.state.buildings.get(id)?.balance ?? 0;
     return this.state.characters.get(id)?.credits ?? 0;
   }
@@ -914,11 +918,11 @@ export class World {
     });
   }
 
-  createJob({ creatorId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teamSize = 1, availableFrom, availableUntil, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
+  createJob({ creatorId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, energyCost = null, teamSize = 1, availableFrom, availableUntil, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
     const creator = this.requireCharacter(creatorId);
     return this.publishJob({
       id, creatorId, fundingSourceType: "character", fundingSourceId: creatorId,
-      title, locationId, durationGameMinutes, compensation, requirements, teamSize,
+      title, locationId, durationGameMinutes, compensation, requirements, energyCost, teamSize,
       scheduledStartAt: scheduledStartAt ?? availableFrom,
       offerExpiresAt: offerExpiresAt ?? availableUntil,
       availableCredits: creator.credits,
@@ -926,16 +930,27 @@ export class World {
     });
   }
 
-  bootstrapEconomy({ budgetId = this.config.economy.bootstrapBudgetId, credits = this.config.economy.bootstrapCredits } = {}) {
+  // An unlimited city is the honest shape for the only source of new money in the world.
+  // A very large number is a bug that has not happened yet: it eventually empties, and the
+  // failure is silent - posts simply stop reopening and nothing says why. Declared instead,
+  // so escrow is always covered and what matters is how much the city has put in, not what
+  // it has left.
+  bootstrapEconomy({
+    budgetId = this.config.economy.bootstrapBudgetId,
+    credits = this.config.economy.bootstrapCredits,
+    unlimited = this.config.economy.unlimitedCityBudget,
+  } = {}) {
     requiredId(budgetId, "budget id");
     if (this.state.systemBudgets.has(budgetId)) return null;
-    if (!Number.isFinite(credits) || credits < 0) throw invalid("INVALID_CREDITS", "Bootstrap credits must be non-negative");
+    if (!unlimited && (!Number.isFinite(credits) || credits < 0)) {
+      throw invalid("INVALID_CREDITS", "Bootstrap credits must be non-negative");
+    }
     return this.record("ECONOMY_BOOTSTRAPPED", {
-      data: { budgetId, credits, currency: this.config.jobs.currency },
+      data: { budgetId, credits: unlimited ? 0 : credits, unlimited, currency: this.config.jobs.currency },
     });
   }
 
-  createSystemJob({ budgetId = this.config.economy.bootstrapBudgetId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teamSize = 1, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
+  createSystemJob({ budgetId = this.config.economy.bootstrapBudgetId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
     const budget = this.state.systemBudgets.get(budgetId);
     if (!budget) throw new DomainError("BUDGET_NOT_FOUND", `System budget ${budgetId} not found`, 404);
     const openSystemJobs = [...this.state.jobs.values()].filter((job) =>
@@ -945,13 +960,13 @@ export class World {
     }
     return this.publishJob({
       id, creatorId: null, fundingSourceType: "system_budget", fundingSourceId: budgetId,
-      title, locationId, durationGameMinutes, compensation, requirements, teamSize,
-      scheduledStartAt, offerExpiresAt, availableCredits: budget.balance,
+      title, locationId, durationGameMinutes, compensation, requirements, energyCost, teamSize,
+      scheduledStartAt, offerExpiresAt, availableCredits: this.fundingBalance("system_budget", budgetId),
       visibility: "public", repeatable, cooldownGameMinutes,
     });
   }
 
-  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, description = null, locationId, boardLocationId = null, durationGameMinutes, compensation, requirements, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
+  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, description = null, locationId, boardLocationId = null, durationGameMinutes, compensation, requirements, energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
     // createJob and createSystemJob always generate one, but a direct call without an
     // id silently created a job keyed `undefined`, which nothing could ever reach.
     requiredId(id, "job id");
@@ -982,6 +997,10 @@ export class World {
         // Where the notice is pinned, when that is not where the work happens.
         boardLocationId: boardLocationId ?? locationId,
         durationGameMinutes,
+        // Effort is a property of the work, not of the world. Every post used to cost the
+        // same 15 whatever it was, so a five-minute errand and an hour of skilled labour
+        // were indistinguishable to a resident deciding what to spend its day on.
+        energyCost: energyCost ?? this.config.energy.workCost,
         compensation,
         requirements: normalizeSkills(requirements),
         teamSize,
@@ -1104,9 +1123,10 @@ export class World {
     if (absentWorker) throw invalid("TEAM_NOT_COLOCATED", `${absentWorker.name} must be at the job location`);
     const now = this.clock.now();
     if (now < new Date(job.scheduledStartAt) || now > new Date(job.startGraceUntil)) throw invalid("OUTSIDE_JOB_WINDOW", "Job cannot start outside its disclosed start window");
-    for (const candidate of workers) this.requireEnergy(candidate, this.config.energy.workCost);
+    const workEnergyCost = job.energyCost ?? this.config.energy.workCost;
+    for (const candidate of workers) this.requireEnergy(candidate, workEnergyCost);
 
-    const energyEvents = workers.map((candidate) => this.changeEnergy(candidate.id, -this.config.energy.workCost, "work"));
+    const energyEvents = workers.map((candidate) => this.changeEnergy(candidate.id, -workEnergyCost, "work"));
     const expectedEndAt = addGameMinutes(now, job.durationGameMinutes).toISOString();
     return this.record("JOB_STARTED", {
       actorCharacterId: workerId,
@@ -2890,7 +2910,7 @@ export class World {
     const availableJobs = [...this.state.jobs.values()]
       .filter((job) => job.workerIds.includes(characterId) || job.fundingSourceId === characterId
         || (job.status === "open" && boardHere(job)))
-      .map((job) => publicJob(job, this.config.energy.workCost));
+      .map((job) => publicJob(job, job.energyCost ?? this.config.energy.workCost));
     // What the other squares are holding, as a count. A resident should know a market
     // exists without being shown its stock from across the city: that is the difference
     // between a reason to travel and a reason to stay.
@@ -3237,7 +3257,7 @@ export class World {
         .map((entry) => ({ ...entry, ...entry.relationship, strength: relationshipStrength(entry.relationship) }))
         .sort((a, b) => b.strength - a.strength),
     }));
-    const jobs = [...this.state.jobs.values()].map((job) => publicJob(job, this.config.energy.workCost));
+    const jobs = [...this.state.jobs.values()].map((job) => publicJob(job, job.energyCost ?? this.config.energy.workCost));
     // AIT-1006. The operator sees the grid, who holds what, and how each building is
     // doing, without seeing any character's private reasoning.
     const city = {
@@ -3315,8 +3335,12 @@ export class World {
       .reduce((total, building) => total + Number(building.balance ?? 0), 0);
     const issuedToCharacters = [...this.state.characters.values()]
       .reduce((total, character) => total + Number(character.wallet?.opening ?? 0), 0);
-    const issuedToBudgets = [...this.state.systemBudgets.values()]
-      .reduce((total, budget) => total + Number(budget.initialCredits ?? 0), 0);
+    // What the city has actually put into the world, net of what came back unspent. For an
+    // unlimited treasury this is the only figure with meaning: a remaining balance is not a
+    // fact about anything.
+    const cityInjected = [...this.state.systemBudgets.values()]
+      .reduce((total, budget) => total + Number(budget.drawn ?? 0) - Number(budget.returned ?? 0), 0);
+    const cityUnlimited = [...this.state.systemBudgets.values()].some((budget) => budget.unlimited);
     return {
       worldTime: now.toISOString(),
       overview: {
@@ -3339,11 +3363,12 @@ export class World {
         systemBudgetBalance,
         buildingCredits,
         issuedToCharacters,
-        issuedToBudgets,
+        cityInjected,
+        cityUnlimited,
         creditsRetired: this.state.creditsRetired,
         // What is still out there: everything ever issued, less what construction and upkeep
         // took out of circulation for good.
-        moneySupply: issuedToCharacters + issuedToBudgets - this.state.creditsRetired,
+        moneySupply: issuedToCharacters + cityInjected - this.state.creditsRetired,
       },
       characters,
       locations,
@@ -3533,7 +3558,7 @@ export class World {
         });
       }
       for (const job of jobs.filter((item) => item.status === "accepted" && item.workerIds.includes(character.id))) {
-        actions.push({ type: "start_job", jobId: job.id, energyCost: this.config.energy.workCost });
+        actions.push({ type: "start_job", jobId: job.id, energyCost: job.energyCost ?? this.config.energy.workCost });
         actions.push({ type: "cancel_job", jobId: job.id });
       }
       if (character.energy < this.config.energy.maximum) {
