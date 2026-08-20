@@ -7,6 +7,7 @@ import { makeConfig } from "../src/domain/config.js";
 import { DomainError, World } from "../src/domain/world.js";
 import { InMemoryEventStore } from "../src/infra/event-store.js";
 import { buildDecisionMessages } from "../src/agents/decision-planner.js";
+import { settleEveryone } from "./support/pilot.js";
 
 const BASELINE_SOFT_BUDGET_BYTES = 20 * 1024;
 const BASELINE_HARD_CEILING_BYTES = 32 * 1024;
@@ -19,6 +20,7 @@ function pilotWorld() {
   const clock = new ManualClock("2042-01-01T09:00:00.000Z");
   const world = new World({ store: new InMemoryEventStore(), config, clock });
   activateWorldConfiguration(world, loadWorldConfiguration(resolve("config/world.local-5.json")));
+  settleEveryone(world);
   return { world, clock };
 }
 

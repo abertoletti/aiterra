@@ -144,3 +144,58 @@ function sequentialIds(start = 1) {
 function pickDimensions(relationship) {
   return { affinity: relationship.affinity, trust: relationship.trust, tension: relationship.tension };
 }
+
+test("a resident chooses where to begin, and is only then in the world", () => {
+  // Where a character starts used to be written down by the operator. It is now the first
+  // decision its brain makes, which is also the first thing it says about itself: the square
+  // whose board matches what it is good at, or whose crowd matches what it is for.
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "market", name: "Market Square", x: 13, y: 6 });
+  world.defineLocation({ id: "foundry", name: "Foundry Square", x: 6, y: 6 });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 10_000 });
+  world.createSystemJob({
+    budgetId: "budget", id: "forge", title: "Forge work", locationId: "foundry",
+    durationGameMinutes: 20, compensation: 80, requirements: { technical: 40 },
+  });
+  world.createCharacter({ id: "nia", name: "Nia", personality: [], goal: "Make things." });
+  world.createCharacter({ id: "vera", name: "Vera", locationId: "market", personality: [], goal: "Host." });
+
+  const arrival = world.getObservation("nia");
+  assert.equal(arrival.arriving, true);
+  assert.equal(arrival.contextMode, "arrival");
+  const foundry = arrival.squares.find((square) => square.locationId === "foundry");
+  assert.deepEqual(foundry.boardAsksFor, ["technical"], "the choice is informed by the work");
+  assert.equal(foundry.openJobs, 1);
+  assert.equal(arrival.squares.find((square) => square.locationId === "market").residentsHere, 1,
+    "and by who is already standing there");
+
+  // Until it has chosen, nothing spatial can see it: a null square matches no square.
+  assert.deepEqual(world.getObservation("vera").nearby, []);
+  assert.throws(() => world.startMove("nia", "foundry"),
+    (error) => error instanceof DomainError && error.code === "NOT_IN_THE_WORLD",
+    "you cannot walk somewhere from nowhere");
+
+  const entered = world.enterWorld("nia", "foundry");
+  assert.equal(entered.type, "CHARACTER_ENTERED_WORLD");
+  assert.equal(world.getObservation("nia").character.locationId, "foundry");
+  assert.equal(world.getObservation("nia").arriving, undefined, "it is simply in the world now");
+  assert.equal(world.getObservation("nia").availableJobs.length, 1, "and reads the board it chose");
+
+  assert.throws(() => world.enterWorld("nia", "market"),
+    (error) => error instanceof DomainError && error.code === "ALREADY_ARRIVED");
+});
+
+test("arriving is being seen: whoever is standing there meets the newcomer", () => {
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "market", name: "Market Square", x: 13, y: 6 });
+  world.createCharacter({ id: "vera", name: "Vera", locationId: "market", personality: [], goal: "Host." });
+  world.createCharacter({ id: "piet", name: "Piet", personality: [], goal: "Enjoy." });
+
+  world.enterWorld("piet", "market");
+
+  assert.ok(world.history.some((event) => event.type === "CO_PRESENCE_STARTED"),
+    "a newcomer is not invisible to the people already there");
+  assert.deepEqual(world.getObservation("vera").nearby.map((person) => person.id), ["piet"]);
+});

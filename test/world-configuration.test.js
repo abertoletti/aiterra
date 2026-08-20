@@ -6,6 +6,7 @@ import { ManualClock } from "../src/domain/clock.js";
 import { makeConfig } from "../src/domain/config.js";
 import { DomainError, World } from "../src/domain/world.js";
 import { InMemoryEventStore } from "../src/infra/event-store.js";
+import { settleEveryone } from "./support/pilot.js";
 
 test("invalid external configuration is fully rejected before mutating the active world", () => {
   const world = emptyWorld();
@@ -67,7 +68,7 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
   const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
   assert.equal(configuration.characters.length, 10);
   assert.equal(configuration.jobs.length, 20);
-  assert.equal(configuration.version, "local-ten-agent-pilot-v6-four-squares");
+  assert.equal(configuration.version, "local-ten-agent-pilot-v7-choose-your-square");
   assert.equal(configuration.jobs.filter((job) => job.teamSize === 2).length, 3);
 
   // Effort is the currency of work, and the board has to make that legible: pay tracks the
@@ -106,11 +107,24 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
       `${square.id} holds its own five notices`);
   }
 
+  // Nobody is anywhere yet: choosing a square is each resident's first decision, and until
+  // it is made the world shows four squares and one kind of action.
   const world = emptyWorld();
   activateWorldConfiguration(world, configuration);
+  assert.ok(configuration.characters.every((character) => character.locationId === undefined),
+    "the configuration must not seat anyone");
+  const arrival = world.getObservation("pilot-01");
+  assert.equal(arrival.arriving, true);
+  assert.deepEqual(arrival.availableActions.map((action) => action.type), Array(4).fill("enter_world"));
+  assert.deepEqual(arrival.squares.map((square) => square.locationId),
+    ["archive", "foundry", "garden", "market"]);
+  assert.ok(arrival.squares.every((square) => square.openJobs === 5 && square.payRange.lowest > 0),
+    "each square advertises its board so the choice is informed");
+
+  settleEveryone(world);
   const observation = world.getObservation("pilot-01");
 
-  // pilot-01 stands in Archive Square, so it reads Archive Square's board and no other.
+  // pilot-01 chose Archive Square, so it reads Archive Square's board and no other.
   assert.equal(observation.character.locationId, "archive");
   assert.equal(observation.availableJobs.length, 5);
   assert.equal(observation.availableActions.filter((action) => action.type === "accept_job").length, 3,

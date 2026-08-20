@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "local-ten-agent-pilot-v6-four-squares",
+  "version": "local-ten-agent-pilot-v7-choose-your-square",
   "locations": [
     {
       "id": "foundry",
@@ -40,7 +40,6 @@
     {
       "id": "pilot-01",
       "name": "Mira",
-      "locationId": "archive",
       "credits": 180,
       "personality": [
         "Analytical",
@@ -76,7 +75,6 @@
     {
       "id": "pilot-02",
       "name": "Jonas",
-      "locationId": "garden",
       "credits": 150,
       "personality": [
         "Curious",
@@ -112,7 +110,6 @@
     {
       "id": "pilot-03",
       "name": "Nia",
-      "locationId": "foundry",
       "credits": 220,
       "personality": [
         "Competitive",
@@ -147,7 +144,6 @@
     {
       "id": "pilot-04",
       "name": "Elias",
-      "locationId": "garden",
       "credits": 200,
       "personality": [
         "Sociable",
@@ -183,7 +179,6 @@
     {
       "id": "pilot-05",
       "name": "Sora",
-      "locationId": "market",
       "credits": 280,
       "personality": [
         "Reserved",
@@ -218,7 +213,6 @@
     {
       "id": "pilot-06",
       "name": "Vera",
-      "locationId": "market",
       "credits": 260,
       "personality": [
         "Charming",
@@ -255,7 +249,6 @@
     {
       "id": "pilot-07",
       "name": "Rook",
-      "locationId": "foundry",
       "credits": 170,
       "personality": [
         "Hostile",
@@ -292,7 +285,6 @@
     {
       "id": "pilot-08",
       "name": "Kai",
-      "locationId": "foundry",
       "credits": 190,
       "personality": [
         "Inventive",
@@ -328,7 +320,6 @@
     {
       "id": "pilot-09",
       "name": "Amara",
-      "locationId": "garden",
       "credits": 160,
       "personality": [
         "Nurturing",
@@ -364,7 +355,6 @@
     {
       "id": "pilot-10",
       "name": "Piet",
-      "locationId": "garden",
       "credits": 240,
       "personality": [
         "Hedonistic",

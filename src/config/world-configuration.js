@@ -87,7 +87,11 @@ export function validateWorldConfiguration(document) {
   const characterCredits = new Map();
   for (const character of document.characters) {
     text(character.name, "character name", 80);
-    locationReference(character.locationId, locationIds, `character ${character.id} location`);
+    // A character may arrive without a square: choosing one is its first decision. Only a
+    // stated location has to name a real place.
+    if (character.locationId !== undefined && character.locationId !== null) {
+      locationReference(character.locationId, locationIds, `character ${character.id} location`);
+    }
     const credits = character.credits ?? 0;
     nonNegativeNumber(credits, `character ${character.id} credits`);
     characterCredits.set(character.id, credits);

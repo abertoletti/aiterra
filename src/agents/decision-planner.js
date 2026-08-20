@@ -162,6 +162,10 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- relationships that come to matter",
         "A run ends and is judged on those three. Ending it rich, having built nothing and gone nowhere, is a poor run.",
         "",
+        "## Your first turn, if you have not arrived",
+        "You are not in the city yet. `squares` lists the four public squares: what their notice board asks for and pays, how many notices are open, and how many residents already stand there.",
+        "Choose one with enter_world. It is the only thing you can do, it costs nothing, and it decides who your neighbours are and what work is under your nose. Pick the square whose work matches what you are good at, or whose crowd matches what you are for - and say which in your rationale.",
+        "",
         "## Every turn",
         "- pick exactly ONE action from availableActions. Everything in it can be done right now: there is no feasibility to check.",
         "- opportunities is the rest of the world: real, fully described, not yet possible. blockedBy says what stands in the way. This is what you plan from.",
@@ -314,6 +318,9 @@ function actionShapes(availableActions) {
         description: "<required, what it is; free text, no mechanical effect>",
         profile: "<object of profile dimensions to 0-100; what the place delivers, priced convexly>",
         capabilities: "<array from the offered capabilities>",
+      }; break;
+      case "enter_world": shapes.enter_world = {
+        type, locationId: "<the square you choose to begin in>",
       }; break;
       case "publish_role": shapes.publish_role = {
         type, buildingId: "<one of your ACTIVE buildings>",
@@ -514,6 +521,8 @@ export function validateAction(candidate, observation, history = []) {
         capabilities,
       };
     }
+    case "enter_world":
+      return matchedIdentifierAction(type, "locationId", candidate, templates);
     case "publish_role": {
       const buildingId = text(candidate.buildingId, "buildingId", 100);
       const envelope = templates.find((item) => item.buildingId === buildingId);

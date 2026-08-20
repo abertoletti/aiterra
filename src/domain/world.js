@@ -449,7 +449,11 @@ export class World {
   }) {
     requiredId(id, "character id");
     requiredText(name, "character name", 80);
-    this.requireLocation(locationId);
+    // A character may be created before it has decided where to live. Arriving with no
+    // square is the first decision the brain makes rather than a fact the operator writes
+    // down for it, and a null location is excluded from every spatial rule by construction:
+    // it matches no square, so no co-presence, no neighbour and no board ever finds it.
+    if (locationId !== null && locationId !== undefined) this.requireLocation(locationId);
     if (this.state.characters.has(id)) throw conflict("CHARACTER_EXISTS", `Character ${id} already exists`);
     if (!Array.isArray(personality) || personality.length > 12) throw invalid("INVALID_PERSONALITY", "Personality must contain at most 12 traits");
     if (!Number.isFinite(energy) || energy < 0 || energy > this.config.energy.maximum) throw invalid("INVALID_ENERGY", "Invalid starting energy");
@@ -460,7 +464,7 @@ export class World {
       data: {
         id,
         name,
-        locationId,
+        locationId: locationId ?? null,
         personality: personality.map((trait) => String(trait).slice(0, 80)),
         goal: String(goal).slice(0, 500),
         primaryGoal: primaryGoal ? normalizeGoal(primaryGoal, { id: `primary-${id}`, className: "primary" }) : null,
@@ -831,8 +835,33 @@ export class World {
     };
   }
 
+  // The first thing a resident does is choose where to begin. It is not a walk - nobody is
+  // crossing the city, they are stepping into it - so it costs no Energy and takes no time.
+  // A venue is not a place to start: the city admits you to its public squares.
+  enterWorld(characterId, locationId) {
+    const character = this.requireCharacter(characterId);
+    if (character.locationId) throw conflict("ALREADY_ARRIVED", "This character is already in the world");
+    const square = this.requireLocation(locationId);
+    if (square.buildingId) throw invalid("NOT_A_PUBLIC_SQUARE", "A resident arrives in a public square, not inside someone's building");
+    const arrived = this.record("CHARACTER_ENTERED_WORLD", {
+      actorCharacterId: characterId,
+      data: { characterId, locationId, name: character.name },
+    });
+    // Arriving is being seen. Whoever is already standing there meets a new resident.
+    for (const observer of this.state.characters.values()) {
+      if (observer.id === characterId || observer.locationId !== locationId) continue;
+      if (observer.activity?.type === "moving") continue;
+      this.startCoPresence(characterId, observer.id, locationId, arrived.id);
+      this.evaluateAndMaybeNotify(arrived, observer.id);
+    }
+    return arrived;
+  }
+
   startMove(characterId, destinationId) {
     const character = this.requireCharacter(characterId);
+    // You cannot walk somewhere from nowhere. A resident who has not chosen a square has to
+    // enter the world before it can cross it.
+    if (!character.locationId) throw conflict("NOT_IN_THE_WORLD", "Choose a square with enter_world before moving");
     this.requireLocation(destinationId);
     if (character.locationId === destinationId) throw invalid("ALREADY_THERE", "Character is already at that location");
     if (character.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot move while ${character.activity.type}`);
@@ -2455,6 +2484,11 @@ export class World {
         });
         break;
       }
+      case "enter_world": {
+        const event = this.enterWorld(characterId, action.locationId);
+        result = this.actionResult(characterId, event, { locationId: action.locationId });
+        break;
+      }
       case "publish_role": {
         const event = this.publishRole(characterId, {
           buildingId: action.buildingId, boardLocationId: action.boardLocationId,
@@ -2874,6 +2908,10 @@ export class World {
       throw invalid("INVALID_CONTEXT_MODE", `Context mode must be one of ${CONTEXT_MODES.join(", ")}`);
     }
     const character = this.requireCharacter(characterId);
+    // A resident who has not arrived sees a different world: not a place with neighbours and
+    // a board, but four squares and a choice between them. Short-circuiting here is also what
+    // keeps a null location from reaching the ninety-odd rules that assume one.
+    if (!character.locationId) return this.arrivalObservation(character);
     const nearby = character.activity?.type === "moving" ? [] : [...this.state.characters.values()]
       .filter((other) => other.id !== characterId && other.locationId === character.locationId && other.activity?.type !== "moving")
       .map((other) => ({
@@ -2994,6 +3032,53 @@ export class World {
       decision,
       decisionRequiredAt: decision.decisionRequiredAt,
       nextScheduledDecisionAt: decision.decisionRequiredAt,
+    };
+  }
+
+  // Everything a brain needs to choose where to begin, and nothing it has not earned: what
+  // each square's board asks for and pays, how many people are already standing there, and
+  // what is on tonight. Not who those people are - it has not met them.
+  arrivalObservation(character) {
+    const squares = [...this.state.locations.values()]
+      .filter((location) => !location.buildingId)
+      .map((location) => {
+        const board = [...this.state.jobs.values()].filter((job) => job.status === "open"
+          && (job.boardLocationId ?? job.locationId) === location.id);
+        const pay = board.map((job) => job.compensation);
+        const asks = new Set();
+        for (const job of board) {
+          for (const [skill, level] of Object.entries(job.requirements ?? {})) if (level > 0) asks.add(skill);
+        }
+        return {
+          locationId: location.id, name: location.name, x: location.x, y: location.y,
+          openJobs: board.length,
+          payRange: pay.length ? { lowest: Math.min(...pay), highest: Math.max(...pay) } : null,
+          boardAsksFor: [...asks].sort(),
+          residentsHere: [...this.state.characters.values()]
+            .filter((other) => other.locationId === location.id).length,
+        };
+      })
+      .sort((left, right) => (left.locationId < right.locationId ? -1 : 1));
+    return {
+      worldTime: this.clock.now().toISOString(),
+      rulesVersion: this.config.rules.version,
+      rulesDigest: this.agentRulesDigest(character.id),
+      contextMode: "arrival",
+      contextContractVersion: CONTEXT_CONTRACT_VERSION,
+      stateVersion: this.characterStateVersion(character.id),
+      arriving: true,
+      character: publicCharacter(character, this.config),
+      squares,
+      cityTonight: this.cityTonight({ ...character, locationId: squares[0]?.locationId ?? null }, []),
+      availableActions: squares.map((square) => ({
+        type: "enter_world", locationId: square.locationId, name: square.name,
+        openJobs: square.openJobs, residentsHere: square.residentsHere,
+      })),
+      opportunities: [],
+      cannotRightNow: [],
+      decision: this.getDecisionRequirement(character.id),
+      decisionRequiredAt: this.getDecisionRequirement(character.id).decisionRequiredAt,
+      nextScheduledDecisionAt: this.getDecisionRequirement(character.id).decisionRequiredAt,
     };
   }
 

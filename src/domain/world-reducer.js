@@ -243,6 +243,10 @@ export function applyEvent(state, event) {
       job.timesCompleted = job.timesCompleted ?? 0;
       break;
     }
+    case "CHARACTER_ENTERED_WORLD": {
+      state.characters.get(data.characterId).locationId = data.locationId;
+      break;
+    }
     case "SKILL_CHANGED": {
       const character = state.characters.get(data.characterId);
       character.skills[data.skill] = data.value;
