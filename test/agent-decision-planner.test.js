@@ -262,16 +262,37 @@ test("the prompt states what a run is judged on, and stays a spec rather than an
   assert.ok(prompt.includes("livedHappiness"));
   assert.ok(prompt.includes("## If nothing is pending"),
     "a free decision is where a run is won, and it needs its own section");
-  assert.ok(prompt.includes("Do NOT default to talking"));
+  assert.ok(prompt.includes("not the default"),
+    "conversation is one option among the routes, and the prompt has to say so");
 
-  // Every deliberate route a resident can take is named where a free decision is made,
-  // and hosting leads because three runs reached construction and stopped there.
-  for (const route of ["host_experience NOW", "attend_event", "construct_building", "accept_job", "rest"]) {
-    assert.ok(prompt.includes(route), `the free-decision menu must offer ${route}`);
+  // Every deliberate route a resident can take is named where a free decision is made, and
+  // each is named as the command that performs it. `rest` is an ordinary English word and was
+  // the only entry a model could read as advice rather than as an action, so the whole list is
+  // written one way: the JSON the server expects.
+  for (const route of ["host_experience", "attend_event", "construct_building", "accept_job", "rest"]) {
+    assert.ok(prompt.includes(`"type":"${route}`),
+      `the free-decision menu must name ${route} as its command`);
   }
-  assert.ok(prompt.indexOf("host_experience NOW") < prompt.indexOf("accept_job"),
+
+  // Rest states what it does and stays OFF the priority ladder. Ranking it - it sat at 5 of 5,
+  // and before that behind the word "low" with no threshold - was us deciding when a resident
+  // should recover, which is the judgement the ladder exists to leave alone. The proprietor of
+  // one run hosted three times at 11 Energy citing "the rules say to host immediately".
+  assert.ok(prompt.includes("yours to judge"), "when to recover is the brain's call");
+  assert.doesNotMatch(prompt, /^\s*\d+[a-z]?\.\s.*"type":"rest/m,
+    "rest must not be a numbered entry in the ordered list");
+  assert.ok(prompt.indexOf("host_experience") < prompt.indexOf("accept_job"),
     "an idle building is the most valuable thing to fix, so it heads the list");
-  assert.ok(prompt.includes("construct_building"), "and building must be reachable from it");
+
+  // The mechanics are stated and the conclusions are left to the brain. Every phrase below is
+  // a judgement the prompt used to make on the agent's behalf, and the proprietor of the run
+  // that followed repeated one of them in seven of eight rationales while never once naming
+  // the accessPrice that would have paid for her building.
+  for (const moral of ["dead money", "BUILDING IS HALF THE JOB", "highest-value action",
+    "Credits exist to be spent", "is a poor run", "pays for itself and an idle one bleeds",
+    "so people will actually pay"]) {
+    assert.ok(!prompt.includes(moral), `the prompt should state mechanics, not conclude: "${moral}"`);
+  }
   assert.ok(prompt.includes("CEILING on every experience"));
 
   const lines = prompt.split("\n");
