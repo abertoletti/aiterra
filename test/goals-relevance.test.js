@@ -77,25 +77,25 @@ test("critical urgency is authoritative and cannot be manufactured by goal score
   assert.equal(criticalResult.data.level, "CRITICAL");
 });
 
-test("a pursue_plan goal is self-authored memory: it renders back, never self-completes, and takes no target", () => {
-  // The v8 pilot's best plan - "save 2001 then build" - was re-derived from scratch every
-  // turn because no goal type could hold it. The plan's own words are the whole payload.
+test("a pursue_goal goal is self-authored memory: it renders back, never self-completes, and takes no target", () => {
+  // The v8 pilot's best multi-step goal - "save 2001 then build" - was re-derived from
+  // scratch every turn because no goal type could hold it. Its own words are the payload.
   const { world, clock } = goalWorld();
   const source = world.establishRelationship({ fromId: "jack", toId: "sara", affinity: 10 });
 
   const adopted = world.proposeSecondaryGoal("jack", {
     sourceEventId: source.id,
-    type: "pursue_plan",
+    type: "pursue_goal",
     priority: "high",
     declaredReason: "Save 2001 credits for a 1x1 music venue: work needs-survey, rest, then build.",
   });
   const rendered = world.getObservation("jack").character.secondaryGoals
     .find((goal) => goal.id === adopted.data.goal.id);
-  assert.equal(rendered.type, "pursue_plan");
+  assert.equal(rendered.type, "pursue_goal");
   assert.equal(rendered.targetId, null);
   assert.match(rendered.guidance, /2001 credits/, "the plan's own words return in the observation");
 
-  // Nothing the world can verify completes a plan; only its author ends it.
+  // Nothing the world can verify completes a self-authored goal; only its author ends it.
   clock.advanceGameMinutes(60);
   world.advanceTo(clock.now());
   assert.equal(world.getObservation("jack").character.secondaryGoals
@@ -104,10 +104,10 @@ test("a pursue_plan goal is self-authored memory: it renders back, never self-co
   assert.equal(world.getObservation("jack").character.secondaryGoals
     .find((goal) => goal.id === adopted.data.goal.id).status, "abandoned");
 
-  // A target on a plan would be an invented mechanical handle riding a validated field.
+  // A target here would be an invented mechanical handle riding a validated field.
   assert.throws(() => world.proposeSecondaryGoal("jack", {
-    sourceEventId: source.id, type: "pursue_plan", targetId: "neon",
-    declaredReason: "A plan with a smuggled target.",
+    sourceEventId: source.id, type: "pursue_goal", targetId: "neon",
+    declaredReason: "A self-authored goal with a smuggled target.",
   }), (error) => error.code === "GOAL_TARGET_NOT_ALLOWED");
 });
 

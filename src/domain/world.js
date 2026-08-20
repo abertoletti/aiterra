@@ -2541,10 +2541,10 @@ export class World {
   }
 
   validateGoalTarget(characterId, type, targetId) {
-    // A plan lives in its own declared words; a target would be an invented mechanical
-    // handle riding a validated field.
-    if (type === "pursue_plan") {
-      if (targetId) throw invalid("GOAL_TARGET_NOT_ALLOWED", "A pursue_plan goal carries its plan in declaredReason and takes no target");
+    // A self-authored goal lives in its own declared words; a target would be an invented
+    // mechanical handle riding a validated field.
+    if (type === "pursue_goal") {
+      if (targetId) throw invalid("GOAL_TARGET_NOT_ALLOWED", "A pursue_goal goal lives in declaredReason and takes no target");
       return;
     }
     const characterTargetTypes = new Set(["strengthen_relationship", "avoid_character", "resolve_conflict"]);
@@ -3845,7 +3845,7 @@ export class World {
         maximumActiveSecondaryGoals: this.config.goals.maximumActiveSecondaryGoals,
         allowedSecondaryGoalTypes: [...this.config.goals.secondaryTypes],
         instruction: "A secondary goal requires a visible causal source event and a valid known target; only authoritative evidence completes it.",
-        planMemory: "pursue_plan is self-authored memory: no target, nothing completes it automatically. Its declaredReason returns in every observation, so a multi-step plan survives between decisions; abandon it when done or let it expire.",
+        selfAuthored: "pursue_goal is self-authored memory: no target, nothing completes it automatically. Its declaredReason returns in every observation, so a multi-step goal survives between decisions; abandon it when done or let it expire.",
       },
       consequences: {
         instruction: "Accepted actions can change energy, credits, work state, commitments, and directional relationships. Kept and broken commitments affect trust.",
