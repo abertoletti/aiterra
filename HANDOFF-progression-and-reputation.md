@@ -4,6 +4,10 @@ You are working in **Aiterra**, a persistent world where autonomous characters a
 external LLM agents. The domain is event-sourced: every change is an event, `applyEvent` in
 `src/domain/world-reducer.js` folds them into state, and replay must produce the same world.
 
+**These three stories have since been built** (commits `2ebb975` and `604f667`). What follows is
+kept because the conventions and the measurements in it outlived the handoff, and because the
+findings at the end are recorded nowhere else.
+
 Build these three backlog stories, in this order. They compose: courses create difference
 between residents, reputation makes that difference visible, and hiring is the first decision
 that reads it.
@@ -25,7 +29,7 @@ Skills already grow through work (AIT-1201, shipped): a post requiring R teaches
 to R + 20, with the gain decaying to nothing at that ceiling, so routine work below your level
 teaches nothing. `skillGainsFor` in `src/domain/world-support.js` is the rule.
 
-That only lets a resident climb where it can already stand. In the run happening now, **Nia
+That only lets a resident climb where it can already stand. In the ten-agent run, **Nia
 chose Foundry Square with technical 15, and the lowest technical rung on that board is 25** —
 the only post she can take is the errand, which demands nothing and therefore teaches nothing.
 She cannot reach business at all from that square.
@@ -61,7 +65,7 @@ what it charges, where the money goes — and let the brain derive whether that 
 The prompt currently does the opposite in every place that matters, and we have watched it
 backfire.
 
-The proprietor in the current run hosted three free nights in a row, kept saying *"the building
+The proprietor in the ten-agent run hosted three free nights in a row, kept saying *"the building
 is bleeding upkeep"*, and ended up the poorest of the ten. She had read the line that told her
 admission funds the building — it is in the prompt — but that line ends in a moral (*"a busy
 place pays for itself and an idle one bleeds"*), and the moral is what she learned. `accessPrice`
@@ -152,18 +156,20 @@ npm test && npm run check
 `npm run check` also validates the backlog. Update each story's **Status** and add a
 `**Specification:** Updated (date)` line if you change what it says.
 
-## Do not touch
-
-A two-hour pilot run is in progress. Do not restart the server, do not run `npm run pilot:reset`,
-and do not write to `.data/`. Editing source is safe — the running process already loaded it.
+## The pilot world
 
 `config/world.local-5.json` is the pilot world: 10 residents who each choose their own square
 on arrival, 4 squares each with a notice board, 20 posts, an unlimited city treasury. If you
 change it, bump `version` and update the assertion in `test/world-configuration.test.js`.
 
+The run this document was written during has finished; its event log is archived under
+`.data/archive/run-2026-08-20-ten-agents` alongside the seven-agent baseline it is compared
+against below. The three stories were built and shipped while it ran, so nothing in it exercises
+courses, reputation or hiring - the next run is the first that will.
+
 ## Findings from the run these stories follow
 
-Measured during the ten-agent run, worth fixing but deliberately not fixed mid-run.
+Measured during the ten-agent run. The first was fixed in `604f667`; the second is still open.
 
 ### Rest is priced but never explained
 
