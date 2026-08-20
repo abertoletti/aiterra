@@ -131,6 +131,12 @@ export const defaultConfig = Object.freeze({
     marginalEnergyPerWorldMinutes: 30,
     marginalEnergyMaximum: 8,
     reEntryWindowWorldMinutes: 60,
+    // Putting a night on is work, not a free announcement. It was free, and the pilot's one
+    // proprietor answered by creating five events in nine real minutes - two of them three
+    // seconds apart - all at her building's profile ceiling. The cost scales with what the
+    // night promises, so a modest evening can be thrown often and a lavish one cannot.
+    hostingBaseEnergyCost: 10,
+    hostingEnergyPerAmbition: 15,
     minimumAccessPrice: 0,
     maximumAccessPrice: 200,
   },

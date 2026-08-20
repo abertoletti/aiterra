@@ -12,7 +12,7 @@ import {
   appraisalOutcomeKey, dominantDimension, evenPreferences, experienceAttendanceKey,
   normalizeExperienceProfile, normalizePreferences, normalizeTopics, topicFitFor,
   profileAffinity, round2, derivedTags,
-  buildingCost, buildingUpkeep, gridDistance, plotKey,
+  buildingCost, buildingUpkeep, gridDistance, hostingEnergyCost, plotKey,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
   normalizeFact, normalizeGoal, normalizeRelationship, normalizeSkills,
@@ -338,7 +338,7 @@ export class World {
     buildingId, title, description = "", profile,
     startsInGameMinutes = 0, durationGameMinutes, accessPrice = 0, capacity = null,
   }) {
-    this.requireCharacter(characterId);
+    const character = this.requireCharacter(characterId);
     const building = this.requireBuilding(buildingId);
     if (building.proprietorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the proprietor can host here");
     if (building.status !== "ACTIVE") throw conflict("BUILDING_NOT_ACTIVE", `Building is ${building.status}`);
@@ -368,8 +368,17 @@ export class World {
     if (!Number.isInteger(durationGameMinutes) || durationGameMinutes < 1) {
       throw invalid("INVALID_DURATION", "An experience must last at least one world minute");
     }
+    // Putting a night on is work. Hosting was free, and the pilot's only proprietor answered
+    // by creating five events in nine real minutes, two of them three seconds apart, every
+    // one at her building's ceiling - because an announcement that costs nothing is worth
+    // making again immediately. Charged on the same ambition the building was priced on, so
+    // a modest evening can be thrown often and a lavish one exhausts whoever throws it.
+    const energyCost = hostingEnergyCost(normalizedProfile, this.config.experience);
+    this.requireEnergy(character, energyCost);
+    const energyEvent = this.changeEnergy(characterId, -energyCost, "hosting");
     const startsAt = addGameMinutes(this.clock.now(), startsInGameMinutes);
     return this.createEvent({
+      causedByEventIds: [energyEvent.id],
       creatorId: characterId,
       title, description,
       locationId: building.locationId,
@@ -1176,6 +1185,7 @@ export class World {
     creatorId = null, id = this.idGenerator(), title, locationId, startsAt, endsAt,
     profile = null, accessPrice = 0, capacity = null, description = null,
     buildingId = null, accessDestinationType = null, accessDestinationId = null,
+    causedByEventIds = [],
   }) {
     if (creatorId) this.requireCharacter(creatorId);
     this.requireLocation(locationId);
@@ -1196,6 +1206,7 @@ export class World {
     }
     return this.record("EVENT_CREATED", {
       actorCharacterId: creatorId,
+      causedByEventIds,
       data: {
         id, creatorId, title, locationId,
         startsAt: start.toISOString(), endsAt: end.toISOString(),
@@ -3226,6 +3237,9 @@ export class World {
         movementEnergyCost: this.config.energy.movementCost,
         workEnergyCost: this.config.energy.workCost,
         eventAttendanceEnergyCost: this.config.experience.entryEnergyCost,
+        // Hosting is priced on what the night promises: base + rate x (sum of profile / 100).
+        hostingBaseEnergyCost: this.config.experience.hostingBaseEnergyCost,
+        hostingEnergyPerAmbition: this.config.experience.hostingEnergyPerAmbition,
         conversationStartEnergyCost: this.config.energy.socialInteractionCost,
         conversationTurnEnergyCost: this.config.energy.conversationTurnCost,
         extendedConversationTurnEnergyCost: this.config.energy.extendedConversationTurnCost,
@@ -3443,6 +3457,12 @@ export class World {
             balance: building.balance, upkeepPerInterval: building.upkeepPerInterval,
             nextUpkeepAt: this.nextUpkeepAt(building),
             liveExperienceCount: this.liveExperienceCount(building),
+            // Hosting costs Energy on the ambition of what is promised, so the affordance
+            // states the floor, the rate, and what this building's own profile would cost.
+            hostingBaseEnergyCost: this.config.experience.hostingBaseEnergyCost,
+            hostingEnergyPerAmbition: this.config.experience.hostingEnergyPerAmbition,
+            hostingEnergyCostAtCeiling: hostingEnergyCost(building.profile, this.config.experience),
+            energy: character.energy,
           });
         }
       }

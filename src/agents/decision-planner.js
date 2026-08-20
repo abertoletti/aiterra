@@ -178,6 +178,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
           : []),
         "Work through this list in order and take the first one that applies:",
         "1. YOU OWN A BUILDING WITH NO EVENT RUNNING -> host_experience NOW. A building with nothing on is dead money: it is shut, so nobody can even walk in, upkeep is charged whether or not anyone comes, and it earns nothing until you put a night on. This is the highest-value action in the game and it is the one you are most likely to skip.",
+        "   Hosting is work and costs Energy on what the night promises: hostingBaseEnergyCost + hostingEnergyPerAmbition x (sum of your chosen profile / 100). A lavish night can cost more than a shift. Throw a modest one often rather than a maximal one you cannot repeat.",
         "2. SOMETHING IN cityTonight SUITS YOU (high affinity, affordable) -> `move` to its locationId, then `attend_event` when you arrive. cityTonight lists every public experience with its affinity for you, its price and how far away it is.",
         "   affinity is out of 100 and is what that night is worth TO YOU. A low one costs credits and Energy to be made LESS happy. Repeating the same night pays less each time.",
         "   A venue is open only while it has something on: a `move` to a shut one says BUILDING_CLOSED and carries opensAt to plan around.",

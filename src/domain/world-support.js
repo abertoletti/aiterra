@@ -170,6 +170,14 @@ export function buildingCost(profile, cells, city) {
   return { ambition: Math.round(ambition * 100) / 100, constructionCost: Math.round(cells * perCell) };
 }
 
+// Hosting is priced on the same ambition the building was priced on: the sum of what the
+// night promises, over 100. A modest evening is cheap to throw and a lavish one is not.
+export function hostingEnergyCost(profile, experience) {
+  const ambition = Object.values(profile ?? {}).reduce((sum, value) => sum + (value ?? 0), 0) / 100;
+  return Math.max(1, Math.round(experience.hostingBaseEnergyCost
+    + experience.hostingEnergyPerAmbition * ambition));
+}
+
 export function buildingUpkeep(constructionCost, city) {
   const daily = Math.max(city.upkeepMinimum, Math.ceil(city.upkeepDailyRate * constructionCost));
   const perInterval = Math.max(1, Math.ceil(daily * city.upkeepIntervalWorldMinutes / 1440));

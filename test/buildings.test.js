@@ -469,3 +469,60 @@ test("nobody can buy the ground the town square stands on", () => {
   // The cell beside it is perfectly buildable.
   assert.equal(world.plotView(11, 10).available, true);
 });
+
+test("putting a night on is work, and a lavish one exhausts whoever throws it", () => {
+  // Hosting was free. The pilot's only proprietor answered by creating five events in nine
+  // real minutes - two of them three seconds apart - every one at her building's ceiling,
+  // because an announcement that costs nothing is worth making again immediately.
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  const buildingId = started.data.buildingId;
+  const energy = () => world.getObservation("luca").character.energy;
+
+  // The Hole promises music 90 + socializing 80 + luxury 20 = ambition 1.9.
+  const before = energy();
+  world.hostExperience("luca", {
+    buildingId, title: "Opening Night", profile: { music: 90, socializing: 80, luxury: 20 },
+    durationGameMinutes: 120, accessPrice: 30,
+  });
+  const lavish = before - energy();
+  assert.equal(lavish, 39, "10 base + 15 per unit of ambition, on 1.9 of promise");
+  assert.ok(lavish > makeConfig().energy.workCost, "hosting costs more than a shift of work");
+
+  // A modest evening is cheap enough to throw often, which is the choice the price creates.
+  const beforeModest = energy();
+  world.hostExperience("luca", {
+    buildingId, title: "Quiet Tuesday", profile: { music: 20 },
+    durationGameMinutes: 60, accessPrice: 5,
+  });
+  assert.equal(beforeModest - energy(), 13, "a small night promises little and costs little");
+
+  // And the spam run is simply unaffordable now.
+  assert.throws(() => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      world.hostExperience("luca", {
+        buildingId, title: `Again ${attempt}`, profile: { music: 90, socializing: 80, luxury: 20 },
+        durationGameMinutes: 120, accessPrice: 30,
+      });
+    }
+  }, (error) => error instanceof DomainError && error.code === "INSUFFICIENT_ENERGY");
+});
+
+test("the host is told what a night will cost before choosing its profile", () => {
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+
+  const offer = world.getObservation("luca").availableActions
+    .find((action) => action.type === "host_experience");
+  assert.ok(offer, "the proprietor is offered hosting");
+  assert.equal(offer.hostingBaseEnergyCost, 10);
+  assert.equal(offer.hostingEnergyPerAmbition, 15);
+  assert.equal(offer.hostingEnergyCostAtCeiling, 39,
+    "what this building's own profile would cost to deliver in full");
+  assert.equal(offer.energy, world.getObservation("luca").character.energy,
+    "against what the host actually has");
+});
