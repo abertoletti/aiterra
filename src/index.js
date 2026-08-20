@@ -18,11 +18,18 @@ const config = makeConfig({
     ? { city: { upkeepIntervalWorldMinutes: Number(process.env.UPKEEP_INTERVAL_WORLD_MINUTES) } }
     : {}),
 });
-const clock = new AcceleratedWorldClock(config.clock);
 const store = new JsonlEventStore(resolve(root, process.env.EVENT_LOG_PATH ?? ".data/world-events.jsonl"));
+const priorEvents = store.readAll();
+// Opt-in: a resumed world picks its time up where the log stopped, so the hours the
+// server was down are a pause rather than days nobody lived. Off, the clock is the pure
+// wall-clock formula every long-lived deployment already runs on.
+const resumeAnchor = process.env.RESUME_WORLD_TIME === "true" && priorEvents.length > 0
+  ? { worldTime: priorEvents.at(-1).worldTime }
+  : null;
+const clock = new AcceleratedWorldClock(config.clock, resumeAnchor);
 let seeded = null;
 let world;
-if (store.readAll().length === 0 && process.env.WORLD_CONFIG_PATH) {
+if (priorEvents.length === 0 && process.env.WORLD_CONFIG_PATH) {
   world = new World({ store, config, clock });
   const worldConfiguration = loadWorldConfiguration(resolve(root, process.env.WORLD_CONFIG_PATH));
   seeded = activateWorldConfiguration(world, worldConfiguration);
@@ -64,6 +71,7 @@ const host = process.env.HOST || undefined;
 server.listen(port, host, () => {
   console.log(`Aiterra observer: http://${host ?? "localhost"}:${port}`);
   console.log(`World time: ${clock.now().toISOString()} (${config.clock.realHoursPerGameDay} real hours/game day)`);
+  if (resumeAnchor) console.log(`World time resumed from the log's last event (${resumeAnchor.worldTime}): the downtime was a pause, not lived time.`);
   if (seeded) console.log(`Seeded world configuration ${seeded.version ?? "deterministic-demo"}.`);
   if (process.env.NODE_ENV !== "production") console.log("Demo tokens: demo-jack-token, demo-sara-token, demo-luca-token");
 });
