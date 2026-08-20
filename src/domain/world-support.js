@@ -187,16 +187,9 @@ export function hostingEnergyCost(profile, experience) {
 // What one completed post would teach, per skill it demanded. A post requiring R teaches up
 // to R + masteryMargin and the gain decays linearly to nothing at that ceiling, so the same
 // work stops paying once you have outgrown it. Returns only the skills that would move.
-// `teaches` separates the level work DEVELOPS from the level it DEMANDS. They are the same
-// for most posts, and apart for menial work: sweeping a foundry floor asks nothing of you and
-// still teaches a little, up to a low ceiling. Without that a resident below every rung on
-// its square could never climb - the only post it could take was the only one that taught it
-// nothing, which is exactly where one resident of the ten-agent run stood.
-export function skillGainsFor(requirements, skills, policy, teaches = null) {
-  const levels = { ...(requirements ?? {}), ...(teaches ?? {}) };
+export function skillGainsFor(requirements, skills, policy) {
   const gains = [];
-  for (const [skill, level] of Object.entries(levels)) {
-    const required = Number(level);
+  for (const [skill, required] of Object.entries(requirements ?? {})) {
     if (!policy.set.includes(skill) || !(required > 0)) continue;
     const ceiling = Math.min(policy.maximum, required + policy.masteryMargin);
     const current = skills?.[skill] ?? 0;
@@ -469,7 +462,7 @@ export function publicJob(job, energyCost = null) {
     // this projection rather than from the job record.
     boardLocationId: job.boardLocationId ?? job.locationId,
     durationGameMinutes: job.durationGameMinutes,
-    compensation: job.compensation, requirements: job.requirements, teaches: job.teaches ?? null, status: job.status,
+    compensation: job.compensation, requirements: job.requirements, status: job.status,
     visibility: job.visibility ?? "public",
     publishedAt: job.publishedAt,
     scheduledStartAt: job.scheduledStartAt, startGraceUntil: job.startGraceUntil,

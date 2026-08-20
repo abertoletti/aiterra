@@ -68,7 +68,7 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
   const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
   assert.equal(configuration.characters.length, 10);
   assert.equal(configuration.jobs.length, 20);
-  assert.equal(configuration.version, "local-ten-agent-pilot-v8-menial-work-teaches");
+  assert.equal(configuration.version, "local-ten-agent-pilot-v7-choose-your-square");
   assert.equal(configuration.jobs.filter((job) => job.teamSize === 2).length, 3);
 
   // Effort is the currency of work, and the board has to make that legible: pay tracks the
@@ -90,16 +90,11 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
   const pay = configuration.jobs.map((job) => job.compensation);
   assert.ok(Math.max(...pay) / Math.min(...pay) >= 10, "the best post is worth many times the smallest");
 
-  // Every square keeps an errand that asks nothing - and it has to TEACH something, or the
-  // only post a resident below every rung can take is the one that leaves it where it was.
+  // Every square keeps an unskilled errand, so nobody is ever locked out of earning.
   for (const square of ["market", "foundry", "garden", "archive"]) {
-    const errand = configuration.jobs.find((job) => job.locationId === square
-      && Object.keys(job.requirements ?? {}).length === 0);
-    assert.ok(errand, `${square} keeps a notice anyone can take`);
-    assert.ok(errand.teaches && Object.values(errand.teaches).some((level) => level > 0),
-      `${square}'s errand has to be a way in, not a dead end`);
-    const ceiling = Math.max(...Object.values(errand.teaches));
-    assert.ok(ceiling <= 20, `${square}'s errand must stop well short of the real rungs`);
+    assert.ok(configuration.jobs.some((job) => job.locationId === square
+      && Object.keys(job.requirements ?? {}).length === 0),
+    `${square} keeps a notice anyone can take`);
   }
 
   // Four squares, one per quadrant, five notices on each board. The grid is the only source

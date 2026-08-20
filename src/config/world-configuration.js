@@ -205,7 +205,7 @@ export function activateWorldConfiguration(world, input) {
       id: job.id, title: job.title, locationId: job.locationId,
       durationGameMinutes: job.durationGameMinutes, compensation: job.compensation,
       requirements: job.requirements ?? {}, teamSize: job.teamSize ?? 1, scheduledStartAt, offerExpiresAt,
-      energyCost: job.energyCost ?? null, teaches: job.teaches ?? null,
+      energyCost: job.energyCost ?? null,
       repeatable: job.repeatable ?? false, cooldownGameMinutes: job.cooldownGameMinutes ?? null,
     };
     if (job.fundingSource === "bootstrap") {
