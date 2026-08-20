@@ -8,6 +8,8 @@ import { defaultConfig } from "../domain/config.js";
 const GRAMMAR = defaultConfig.grammar;
 const EXPERIENCE = defaultConfig.experience;
 const CITY = defaultConfig.city;
+const COURSES = defaultConfig.courses;
+const SKILLS = defaultConfig.skills;
 
 export class WorldConfigurationError extends Error {
   constructor(message) {
@@ -139,6 +141,34 @@ export function validateWorldConfiguration(document) {
     if (reserved > characterCredits.get(characterId)) fail(`Jobs created by ${characterId} exceed that character's credits`);
   }
 
+  // AIT-1205: city-seeded courses, so the learning loop can start before any resident can
+  // afford to teach. Every mechanical value comes from the approved catalog; a seed chooses
+  // only the entry, the skill, the square, and a price inside the entry's band - exactly
+  // the same envelope a resident provider gets.
+  const courses = document.courses ?? [];
+  if (!Array.isArray(courses)) fail("courses must be an array");
+  uniqueIds(courses, "course");
+  for (const course of courses) {
+    text(course.title, `course ${course.id} title`, 120);
+    const entry = COURSES.catalog.find((item) => item.id === course.catalogEntryId);
+    if (!entry) fail(`Course ${course.id} names unknown catalog entry ${course.catalogEntryId}`);
+    if (!SKILLS.set.includes(course.skill)) fail(`Course ${course.id} teaches unknown skill ${course.skill}`);
+    if (entry?.tradeoffLoss) {
+      if (!SKILLS.set.includes(course.tradeoffSkill) || course.tradeoffSkill === course.skill) {
+        fail(`Course ${course.id} must pay its tradeoff in a distinct known skill`);
+      }
+    } else if (course.tradeoffSkill) {
+      fail(`Course ${course.id} declares a tradeoff skill its catalog entry does not carry`);
+    }
+    if (entry && (!Number.isInteger(course.price) || course.price < entry.priceMinimum || course.price > entry.priceMaximum)) {
+      fail(`Course ${course.id} price must be an integer between ${entry.priceMinimum} and ${entry.priceMaximum}`);
+    }
+    locationReference(course.locationId, locationIds, `course ${course.id} location`);
+    if (course.description !== undefined) text(course.description, `course ${course.id} description`, 500);
+    // City tuition flows back to the treasury, so a seeded course needs one to flow to.
+    if (!budget) fail(`Course ${course.id} requires a bootstrap budget to receive tuition`);
+  }
+
   uniqueIds(document.events, "event");
   for (const event of document.events) {
     text(event.title, "event title", 120);
@@ -196,6 +226,15 @@ export function activateWorldConfiguration(world, input) {
       accessPrice: event.accessPrice ?? 0,
       capacity: event.capacity ?? null,
       description: event.description ?? null,
+    });
+  }
+  for (const course of configuration.courses ?? []) {
+    world.offerCourse({
+      id: course.id, providerType: "city", providerId: configuration.bootstrapBudget.id,
+      locationId: course.locationId, boardLocationId: course.locationId,
+      catalogEntryId: course.catalogEntryId, skill: course.skill,
+      tradeoffSkill: course.tradeoffSkill ?? null,
+      price: course.price, title: course.title, description: course.description ?? "",
     });
   }
   for (const job of configuration.jobs) {

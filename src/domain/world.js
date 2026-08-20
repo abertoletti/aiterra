@@ -12,7 +12,7 @@ import {
   appraisalOutcomeKey, dominantDimension, evenPreferences, experienceAttendanceKey,
   normalizeExperienceProfile, normalizePreferences, normalizeTopics, topicFitFor,
   profileAffinity, round2, derivedTags,
-  buildingCost, buildingUpkeep, gridDistance, hostingEnergyCost, plotKey, skillGainsFor,
+  buildingCost, buildingUpkeep, courseEffectsFor, gridDistance, hostingEnergyCost, plotKey, skillGainsFor,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
   normalizeFact, normalizeGoal, normalizeRelationship, normalizeSkills,
@@ -711,6 +711,17 @@ export class World {
     this.changeHappiness(characterId, raw, "experience_resolved", {
       causedByEventIds: [resolved.id], worldTime, factors,
     });
+    // AIT-1202: a hosted night that resolved well is the organizer's verified outcome -
+    // presence-measured attendance, never an announced guest list. Only a guest's positive
+    // resolution counts, the host's own never does, and the per-gathering repetition key
+    // caps what one night can pay however many guests it drew.
+    if (gathering.creatorId && gathering.creatorId !== characterId
+      && this.state.characters.has(gathering.creatorId) && resolved.data.rawDelta > 0) {
+      this.applyReputationOutcome(gathering.creatorId, {
+        cause: "experience_hosted", role: "organizer", sourceEventId: resolved.id,
+        repetitionKey: `experience_hosted:${gathering.id}`, worldTime,
+      });
+    }
     return resolved;
   }
 
@@ -866,15 +877,7 @@ export class World {
     if (character.locationId === destinationId) throw invalid("ALREADY_THERE", "Character is already at that location");
     if (character.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot move while ${character.activity.type}`);
     const doors = this.buildingDoorState(destinationId);
-    // The proprietor always gets in: someone has to be able to open up. So does anyone
-    // employed there - a venue that hires staff and then locks them out could never be
-    // staffed, and the notice they answered was pinned in a public square precisely
-    // because nobody can stand inside a place that is shut.
-    const employedHere = [...this.state.jobs.values()].some((job) =>
-      job.locationId === destinationId
-      && job.workerIds?.includes(characterId)
-      && !TERMINAL_JOB_STATUSES.has(job.status));
-    if (doors.isVenue && !doors.open && doors.proprietorId !== characterId && !employedHere) {
+    if (doors.isVenue && !doors.open && !this.mayEnterClosedVenue(characterId, destinationId, doors)) {
       throw conflict("BUILDING_CLOSED", doors.opensAt
         ? `The venue is closed; it opens at ${doors.opensAt} for ${doors.title}`
         : "The venue is closed and has nothing programmed");
@@ -902,6 +905,23 @@ export class World {
     return movement;
   }
 
+  // The proprietor always gets in: someone has to be able to open up. So does anyone
+  // employed or enrolled there - a venue that hires staff or sells a course and then locks
+  // them out could never be staffed or attended, and the notice they answered was pinned in
+  // a public square precisely because nobody can stand inside a place that is shut. Decided
+  // in one place, because the move affordance and the move command must not disagree about
+  // who a closed door stops.
+  mayEnterClosedVenue(characterId, locationId, doors = this.buildingDoorState(locationId)) {
+    if (doors.proprietorId === characterId) return true;
+    const employedHere = [...this.state.jobs.values()].some((job) =>
+      job.locationId === locationId
+      && job.workerIds?.includes(characterId)
+      && !TERMINAL_JOB_STATUSES.has(job.status));
+    if (employedHere) return true;
+    const enrollment = this.activeCourseEnrollmentFor(characterId);
+    return Boolean(enrollment && this.state.courses.get(enrollment.courseId)?.locationId === locationId);
+  }
+
   fundingBalance(type, id) {
     if (type === "system_budget") {
       const budget = this.state.systemBudgets.get(id);
@@ -918,7 +938,7 @@ export class World {
   // at the building; only the advertisement lives in the square.
   publishRole(characterId, {
     buildingId, boardLocationId, title, description = "", requirements = {},
-    durationGameMinutes, wage, teamSize = 1, id = this.idGenerator(),
+    reputationRequirements = {}, durationGameMinutes, wage, teamSize = 1, id = this.idGenerator(),
   }) {
     this.requireCharacter(characterId);
     const building = this.requireBuilding(buildingId);
@@ -943,7 +963,297 @@ export class World {
       // Read in the square, worked at the building.
       locationId: building.locationId, boardLocationId,
       durationGameMinutes, compensation: wage, requirements, teamSize,
+      // AIT-1202/1603: a role may demand a demonstrated track record in a controlled
+      // domain, not just a skill level - the first mechanical rule reputation feeds.
+      reputationRequirements: this.normalizeReputationRequirements(reputationRequirements),
+      // A resident-created role is filled by application and selection, never taken off
+      // the board: employment must stay a two-sided choice (AIT-1603).
+      hiring: "application",
       availableCredits: building.balance, visibility: "public",
+    });
+  }
+
+  normalizeReputationRequirements(requirements) {
+    const result = {};
+    for (const [domain, minimum] of Object.entries(requirements ?? {})) {
+      if (!this.config.skills.set.includes(domain)) {
+        throw invalid("UNKNOWN_REPUTATION_DOMAIN",
+          `${domain} is not a version-${this.config.reputation.domainTaxonomyVersion} reputation domain`);
+      }
+      const value = Number(minimum);
+      if (!Number.isFinite(value) || value < this.config.reputation.minimum || value > this.config.reputation.maximum) {
+        throw invalid("INVALID_REPUTATION_REQUIREMENT",
+          `${domain} reputation requirement must be between ${this.config.reputation.minimum} and ${this.config.reputation.maximum}`);
+      }
+      if (value > 0) result[domain] = value;
+    }
+    return result;
+  }
+
+  // ---- AIT-1205. Courses: the priced way into a skill you cannot yet work in ---------
+  //
+  // Work teaches only what it demands (skillGainsFor), so a resident below every rung on
+  // its own board can never climb there. A course closes exactly that gap: its mechanical
+  // effects come from the approved catalog in config, a provider only chooses the entry,
+  // the skill, the price inside the entry's band, and where the notice hangs.
+
+  requireCourse(id) {
+    const course = this.state.courses.get(id);
+    if (!course) throw new DomainError("COURSE_NOT_FOUND", `Course ${id} not found`, 404);
+    return course;
+  }
+
+  courseCatalogEntry(catalogEntryId) {
+    const entry = this.config.courses.catalog.find((item) => item.id === catalogEntryId);
+    if (!entry) throw invalid("UNKNOWN_COURSE_TEMPLATE", `${catalogEntryId} is not in the approved course catalog`);
+    return entry;
+  }
+
+  // One study commitment at a time, mirroring the one-job rule: a resident who has paid
+  // tuition and accepted a shift has promised to be in two places, and the world does not
+  // referee that race.
+  activeCourseEnrollmentFor(characterId) {
+    return [...this.state.courseEnrollments.values()].find((enrollment) =>
+      enrollment.characterId === characterId && ["enrolled", "started"].includes(enrollment.status)) ?? null;
+  }
+
+  offerCourse({
+    id = this.idGenerator(), providerType, providerId, buildingId = null,
+    locationId, boardLocationId, catalogEntryId, skill, tradeoffSkill = null,
+    price, title, description = "",
+  }) {
+    requiredId(id, "course id");
+    requiredText(title, "course title", 120);
+    if (this.state.courses.has(id)) throw conflict("COURSE_EXISTS", `Course ${id} already exists`);
+    const entry = this.courseCatalogEntry(catalogEntryId);
+    if (!this.config.skills.set.includes(skill)) throw invalid("INVALID_SKILL", `${skill} is not a version-${this.config.skills.policyVersion} skill`);
+    if (entry.tradeoffLoss) {
+      if (!this.config.skills.set.includes(tradeoffSkill) || tradeoffSkill === skill) {
+        throw invalid("INVALID_TRADEOFF_SKILL", "A specialization names a distinct skill from the controlled set to pay its cost in");
+      }
+    } else if (tradeoffSkill) {
+      throw invalid("INVALID_TRADEOFF_SKILL", `${catalogEntryId} carries no tradeoff to assign a skill to`);
+    }
+    if (!Number.isInteger(price) || price < entry.priceMinimum || price > entry.priceMaximum) {
+      throw invalid("INVALID_COURSE_PRICE", `${catalogEntryId} must be priced between ${entry.priceMinimum} and ${entry.priceMaximum}`);
+    }
+    this.requireLocation(locationId);
+    const board = this.requireLocation(boardLocationId);
+    // Same rule as roles: a notice inside a venue that is shut when nothing is on is a
+    // notice nobody can ever be standing at.
+    if (board.buildingId) throw invalid("BOARD_NOT_PUBLIC", "A course is advertised on a public square, not inside a building");
+    if (providerType === "city" && !this.state.systemBudgets.has(providerId)) {
+      throw new DomainError("BUDGET_NOT_FOUND", `System budget ${providerId} not found`, 404);
+    }
+    return this.record("COURSE_OFFERED", {
+      actorCharacterId: providerType === "resident" ? providerId : null,
+      data: {
+        id, title, description: String(description).slice(0, 500),
+        providerType, providerId, buildingId,
+        locationId, boardLocationId,
+        catalogEntryId, skill, tradeoffSkill,
+        gain: entry.gain, teachesTo: entry.teachesTo,
+        prerequisites: entry.prerequisite ? { [skill]: entry.prerequisite } : {},
+        tradeoffLoss: entry.tradeoffLoss,
+        price, durationGameMinutes: entry.durationGameMinutes, energyCost: entry.energyCost,
+        // Tuition funds the venue the way admission does, or returns to the treasury that
+        // seeded the course; either way the reducer moves it, so the books reconcile.
+        feeDestinationType: buildingId ? "building" : "system_budget",
+        feeDestinationId: buildingId ?? providerId,
+        schedule: { type: "on_demand", startGraceWorldHours: this.config.courses.startGraceWorldHours },
+        tuition: { paidAt: "enrolment", refundOnCancel: 0, refundOnAbandon: 0, refundOnNoShow: 0 },
+        coursePolicyVersion: this.config.courses.policyVersion,
+        courseCatalogVersion: this.config.courses.catalogVersion,
+        skillPolicyVersion: this.config.skills.policyVersion,
+      },
+    });
+  }
+
+  // A resident teaches in its own building: the second way a place earns, after admission.
+  offerResidentCourse(characterId, { buildingId, boardLocationId, catalogEntryId, skill, tradeoffSkill = null, price, title, description = "" }) {
+    this.requireCharacter(characterId);
+    const building = this.requireBuilding(buildingId);
+    if (building.proprietorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the proprietor can teach here");
+    if (building.status !== "ACTIVE") throw conflict("BUILDING_NOT_ACTIVE", `Building is ${building.status}`);
+    if (!building.capabilities.includes("sell_service")) {
+      throw forbidden("CAPABILITY_MISSING", "Teaching for tuition is a sold service; this building cannot sell services");
+    }
+    const openHere = [...this.state.courses.values()].filter((course) =>
+      course.buildingId === buildingId && course.status === "open").length;
+    if (openHere >= this.config.courses.maximumOpenCoursesPerBuilding) {
+      throw conflict("COURSE_LIMIT_REACHED",
+        `A building may keep at most ${this.config.courses.maximumOpenCoursesPerBuilding} courses on offer`);
+    }
+    return this.offerCourse({
+      providerType: "resident", providerId: characterId, buildingId,
+      // Taught at the building, advertised on a square: read where people stand, attended
+      // where the provider built.
+      locationId: building.locationId, boardLocationId,
+      catalogEntryId, skill, tradeoffSkill, price, title, description,
+    });
+  }
+
+  // Everything the enrol command refuses is decided here, so the affordance, the catalog
+  // and the command cannot disagree. Energy is deliberately absent: it is charged at the
+  // start of class, and a tired resident can rest between paying and sitting down.
+  courseEnrollmentFeasibility(character, course) {
+    const blockingCodes = [];
+    if (course.status !== "open") blockingCodes.push("COURSE_CLOSED");
+    if (character.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
+    if (character.activity) blockingCodes.push("ACTIVITY_CONFLICT");
+    if (character.locationId !== course.boardLocationId) blockingCodes.push("WRONG_LOCATION");
+    if (this.activeCourseEnrollmentFor(character.id)) blockingCodes.push("ENROLLMENT_CONFLICT");
+    if (this.activeCommitmentFor(character.id)) blockingCodes.push("JOB_COMMITMENT_CONFLICT");
+    for (const [skill, minimum] of Object.entries(course.prerequisites ?? {})) {
+      if ((character.skills?.[skill] ?? 0) < minimum) { blockingCodes.push("PREREQUISITE_NOT_MET"); break; }
+    }
+    if (character.credits < course.price) blockingCodes.push("INSUFFICIENT_CREDITS");
+    return {
+      status: blockingCodes.length === 0 ? "eligible" : "blocked",
+      eligible: blockingCodes.length === 0,
+      blockingCode: blockingCodes[0] ?? null,
+      blockingCodes,
+    };
+  }
+
+  courseStartFeasibility(character, course, enrollment) {
+    const blockingCodes = [];
+    if (!enrollment || enrollment.status !== "enrolled") blockingCodes.push("NOT_ENROLLED");
+    else if (this.clock.now() > new Date(enrollment.startBy)) blockingCodes.push("START_WINDOW_CLOSED");
+    if (character.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
+    if (character.activity) blockingCodes.push("ACTIVITY_CONFLICT");
+    if (character.locationId !== course.locationId) blockingCodes.push("WRONG_LOCATION");
+    if (character.energy < course.energyCost) blockingCodes.push("INSUFFICIENT_ENERGY");
+    return {
+      status: blockingCodes.length === 0 ? "eligible" : "blocked",
+      eligible: blockingCodes.length === 0,
+      blockingCode: blockingCodes[0] ?? null,
+      blockingCodes,
+    };
+  }
+
+  // The whole notice, for this reader: provider, terms, and the exact effects completion
+  // would apply to these skills. Disclosed before enrolment, because a price discovered by
+  // being refused is a price we taught the agent to guess.
+  courseView(character, course) {
+    return {
+      courseId: course.id,
+      title: course.title,
+      description: course.description || null,
+      providerType: course.providerType,
+      providerId: course.providerId,
+      buildingId: course.buildingId,
+      locationId: course.locationId,
+      boardLocationId: course.boardLocationId,
+      price: course.price,
+      durationGameMinutes: course.durationGameMinutes,
+      energyCost: course.energyCost,
+      prerequisites: structuredClone(course.prerequisites ?? {}),
+      effects: courseEffectsFor(course, character.skills, this.config.skills),
+      schedule: structuredClone(course.schedule),
+      tuition: structuredClone(course.tuition),
+      startGraceWorldHours: this.config.courses.startGraceWorldHours,
+      feasibility: this.courseEnrollmentFeasibility(character, course),
+    };
+  }
+
+  // One authoritative event pays the tuition and creates the commitment, so no failure can
+  // leave half of either, and an idempotent resubmission cannot charge twice.
+  enrollInCourse(characterId, courseId) {
+    const character = this.requireCharacter(characterId);
+    const course = this.requireCourse(courseId);
+    const feasibility = this.courseEnrollmentFeasibility(character, course);
+    if (!feasibility.eligible) {
+      const code = feasibility.blockingCode;
+      if (code === "COURSE_CLOSED") throw conflict("COURSE_CLOSED", "The course is no longer offered");
+      if (code === "AGENT_UNAVAILABLE") throw conflict("AGENT_UNAVAILABLE", "Unavailable agents cannot enrol");
+      if (code === "ACTIVITY_CONFLICT") throw conflict("ACTIVITY_CONFLICT", `Cannot enrol while ${character.activity.type}`);
+      if (code === "WRONG_LOCATION") throw invalid("WRONG_LOCATION", "Character must be at the notice board to enrol");
+      if (code === "ENROLLMENT_CONFLICT") throw conflict("ENROLLMENT_CONFLICT", "Character already holds a course enrolment");
+      if (code === "JOB_COMMITMENT_CONFLICT") throw conflict("JOB_COMMITMENT_CONFLICT", "Character is already committed to a job");
+      if (code === "PREREQUISITE_NOT_MET") throw invalid("PREREQUISITE_NOT_MET", "The course prerequisites are not met");
+      throw invalid("INSUFFICIENT_CREDITS", `Tuition costs ${course.price} credits`);
+    }
+    const enrolledAt = this.clock.now();
+    return this.record("COURSE_ENROLLED", {
+      actorCharacterId: characterId,
+      data: {
+        enrollmentId: this.idGenerator(), courseId, characterId,
+        title: course.title, price: course.price,
+        feeDestinationType: course.feeDestinationType, feeDestinationId: course.feeDestinationId,
+        enrolledAt: enrolledAt.toISOString(),
+        startBy: addGameMinutes(enrolledAt, this.config.courses.startGraceWorldHours * 60).toISOString(),
+        effects: courseEffectsFor(course, character.skills, this.config.skills),
+        coursePolicyVersion: this.config.courses.policyVersion,
+        courseCatalogVersion: course.courseCatalogVersion,
+      },
+    });
+  }
+
+  startCourse(characterId, courseId) {
+    const character = this.requireCharacter(characterId);
+    const course = this.requireCourse(courseId);
+    const enrollment = this.activeCourseEnrollmentFor(characterId);
+    if (!enrollment || enrollment.courseId !== courseId || enrollment.status !== "enrolled") {
+      throw conflict("NOT_ENROLLED", "Character holds no open enrolment for that course");
+    }
+    if (this.clock.now() > new Date(enrollment.startBy)) {
+      this.expireCourseEnrollment(enrollment.id, enrollment.startBy);
+      throw conflict("START_WINDOW_CLOSED", "The disclosed start window has closed");
+    }
+    if (character.agentAvailability === "unavailable") throw conflict("AGENT_UNAVAILABLE", "Unavailable agents cannot start a course");
+    if (character.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot start a course while ${character.activity.type}`);
+    if (character.locationId !== course.locationId) throw invalid("WRONG_LOCATION", "Character must be at the course location to start");
+    this.requireEnergy(character, course.energyCost);
+    const energyEvent = this.changeEnergy(characterId, -course.energyCost, "course");
+    const startedAt = this.clock.now();
+    const started = this.record("COURSE_STARTED", {
+      actorCharacterId: characterId,
+      causedByEventIds: [energyEvent.id, enrollment.enrolledByEventId],
+      data: {
+        enrollmentId: enrollment.id, courseId, characterId,
+        title: course.title, locationId: course.locationId,
+        startedAt: startedAt.toISOString(),
+        expectedEndAt: addGameMinutes(startedAt, course.durationGameMinutes).toISOString(),
+        energyCost: course.energyCost,
+      },
+    });
+    this.endActiveConversations(characterId, "incompatible_activity", started.id);
+    return started;
+  }
+
+  // Cancelling before the start and walking out of class end the same way: the enrolment is
+  // terminal, the tuition stays where it went, and no effect applies. All three exits were
+  // disclosed on the notice before a credit moved.
+  abandonCourse(characterId, courseId) {
+    this.requireCharacter(characterId);
+    this.requireCourse(courseId);
+    const enrollment = this.activeCourseEnrollmentFor(characterId);
+    if (!enrollment || enrollment.courseId !== courseId) {
+      throw conflict("NOT_ENROLLED", "Character holds no open enrolment for that course");
+    }
+    return this.record("COURSE_ABANDONED", {
+      actorCharacterId: characterId,
+      causedByEventIds: [enrollment.enrolledByEventId],
+      data: {
+        enrollmentId: enrollment.id, courseId, characterId,
+        cause: enrollment.status === "started" ? "abandoned_after_start" : "cancelled_before_start",
+        feeForfeited: enrollment.price,
+      },
+    });
+  }
+
+  expireCourseEnrollment(enrollmentId, worldTime) {
+    const enrollment = this.state.courseEnrollments.get(enrollmentId);
+    if (!enrollment || enrollment.status !== "enrolled") return null;
+    return this.record("COURSE_ABANDONED", {
+      actorCharacterId: enrollment.characterId,
+      causedByEventIds: [enrollment.enrolledByEventId],
+      worldTime,
+      data: {
+        enrollmentId, courseId: enrollment.courseId, characterId: enrollment.characterId,
+        cause: "start_window_missed", feeForfeited: enrollment.price,
+      },
     });
   }
 
@@ -995,7 +1305,7 @@ export class World {
     });
   }
 
-  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, description = null, locationId, boardLocationId = null, durationGameMinutes, compensation, requirements, energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
+  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, description = null, locationId, boardLocationId = null, durationGameMinutes, compensation, requirements, reputationRequirements = {}, hiring = "direct_accept", energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
     // createJob and createSystemJob always generate one, but a direct call without an
     // id silently created a job keyed `undefined`, which nothing could ever reach.
     requiredId(id, "job id");
@@ -1032,6 +1342,8 @@ export class World {
         energyCost: energyCost ?? this.config.energy.workCost,
         compensation,
         requirements: normalizeSkills(requirements),
+        reputationRequirements: structuredClone(reputationRequirements),
+        hiring,
         teamSize,
         requirementsMode: teamSize > 1 ? "team_coverage" : "individual",
         visibility,
@@ -1076,6 +1388,12 @@ export class World {
     const worker = this.requireCharacter(workerId);
     const job = this.requireJob(jobId);
     if (job.status !== "open") throw conflict("JOB_UNAVAILABLE", "Job is not open");
+    // A resident-created role is a two-sided choice: the candidate applies and the
+    // proprietor selects. Taking it off the board would let the fastest reader bypass
+    // the one decision reputation exists to inform (AIT-1603).
+    if (job.hiring === "application") {
+      throw conflict("ROLE_REQUIRES_APPLICATION", "This role is filled by application; apply_for_role and wait to be selected");
+    }
     if (job.creatorId === workerId) throw conflict("SELF_EMPLOYMENT", "A character cannot accept its own funded job");
     if (worker.agentAvailability === "unavailable") throw conflict("AGENT_UNAVAILABLE", "Unavailable agents cannot accept new jobs");
     if (worker.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot accept a job while ${worker.activity.type}`);
@@ -1090,6 +1408,7 @@ export class World {
     if (job.workerIds.includes(workerId)) throw conflict("ALREADY_JOINED_TEAM", "Character already joined this job");
     const existingCommitment = this.activeCommitmentFor(workerId);
     if (existingCommitment) throw conflict("JOB_COMMITMENT_CONFLICT", `Character is already committed to job ${existingCommitment.id}`);
+    if (this.activeCourseEnrollmentFor(workerId)) throw conflict("COURSE_COMMITMENT_CONFLICT", "Character is already committed to a course");
     if (this.clock.now() >= new Date(job.offerExpiresAt)) {
       this.expireJobOffer(job.id, job.offerExpiresAt);
       throw conflict("JOB_OFFER_EXPIRED", "The job offer has expired");
@@ -1136,6 +1455,242 @@ export class World {
         startGraceUntil: job.startGraceUntil, reservationId: job.reservation.id,
       },
     });
+  }
+
+  // ---- AIT-1603. Applications: employment as a two-sided choice ----------------------
+  //
+  // A resident-created role is not taken, it is applied for: candidates declare interest
+  // at the board, and the proprietor's brain selects among them before the deadline. This
+  // is the first decision that reads reputation - without a chooser, a track record is a
+  // number nobody consults.
+
+  pendingApplications(job) {
+    return (job.applications ?? []).filter((application) => application.status === "pending");
+  }
+
+  unmetReputationRequirements(character, job) {
+    return Object.entries(job.reputationRequirements ?? {})
+      .filter(([domain, minimum]) => (character.domainReputation?.[domain] ?? 0) < minimum)
+      .map(([domain, minimum]) => ({ domain, required: minimum, actual: character.domainReputation?.[domain] ?? 0 }));
+  }
+
+  // Applying commits nothing - a candidate can keep working while the proprietor decides -
+  // so activity and existing commitments block selection, never the application itself.
+  applicationFeasibility(character, job) {
+    const blockingCodes = [];
+    if (job.creatorId === character.id) blockingCodes.push("SELF_EMPLOYMENT");
+    if (character.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
+    if (character.locationId !== (job.boardLocationId ?? job.locationId)) blockingCodes.push("WRONG_LOCATION");
+    if (this.pendingApplications(job).some((application) => application.characterId === character.id)) blockingCodes.push("ALREADY_APPLIED");
+    if (job.workerIds.includes(character.id)) blockingCodes.push("ALREADY_SELECTED");
+    if (job.workerIds.length >= job.teamSize) blockingCodes.push("TEAM_FULL");
+    if (this.clock.now() >= new Date(job.offerExpiresAt)) blockingCodes.push("JOB_OFFER_EXPIRED");
+    else if (this.clock.now() > new Date(job.startGraceUntil)) blockingCodes.push("START_WINDOW_CLOSED");
+    if (job.teamSize === 1 && Object.entries(job.requirements ?? {})
+      .some(([skill, required]) => (character.skills?.[skill] ?? 0) < required)) {
+      blockingCodes.push("SKILL_REQUIREMENT");
+    }
+    if (this.unmetReputationRequirements(character, job).length > 0) blockingCodes.push("REPUTATION_REQUIREMENT");
+    const uniqueBlockingCodes = [...new Set(blockingCodes)];
+    return {
+      status: uniqueBlockingCodes.length === 0 ? "eligible" : "blocked",
+      eligible: uniqueBlockingCodes.length === 0,
+      blockingCode: uniqueBlockingCodes[0] ?? null,
+      blockingCodes: uniqueBlockingCodes,
+    };
+  }
+
+  applyForRole(characterId, jobId) {
+    const character = this.requireCharacter(characterId);
+    const job = this.requireJob(jobId);
+    if (job.hiring !== "application") throw invalid("NOT_AN_APPLICATION_ROLE", "This post is taken with accept_job, not applied for");
+    if (job.status !== "open") throw conflict("JOB_UNAVAILABLE", "The role is no longer open");
+    const feasibility = this.applicationFeasibility(character, job);
+    if (!feasibility.eligible) {
+      const code = feasibility.blockingCode;
+      if (code === "JOB_OFFER_EXPIRED") {
+        this.expireJobOffer(job.id, job.offerExpiresAt);
+        throw conflict("JOB_OFFER_EXPIRED", "The role offer has expired");
+      }
+      const conflicts = new Set(["SELF_EMPLOYMENT", "AGENT_UNAVAILABLE", "ALREADY_APPLIED", "ALREADY_SELECTED", "TEAM_FULL", "START_WINDOW_CLOSED"]);
+      if (conflicts.has(code)) throw conflict(code, `Application refused: ${code.toLowerCase().replaceAll("_", " ")}`);
+      throw invalid(code, code === "WRONG_LOCATION"
+        ? "Character must be at the notice board to apply"
+        : `Application refused: ${code.toLowerCase().replaceAll("_", " ")}`);
+    }
+    const applied = this.record("BUILDING_ROLE_APPLIED", {
+      actorCharacterId: characterId,
+      subjectCharacterId: job.creatorId,
+      data: {
+        jobId, applicationId: this.idGenerator(), characterId,
+        title: job.title, boardLocationId: job.boardLocationId,
+        appliedAt: this.clock.now().toISOString(),
+      },
+    });
+    // The proprietor may be anywhere; a selection nobody is prompted for is a role that
+    // quietly expires, so the application interrupts the way an invitation does.
+    this.record("AGENT_NOTIFICATION_QUEUED", {
+      actorCharacterId: characterId,
+      subjectCharacterId: job.creatorId,
+      causedByEventIds: [applied.id],
+      data: {
+        characterId: job.creatorId, sourceEventId: applied.id,
+        level: "HIGH", urgency: "normal",
+        summary: `${character.name} applied for "${job.title}". Select before ${job.offerExpiresAt}.`,
+        requestKind: "event_reaction", compatibleActions: ["select_applicant", "ignore_event"],
+        timingPolicyVersion: this.config.timing.policyVersion,
+      },
+    });
+    return applied;
+  }
+
+  withdrawApplication(characterId, jobId) {
+    this.requireCharacter(characterId);
+    const job = this.requireJob(jobId);
+    const application = this.pendingApplications(job).find((item) => item.characterId === characterId);
+    if (!application) throw conflict("NO_PENDING_APPLICATION", "Character has no pending application for that role");
+    return this.record("BUILDING_ROLE_APPLICATION_WITHDRAWN", {
+      actorCharacterId: characterId,
+      subjectCharacterId: job.creatorId,
+      causedByEventIds: [application.appliedByEventId],
+      data: { jobId, applicationId: application.id, characterId, title: job.title },
+    });
+  }
+
+  // The candidate-side facts a selection would be revalidated against right now. Presence
+  // is deliberately absent: the selected worker still has to walk there, and start_job is
+  // where presence, Energy, and the window are enforced.
+  selectionFeasibility(candidate, job) {
+    const blockingCodes = [];
+    if (candidate.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
+    if (candidate.activity) blockingCodes.push("ACTIVITY_CONFLICT");
+    if (this.activeCommitmentFor(candidate.id)) blockingCodes.push("JOB_COMMITMENT_CONFLICT");
+    if (this.activeCourseEnrollmentFor(candidate.id)) blockingCodes.push("COURSE_COMMITMENT_CONFLICT");
+    if (job.teamSize === 1 && Object.entries(job.requirements ?? {})
+      .some(([skill, required]) => (candidate.skills?.[skill] ?? 0) < required)) {
+      blockingCodes.push("SKILL_REQUIREMENT");
+    }
+    if (this.unmetReputationRequirements(candidate, job).length > 0) blockingCodes.push("REPUTATION_REQUIREMENT");
+    return {
+      status: blockingCodes.length === 0 ? "eligible" : "blocked",
+      eligible: blockingCodes.length === 0,
+      blockingCode: blockingCodes[0] ?? null,
+      blockingCodes,
+    };
+  }
+
+  // What the proprietor may know about a candidate: name, when they applied, and the public
+  // track record in the domains this role names. Never their skills, goals, or wallet - the
+  // server validated the qualifications, so the number the chooser needs is the one only
+  // history can write. No score and no ordering: the brain does the arithmetic.
+  applicationView(job, application) {
+    const candidate = this.requireCharacter(application.characterId);
+    const relevantDomains = [...new Set([
+      ...Object.entries(job.requirements ?? {}).filter(([, level]) => level > 0).map(([skill]) => skill),
+      ...Object.keys(job.reputationRequirements ?? {}),
+    ])];
+    const feasibility = this.selectionFeasibility(candidate, job);
+    return {
+      applicationId: application.id,
+      candidateId: candidate.id,
+      name: candidate.name,
+      appliedAt: application.appliedAt,
+      reputation: {
+        general: candidate.reputation,
+        domains: Object.fromEntries(relevantDomains.map((domain) => [domain, candidate.domainReputation?.[domain] ?? 0])),
+      },
+      stillEligible: feasibility.eligible,
+      blockingCodes: feasibility.blockingCodes,
+    };
+  }
+
+  selectApplicant(characterId, jobId, applicationId) {
+    this.requireCharacter(characterId);
+    const job = this.requireJob(jobId);
+    if (job.hiring !== "application") throw invalid("NOT_AN_APPLICATION_ROLE", "This post is not filled by selection");
+    if (job.creatorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the publishing proprietor selects applicants");
+    if (job.status !== "open") throw conflict("JOB_UNAVAILABLE", "The role is no longer open");
+    if (this.clock.now() >= new Date(job.offerExpiresAt)) {
+      this.expireJobOffer(job.id, job.offerExpiresAt);
+      throw conflict("JOB_OFFER_EXPIRED", "The role offer has expired");
+    }
+    if (this.clock.now() > new Date(job.startGraceUntil)) throw conflict("START_WINDOW_CLOSED", "The disclosed start window has closed");
+    const application = (job.applications ?? []).find((item) => item.id === applicationId);
+    if (!application) throw new DomainError("APPLICATION_NOT_FOUND", "Application not found", 404);
+    if (application.status !== "pending") throw conflict("APPLICATION_NOT_PENDING", `Application is ${application.status}`);
+    const candidate = this.requireCharacter(application.characterId);
+    const feasibility = this.selectionFeasibility(candidate, job);
+    // A stale selection fails loudly and changes nothing: the escrow stays reserved, the
+    // application row already told the proprietor why, and another candidate can be picked.
+    if (!feasibility.eligible) {
+      throw new DomainError("CANDIDATE_NO_LONGER_ELIGIBLE",
+        `${candidate.name} can no longer take the role`, 409, { blockingCodes: feasibility.blockingCodes });
+    }
+    const prospectiveWorkerIds = [...job.workerIds, candidate.id];
+    const teamComplete = prospectiveWorkerIds.length === job.teamSize;
+    if (teamComplete && job.teamSize > 1) {
+      const uncovered = this.teamRequirementGaps(job, prospectiveWorkerIds);
+      if (uncovered.length > 0) {
+        throw invalid("TEAM_SKILL_COVERAGE", "The completed team would not cover every requirement", { uncovered });
+      }
+    }
+    const filled = this.record("BUILDING_ROLE_FILLED", {
+      actorCharacterId: characterId,
+      subjectCharacterId: candidate.id,
+      causedByEventIds: [application.appliedByEventId],
+      data: {
+        jobId, applicationId, characterId: candidate.id, selectedById: characterId,
+        title: job.title, wage: job.compensation,
+        workerIds: prospectiveWorkerIds, teamComplete,
+        locationId: job.locationId,
+        scheduledStartAt: job.scheduledStartAt, startGraceUntil: job.startGraceUntil,
+      },
+    });
+    // Selection creates the same commitment acceptance would, through the same events, so
+    // no-shows, escrow, and conflicts need no second set of rules.
+    const commitment = this.record(teamComplete ? "JOB_ACCEPTED" : "JOB_TEAM_MEMBER_JOINED", {
+      actorCharacterId: candidate.id,
+      subjectCharacterId: job.creatorId,
+      causedByEventIds: [filled.id],
+      data: teamComplete
+        ? {
+          jobId, workerId: candidate.id, workerIds: prospectiveWorkerIds, title: job.title,
+          locationId: job.locationId, acceptedAt: this.clock.now().toISOString(),
+          scheduledStartAt: job.scheduledStartAt, startGraceUntil: job.startGraceUntil,
+          reservationId: job.reservation.id, applicationId,
+        }
+        : {
+          jobId, workerId: candidate.id, workerIds: prospectiveWorkerIds, teamSize: job.teamSize,
+          title: job.title, locationId: job.locationId, joinedAt: this.clock.now().toISOString(),
+          applicationId,
+        },
+    });
+    this.record("AGENT_NOTIFICATION_QUEUED", {
+      actorCharacterId: characterId,
+      subjectCharacterId: candidate.id,
+      causedByEventIds: [filled.id],
+      data: {
+        characterId: candidate.id, sourceEventId: filled.id,
+        level: "HIGH", urgency: "normal",
+        summary: `You were selected for "${job.title}"; be at ${this.requireLocation(job.locationId).name} to start between ${job.scheduledStartAt} and ${job.startGraceUntil}.`,
+        requestKind: "event_reaction", compatibleActions: ["move", "start_job", "ignore_event"],
+        timingPolicyVersion: this.config.timing.policyVersion,
+      },
+    });
+    if (teamComplete) {
+      for (const other of this.pendingApplications(job)) {
+        this.record("BUILDING_ROLE_CANDIDATE_REJECTED", {
+          actorCharacterId: characterId,
+          subjectCharacterId: other.characterId,
+          causedByEventIds: [filled.id, other.appliedByEventId],
+          data: {
+            jobId, applicationId: other.id, characterId: other.characterId,
+            title: job.title, cause: "another_candidate_selected",
+          },
+        });
+      }
+    }
+    return commitment;
   }
 
   startJob(workerId, jobId) {
@@ -1187,7 +1742,11 @@ export class World {
     const actor = this.requireCharacter(actorCharacterId);
     const job = this.requireJob(jobId);
     if (!["open", "accepted", "running"].includes(job.status)) throw conflict("JOB_TERMINAL", "The job is already terminal");
-    const isFunder = job.fundingSourceType === "character" && job.fundingSourceId === actor.id;
+    // A building's purse is spent by its proprietor, so the proprietor is the funder for
+    // cancellation - otherwise a resident-created role could never be withdrawn by anyone.
+    const isFunder = (job.fundingSourceType === "character" && job.fundingSourceId === actor.id)
+      || (job.fundingSourceType === "building"
+        && this.state.buildings.get(job.fundingSourceId)?.proprietorId === actor.id);
     const isWorker = job.workerIds.includes(actor.id);
     if (!isFunder && !isWorker) throw forbidden("NOT_JOB_PARTY", "Only the funding character or assigned worker can cancel this job");
     if (isFunder && job.status === "running") throw conflict("FUNDER_CANNOT_CANCEL_RUNNING_JOB", "The funder cannot cancel after work starts");
@@ -1281,6 +1840,16 @@ export class World {
         currency: job.reservation.currency, terminalCause,
       },
     });
+    // A commitment walked away from is a verified outcome too. The no-show bills every
+    // worker who accepted and failed to appear; abandonment and a pre-start cancellation
+    // bill only whoever acted, because teammates did not choose it.
+    if (terminalCause === "worker_no_show") {
+      for (const workerId of payoutWorkerIds) this.grantWorkReputation(workerId, job, "work_no_show", terminal.id, worldTime);
+    } else if (terminalCause === "worker_abandoned_after_start" && actorCharacterId) {
+      this.grantWorkReputation(actorCharacterId, job, "work_abandoned", terminal.id, worldTime);
+    } else if (terminalCause === "worker_cancelled_before_start" && actorCharacterId) {
+      this.grantWorkReputation(actorCharacterId, job, "work_cancelled", terminal.id, worldTime);
+    }
     return terminal;
   }
 
@@ -1526,6 +2095,12 @@ export class World {
     for (const fromId of commitment.participantIds) {
       const toId = commitment.participantIds.find((id) => id !== fromId);
       this.applyRelationshipRule("promise_kept", { fromId, toId, causedByEventIds: [kept.id] });
+      // The pair is the repetition key: meeting the same person daily proves less each
+      // time, so two colluding residents cannot mint reliability off each other.
+      this.applyReputationOutcome(fromId, {
+        cause: "commitment_kept", role: "participant", sourceEventId: kept.id,
+        repetitionKey: `commitment_kept:${fromId}:${toId}`, worldTime: at.toISOString(),
+      });
     }
     this.resolveCommitmentNotifications(commitment.id, kept.id, "commitment_kept");
     return kept;
@@ -1554,6 +2129,12 @@ export class World {
       if (absentIds.includes(otherId)) {
         this.applyRelationshipRule("promise_broken", { fromId: observerId, toId: otherId, causedByEventIds: [missed.id] });
       }
+    }
+    for (const absentId of absentIds) {
+      this.applyReputationOutcome(absentId, {
+        cause: "commitment_missed", role: "participant", sourceEventId: missed.id,
+        repetitionKey: `commitment_missed:${commitment.id}`, worldTime,
+      });
     }
     this.resolveCommitmentNotifications(commitment.id, missed.id, "commitment_missed");
     return missed;
@@ -2431,6 +3012,53 @@ export class World {
         result = this.actionResult(characterId, event);
         break;
       }
+      case "apply_for_role": {
+        const event = this.applyForRole(characterId, action.jobId);
+        result = this.actionResult(characterId, event, { applicationId: event.data.applicationId });
+        break;
+      }
+      case "withdraw_application": {
+        const event = this.withdrawApplication(characterId, action.jobId);
+        result = this.actionResult(characterId, event);
+        break;
+      }
+      case "select_applicant": {
+        const event = this.selectApplicant(characterId, action.jobId, action.applicationId);
+        result = this.actionResult(characterId, event, {
+          jobId: action.jobId, selectedCandidateId: event.data.workerId,
+          teamComplete: event.type === "JOB_ACCEPTED",
+        });
+        break;
+      }
+      case "enroll_course": {
+        const event = this.enrollInCourse(characterId, action.courseId);
+        result = this.actionResult(characterId, event, {
+          courseId: action.courseId, price: event.data.price, startBy: event.data.startBy,
+        });
+        break;
+      }
+      case "start_course": {
+        const event = this.startCourse(characterId, action.courseId);
+        result = this.actionResult(characterId, event, { expectedEndAt: event.data.expectedEndAt });
+        break;
+      }
+      case "abandon_course": {
+        const event = this.abandonCourse(characterId, action.courseId);
+        result = this.actionResult(characterId, event, {
+          cause: event.data.cause, feeForfeited: event.data.feeForfeited,
+        });
+        break;
+      }
+      case "offer_course": {
+        const event = this.offerResidentCourse(characterId, {
+          buildingId: action.buildingId, boardLocationId: action.boardLocationId,
+          catalogEntryId: action.catalogEntryId, skill: action.skill,
+          tradeoffSkill: action.tradeoffSkill ?? null, price: action.price,
+          title: action.title, description: action.description,
+        });
+        result = this.actionResult(characterId, event, { courseId: event.data.id, price: event.data.price });
+        break;
+      }
       case "start_job": {
         const event = this.startJob(characterId, action.jobId);
         result = this.actionResult(characterId, event, { expectedEndAt: event.data.expectedEndAt });
@@ -2580,6 +3208,10 @@ export class World {
         this.failJobForNoShow(due.jobId, due.worldTime);
         continue;
       }
+      if (due.kind === "course_no_show") {
+        this.expireCourseEnrollment(due.enrollmentId, due.worldTime);
+        continue;
+      }
       if (due.kind === "commitment_reminder") {
         const commitment = this.requireCommitment(due.commitmentId);
         const reminder = this.record("COMMITMENT_REMINDER_SENT", {
@@ -2664,6 +3296,7 @@ export class World {
           });
           // Only a completed post teaches, and only the skills it actually demanded.
           this.grantSkillGains(workerId, job, completed.id, activity.expectedEndAt);
+          this.grantWorkReputation(workerId, job, "work_completed", completed.id, activity.expectedEndAt);
         }
         this.record("JOB_ESCROW_SETTLED", {
           actorCharacterId: job.creatorId,
@@ -2697,6 +3330,41 @@ export class World {
             processingDelayWorldMilliseconds: Math.max(0, this.clock.now() - new Date(activity.expectedEndAt)),
           },
         });
+      } else if (activity.type === "course") {
+        // Completion is the only gate to the effects, and it happens exactly once: the
+        // enrolment must still be the started one, so a replayed or duplicated timer can
+        // never apply a second dose.
+        const enrollment = this.state.courseEnrollments.get(activity.enrollmentId);
+        if (!enrollment || enrollment.status !== "started") continue;
+        const course = this.state.courses.get(enrollment.courseId);
+        const effects = courseEffectsFor(course, character.skills, this.config.skills);
+        const completed = this.record("COURSE_COMPLETED", {
+          actorCharacterId: character.id,
+          causedByEventIds: [activity.startedByEventId],
+          worldTime: activity.expectedEndAt,
+          data: {
+            enrollmentId: enrollment.id, courseId: course.id, characterId: character.id,
+            title: course.title, effects,
+            coursePolicyVersion: this.config.courses.policyVersion,
+            courseCatalogVersion: course.courseCatalogVersion,
+            skillPolicyVersion: this.config.skills.policyVersion,
+            processingDelayWorldMilliseconds: Math.max(0, this.clock.now() - new Date(activity.expectedEndAt)),
+          },
+        });
+        for (const effect of effects.filter((item) => item.delta !== 0)) {
+          this.record("SKILL_CHANGED", {
+            actorCharacterId: character.id,
+            causedByEventIds: [completed.id],
+            worldTime: activity.expectedEndAt,
+            data: {
+              characterId: character.id, skill: effect.skill, previous: effect.previous,
+              delta: effect.delta, value: effect.value,
+              ...(effect.ceiling !== undefined ? { ceiling: effect.ceiling } : {}),
+              reason: "course_completed", courseId: course.id,
+              skillPolicyVersion: this.config.skills.policyVersion,
+            },
+          });
+        }
       } else if (activity.type === "attend_event") {
         // The experience ended rather than the resident leaving, but it is the same
         // single resolution point: presence Energy and Happiness settle here too.
@@ -2945,8 +3613,11 @@ export class World {
     // world work the way the view already implied. Your own work follows you, because a
     // commitment you took is not a notice you are browsing.
     const boardHere = (job) => (job.boardLocationId ?? job.locationId) === character.locationId;
+    // A role you published follows you like work you took: the funder of a building role
+    // is the building, so creatorId is the only handle its proprietor has on it.
     const availableJobs = [...this.state.jobs.values()]
       .filter((job) => job.workerIds.includes(characterId) || job.fundingSourceId === characterId
+        || job.creatorId === characterId
         || (job.status === "open" && boardHere(job)))
       .map((job) => publicJob(job, job.energyCost ?? this.config.energy.workCost));
     // What the other squares are holding, as a count. A resident should know a market
@@ -2958,6 +3629,10 @@ export class World {
         locationId: location.id, name: location.name,
         openJobs: [...this.state.jobs.values()].filter((job) => job.status === "open"
           && (job.boardLocationId ?? job.locationId) === location.id).length,
+        // A course three squares away is a reason to travel, stated as a count: the notice
+        // itself is read at its own board, same as work.
+        openCourses: [...this.state.courses.values()].filter((course) => course.status === "open"
+          && course.boardLocationId === location.id).length,
         travelMinutes: location.id === character.locationId
           ? 0 : this.travelDurationBetween(character.locationId, location.id),
         here: location.id === character.locationId,
@@ -3052,6 +3727,8 @@ export class World {
         return {
           locationId: location.id, name: location.name, x: location.x, y: location.y,
           openJobs: board.length,
+          openCourses: [...this.state.courses.values()].filter((course) => course.status === "open"
+            && course.boardLocationId === location.id).length,
           payRange: pay.length ? { lowest: Math.min(...pay), highest: Math.max(...pay) } : null,
           boardAsksFor: [...asks].sort(),
           residentsHere: [...this.state.characters.values()]
@@ -3123,6 +3800,24 @@ export class World {
         startGraceWorldHours: this.config.jobs.startGraceWorldHours,
         individualRequirements: "Every listed skill threshold must be met by the worker.",
         teamRequirements: "For team jobs the recruited team must collectively cover every listed skill threshold; compensation is split equally.",
+        applicationRoles: "A notice with hiring 'application' is a resident-created role: apply_for_role at its board and wait. The proprietor selects among applicants before the deadline; selection commits you to its schedule exactly like an accepted job. It may also require a minimum Domain Reputation.",
+      },
+      courses: {
+        policyVersion: this.config.courses.policyVersion,
+        catalogVersion: this.config.courses.catalogVersion,
+        startGraceWorldHours: this.config.courses.startGraceWorldHours,
+        instruction: "A course is the paid way INTO a skill no reachable work teaches. Its notice discloses provider, price, duration, Energy, prerequisites and the exact effects for you before you pay; effects apply exactly once, at completion, up to the course's ceiling.",
+        tuition: "Tuition is paid in full at enrolment and never refunded: cancelling, abandoning, or missing the disclosed start window forfeits it and applies no effect. Energy is charged when the class starts.",
+        oneCommitment: "One commitment at a time: an open enrolment blocks accepting work and an accepted job blocks enrolling.",
+        providing: "A building with sell_service may offer courses from the approved catalog, choosing only the skill, a price inside the entry's band, and a public square for the notice. Tuition funds the building balance like admission.",
+      },
+      reputation: {
+        policyVersion: this.config.reputation.policyVersion,
+        domains: [...this.config.skills.set],
+        range: [this.config.reputation.minimum, this.config.reputation.maximum],
+        visibility: "General and per-domain values are public; the causes behind your own are visible only to you.",
+        instruction: "Reputation is a track record written only by verified outcomes: completed work builds it in the skills the post demanded, no-shows and abandonment spend it faster than work earns it, kept and missed meeting commitments move the general value, and a hosted night that resolved well credits its organizer. You cannot assert it, and repeating the same evidence pays less and then nothing.",
+        consequence: "Proprietors read reputation when selecting applicants, and a role may set a minimum Domain Reputation.",
       },
       invitations: {
         locationLeadWorldMinutes: this.config.invitations.locationLeadWorldMinutes,
@@ -3343,6 +4038,18 @@ export class World {
         .sort((a, b) => b.strength - a.strength),
     }));
     const jobs = [...this.state.jobs.values()].map((job) => publicJob(job, job.energyCost ?? this.config.energy.workCost));
+    // The operator sees every course and how its enrolments went, next to the jobs it
+    // competes with for the same day.
+    const courses = [...this.state.courses.values()].map((course) => {
+      const enrollments = [...this.state.courseEnrollments.values()]
+        .filter((enrollment) => enrollment.courseId === course.id);
+      return {
+        ...structuredClone(course),
+        enrollmentCount: enrollments.length,
+        completedCount: enrollments.filter((enrollment) => enrollment.status === "completed").length,
+        abandonedCount: enrollments.filter((enrollment) => enrollment.status === "abandoned").length,
+      };
+    });
     // AIT-1006. The operator sees the grid, who holds what, and how each building is
     // doing, without seeing any character's private reasoning.
     const city = {
@@ -3459,6 +4166,7 @@ export class World {
       locations,
       connections: [...this.state.connections.values()].map((connection) => structuredClone(connection)),
       jobs,
+      courses,
       events,
       invitations: [...this.state.invitations.values()].map((invitation) => structuredClone(invitation)),
       commitments: [...this.state.commitments.values()].map((commitment) => structuredClone(commitment)),
@@ -3629,7 +4337,10 @@ export class World {
       for (const location of locations) {
         if (location.id === character.locationId) continue;
         const doors = this.buildingDoorState(location.id);
-        const shut = doors.isVenue && !doors.open && doors.proprietorId !== character.id;
+        // The same rule the command applies: staff and enrolled students walk in through a
+        // shut door, and an affordance that said otherwise would strand exactly the people
+        // the venue is waiting for.
+        const shut = doors.isVenue && !doors.open && !this.mayEnterClosedVenue(character.id, location.id, doors);
         actions.push({
           type: "move", destinationId: location.id, name: location.name,
           energyCost: this.config.energy.movementCost,
@@ -3730,6 +4441,34 @@ export class World {
           skillSet: [...this.config.skills.set],
         });
       }
+      for (const building of myBuildings.filter((item) => item.status === "ACTIVE"
+        && item.capabilities.includes("sell_service"))) {
+        // Teach in your own building: the second way a place earns, after admission. The
+        // affordance carries the whole approved catalog with its bands, because the terms
+        // a provider may choose are exactly the terms it must be able to read.
+        const openCoursesHere = [...this.state.courses.values()].filter((course) =>
+          course.buildingId === building.buildingId && course.status === "open").length;
+        actions.push({
+          type: "offer_course", buildingId: building.buildingId, name: building.name,
+          tuitionFundsBuildingBalance: true, balance: building.balance,
+          courseCatalog: this.config.courses.catalog.map((entry) => ({
+            catalogEntryId: entry.id, gain: entry.gain, teachesTo: entry.teachesTo,
+            prerequisite: entry.prerequisite, tradeoffLoss: entry.tradeoffLoss,
+            durationGameMinutes: entry.durationGameMinutes, energyCost: entry.energyCost,
+            priceMinimum: entry.priceMinimum, priceMaximum: entry.priceMaximum,
+          })),
+          skillSet: [...this.config.skills.set],
+          boardChoices: [...this.state.locations.values()]
+            .filter((location) => !location.buildingId)
+            .map((location) => ({ locationId: location.id, name: location.name })),
+          taughtAt: building.locationId,
+          openCoursesHere: openCoursesHere,
+          maximumOpenCourses: this.config.courses.maximumOpenCoursesPerBuilding,
+          feasibility: openCoursesHere < this.config.courses.maximumOpenCoursesPerBuilding
+            ? { status: "eligible", eligible: true, blockingCode: null, blockingCodes: [] }
+            : { status: "blocked", eligible: false, blockingCode: "COURSE_LIMIT_REACHED", blockingCodes: ["COURSE_LIMIT_REACHED"] },
+        });
+      }
       for (const building of myBuildings) {
         actions.push({
           type: "fund_building", buildingId: building.buildingId, name: building.name,
@@ -3770,7 +4509,59 @@ export class World {
       // work reads the whole notice, not half of it. Splitting one notice between the
       // affordance and the catalog produced agents that accepted work without knowing
       // its pay or duration, so the full view stays here in both context modes.
-      actions.push({ type: "accept_job", ...this.jobOpportunityView(character, job) });
+      const view = this.jobOpportunityView(character, job);
+      // The action on the notice depends on how it is filled: a city post is taken, a
+      // resident-created role is applied for and the proprietor chooses.
+      actions.push({ type: view.hiring === "application" ? "apply_for_role" : "accept_job", ...view });
+      if (view.myApplication?.status === "pending") {
+        actions.push({ type: "withdraw_application", jobId: view.jobId, title: view.title });
+      }
+    }
+    // The proprietor's half of a hire: every pending application, with the candidate's
+    // verified public track record beside it. No ordering and no score - choosing is the
+    // one thing the server must not do for the brain.
+    for (const job of [...this.state.jobs.values()].filter((item) =>
+      item.hiring === "application" && item.status === "open" && item.creatorId === character.id)) {
+      const applications = this.pendingApplications(job).map((application) => this.applicationView(job, application));
+      if (applications.length === 0) continue;
+      // When every applicant has gone stale the menu must not offer a choice that can only
+      // be refused; the rows still say who applied and what blocks each of them.
+      const anyEligible = applications.some((application) => application.stillEligible);
+      actions.push({
+        type: "select_applicant", jobId: job.id, title: job.title,
+        wage: job.compensation, requirements: structuredClone(job.requirements ?? {}),
+        reputationRequirements: structuredClone(job.reputationRequirements ?? {}),
+        scheduledStartAt: job.scheduledStartAt, startGraceUntil: job.startGraceUntil,
+        offerExpiresAt: job.offerExpiresAt,
+        openTeamSlots: Math.max(0, job.teamSize - job.workerIds.length),
+        applications,
+        feasibility: anyEligible
+          ? { status: "eligible", eligible: true, blockingCode: null, blockingCodes: [] }
+          : { status: "blocked", eligible: false, blockingCode: "NO_ELIGIBLE_APPLICANTS", blockingCodes: ["NO_ELIGIBLE_APPLICANTS"] },
+      });
+    }
+    // AIT-1205: the courses pinned to this board, each carrying its whole notice - terms,
+    // prerequisites, and the exact effects for THIS reader - because a price discovered by
+    // being refused is a price we taught the agent to guess.
+    for (const course of [...this.state.courses.values()].filter((item) =>
+      item.status === "open" && item.boardLocationId === character.locationId)) {
+      actions.push({ type: "enroll_course", ...this.courseView(character, course) });
+    }
+    const enrollment = this.activeCourseEnrollmentFor(character.id);
+    if (enrollment) {
+      const course = this.state.courses.get(enrollment.courseId);
+      if (enrollment.status === "enrolled") {
+        actions.push({
+          type: "start_course", courseId: course.id, title: course.title,
+          locationId: course.locationId, startBy: enrollment.startBy,
+          energyCost: course.energyCost, durationGameMinutes: course.durationGameMinutes,
+          feasibility: this.courseStartFeasibility(character, course, enrollment),
+        });
+      }
+      actions.push({
+        type: "abandon_course", courseId: course.id, title: course.title,
+        feeForfeited: enrollment.price,
+      });
     }
     for (const job of jobs.filter((item) => item.fundingSourceId === character.id && ["open", "accepted"].includes(item.status))) {
       actions.push({ type: "cancel_job", jobId: job.id });
@@ -3969,6 +4760,9 @@ export class World {
   // accept_job affordance and by the requested opportunity catalog, so the two can
   // never disagree about requirements, costs, or blockers.
   jobOpportunityView(character, job) {
+    // The observation hands this a projection and the catalog hands it the record; the
+    // application ledger lives only on the record, so resolve it once here.
+    job = this.state.jobs.get(job.id) ?? job;
     // What this post would teach, stated on the notice. Without it "you need business 35"
     // is a wall; with it, it is two completions of the business work already on this board.
     const skillGains = skillGainsFor(job.requirements, character.skills, this.config.skills);
@@ -3984,6 +4778,10 @@ export class World {
     const unmetRequirements = job.teamSize > 1
       ? teamSkillCoverageAfterJoin.filter((item) => item.actual < item.required)
       : individualUnmetRequirements;
+    const hiring = job.hiring ?? "direct_accept";
+    const myApplication = (job.applications ?? []).find((application) =>
+      application.characterId === character.id
+      && ["pending", "selected"].includes(application.status)) ?? null;
     return {
       jobId: job.id,
       title: job.title,
@@ -3998,14 +4796,24 @@ export class World {
       openTeamSlots: Math.max(0, job.teamSize - job.workerIds.length),
       teamSkillCoverageAfterJoin,
       unmetRequirements,
+      // AIT-1603: how this notice is answered, and where this reader stands with it. The
+      // same notice tells a candidate what track record it demands and how many rivals
+      // have already applied - facts, not a forecast of the proprietor's choice.
+      hiring,
+      reputationRequirements: structuredClone(job.reputationRequirements ?? {}),
+      unmetReputationRequirements: this.unmetReputationRequirements(character, job),
+      applicationCount: this.pendingApplications(job).length,
+      ...(myApplication ? { myApplication: { applicationId: myApplication.id, status: myApplication.status } } : {}),
       scheduledStartAt: job.scheduledStartAt,
       startGraceUntil: job.startGraceUntil,
       offerExpiresAt: job.offerExpiresAt,
       skillGains,
-      feasibility: this.jobAcceptanceFeasibility(
-        character, job,
-        job.teamSize > 1 && job.workerIds.length + 1 < job.teamSize ? [] : unmetRequirements,
-      ),
+      feasibility: hiring === "application"
+        ? this.applicationFeasibility(character, job)
+        : this.jobAcceptanceFeasibility(
+          character, job,
+          job.teamSize > 1 && job.workerIds.length + 1 < job.teamSize ? [] : unmetRequirements,
+        ),
     };
   }
 
@@ -4048,6 +4856,7 @@ export class World {
     if (job.workerIds.includes(character.id)) blockingCodes.push("ALREADY_JOINED_TEAM");
     if (job.workerIds.length >= job.teamSize) blockingCodes.push("TEAM_FULL");
     if (this.activeCommitmentFor(character.id)) blockingCodes.push("JOB_COMMITMENT_CONFLICT");
+    if (this.activeCourseEnrollmentFor(character.id)) blockingCodes.push("COURSE_COMMITMENT_CONFLICT");
     if (this.clock.now() >= new Date(job.offerExpiresAt)) blockingCodes.push("JOB_OFFER_EXPIRED");
     else if (this.clock.now() > new Date(job.startGraceUntil)) blockingCodes.push("START_WINDOW_CLOSED");
     if (unmetRequirements.length > 0) blockingCodes.push("SKILL_REQUIREMENT");
@@ -4175,6 +4984,75 @@ export class World {
     }
   }
 
+  // ---- AIT-1202. Reputation: a track record written only by verified outcomes ---------
+  //
+  // Every reputation movement in the world passes through here, from an authoritative
+  // source event, with the cause's weights taken from policy. No command lets a brain
+  // assert one: the absence of any such action is the enforcement.
+  //
+  // Gains saturate toward the cap - the hundredth completion proves less than the first -
+  // while losses land in full and stop at the floor, because a track record that cannot be
+  // dented at the top is a rank, not a record. Repetition of the same evidence key inside
+  // the window pays full, then half, then nothing: the pilot's twenty-seven completions
+  // landed on three standing job ids, and without this the busiest post is a pump.
+  applyReputationOutcome(characterId, { cause, role, domains = [], sourceEventId, repetitionKey, worldTime = null }) {
+    const character = this.requireCharacter(characterId);
+    const policy = this.config.reputation;
+    const weights = policy.weights[cause];
+    if (!weights) throw invalid("UNKNOWN_REPUTATION_CAUSE", `${cause} is not a version-${policy.policyVersion} reputation cause`);
+    const at = new Date(worldTime ?? this.clock.now());
+    const since = new Date(at.getTime() - policy.repetitionWindowWorldDays * 24 * 60 * 60_000);
+    const priorOutcomes = this.history.filter((event) => event.type === "REPUTATION_CHANGED"
+      && event.data.characterId === characterId
+      && event.data.repetitionKey === repetitionKey
+      && new Date(event.worldTime) >= since).length;
+    const multiplier = priorOutcomes === 0 ? 1 : priorOutcomes === 1 ? 0.5 : 0;
+    const changes = [];
+    const apply = (domain, raw) => {
+      if (!raw) return;
+      const previous = domain ? (character.domainReputation?.[domain] ?? 0) : character.reputation;
+      // Anti-farming discounts gains only: a repeated failure keeps costing in full.
+      const scaled = raw > 0
+        ? round2(raw * multiplier * (policy.maximum - previous) / policy.maximum)
+        : raw;
+      const value = round2(clamp(previous + scaled, policy.minimum, policy.maximum));
+      if (value === previous) return;
+      changes.push(this.record(domain ? "DOMAIN_REPUTATION_CHANGED" : "REPUTATION_CHANGED", {
+        actorCharacterId: characterId,
+        causedByEventIds: [sourceEventId],
+        worldTime: at.toISOString(),
+        data: {
+          characterId, domain: domain ?? null, cause, attributionRole: role,
+          sourceEventId, previous, delta: round2(value - previous), value,
+          repetitionKey,
+          repetitionTreatment: raw < 0 ? "full" : priorOutcomes === 0 ? "full" : priorOutcomes === 1 ? "halved" : "exhausted",
+          repetitionWindowWorldDays: policy.repetitionWindowWorldDays,
+          reputationPolicyVersion: policy.policyVersion,
+          domainTaxonomyVersion: policy.domainTaxonomyVersion,
+        },
+      }));
+    };
+    apply(null, weights.general ?? 0);
+    for (const domain of domains) apply(domain, weights.domain ?? 0);
+    return changes;
+  }
+
+  // Work outcomes attribute to the worker in exactly the domains the post demanded: the
+  // errand that asks nothing proves only general reliability, and a technical-65 inspection
+  // proves technical. Demand is the attribution rule, so a brain cannot relabel its work.
+  grantWorkReputation(workerId, job, cause, sourceEventId, worldTime) {
+    this.applyReputationOutcome(workerId, {
+      cause,
+      role: "worker",
+      domains: Object.entries(job.requirements ?? {})
+        .filter(([skill, required]) => required > 0 && this.config.skills.set.includes(skill))
+        .map(([skill]) => skill),
+      sourceEventId,
+      repetitionKey: `${cause}:${job.id}`,
+      worldTime,
+    });
+  }
+
   locationAtCell(x, y) {
     return [...this.state.locations.values()].find((location) => location.x === x && location.y === y) ?? null;
   }
@@ -4236,6 +5114,13 @@ export class World {
       }
       return [];
     });
+    const enrollments = [...this.state.courseEnrollments.values()].flatMap((enrollment) => {
+      if (this.state.platformIncident) return [];
+      if (enrollment.status === "enrolled" && new Date(enrollment.startBy) <= target) {
+        return [{ kind: "course_no_show", enrollmentId: enrollment.id, worldTime: enrollment.startBy }];
+      }
+      return [];
+    });
     const commitments = [...this.state.commitments.values()].flatMap((commitment) => {
       if (!["scheduled", "active"].includes(commitment.status)) return [];
       if (!commitment.reminderSentAt && new Date(commitment.reminderAt) <= target) {
@@ -4249,7 +5134,7 @@ export class World {
       }
       return [];
     });
-    return [...activities, ...notifications, ...goals, ...jobs, ...commitments]
+    return [...activities, ...notifications, ...goals, ...jobs, ...enrollments, ...commitments]
       .sort((a, b) => a.worldTime.localeCompare(b.worldTime))[0] ?? null;
   }
 
@@ -4288,7 +5173,8 @@ export class World {
     }
     if (event.actorCharacterId === characterId || event.subjectCharacterId === characterId) return true;
     if (event.data?.participantIds?.includes(characterId)) return true;
-    if (event.type === "EVENT_CREATED") return true;
+    // A public gathering and a public course notice are perceivable by everyone.
+    if (event.type === "EVENT_CREATED" || event.type === "COURSE_OFFERED") return true;
     return false;
   }
 
@@ -4313,7 +5199,7 @@ export class World {
       );
     }
     if (nonProjectionEventTypes.has(event.type)) return;
-    if (event.type === "EVENT_CREATED") {
+    if (event.type === "EVENT_CREATED" || event.type === "COURSE_OFFERED") {
       // Perceivable by every character, including characters created later.
       this.state.globalProjectionVersion = Math.max(this.state.globalProjectionVersion, event.sequence);
       return;

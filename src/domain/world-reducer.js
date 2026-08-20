@@ -28,6 +28,23 @@ function moveFunding(state, event, type, id, amount, reason) {
 // observer actually asks of a wallet.
 const WALLET_ENTRY_CAP = 60;
 
+// AIT-1202: same shape as the wallet. Lifetime values live on the character; the itemised
+// causes are capped, because the question a reader asks of a track record is "what has it
+// been doing lately", and the full answer is always in the event log.
+const REPUTATION_LOG_CAP = 40;
+
+function recordReputationChange(state, event, data) {
+  const character = state.characters.get(data.characterId);
+  if (!character) return;
+  if (data.domain) character.domainReputation[data.domain] = data.value;
+  else character.reputation = data.value;
+  character.reputationLog.push({
+    at: event.worldTime, domain: data.domain ?? null, delta: data.delta, value: data.value,
+    cause: data.cause, attributionRole: data.attributionRole, sourceEventId: data.sourceEventId,
+  });
+  if (character.reputationLog.length > REPUTATION_LOG_CAP) character.reputationLog.shift();
+}
+
 function moveCredits(state, event, characterId, amount, reason, extra = {}) {
   const character = state.characters.get(characterId);
   if (!character || !amount) return;
@@ -56,6 +73,9 @@ export function applyEvent(state, event) {
     case "CHARACTER_CREATED":
       state.characters.set(data.id, {
         ...structuredClone(data), activity: null, reputation: 0, score: 0,
+        // AIT-1202: a track record starts empty. Nothing at creation may assign one -
+        // contextual fame emerges from history rather than from an operator's pen.
+        domainReputation: {}, reputationLog: [],
         agentAvailability: "available", consecutiveMissedResponses: 0,
         skillsLearned: {},
         // A ledger that starts at the first transaction cannot explain the balance, so the
@@ -181,7 +201,7 @@ export function applyEvent(state, event) {
         startGraceUntil: data.startGraceUntil ?? data.availableUntil,
         offerExpiresAt: data.offerExpiresAt ?? data.availableUntil,
         reservation: structuredClone(reservation),
-        status: "open", workerId: null, workerIds: [],
+        status: "open", workerId: null, workerIds: [], applications: [],
         teamSize: data.teamSize ?? 1,
         requirementsMode: data.requirementsMode ?? "individual", escrow: data.compensation,
       });
@@ -241,6 +261,8 @@ export function applyEvent(state, event) {
         policyVersion: data.escrowPolicyVersion, state: "reserved",
       };
       job.timesCompleted = job.timesCompleted ?? 0;
+      // A reopened post starts a fresh round of hiring; last round's applications are history.
+      job.applications = [];
       break;
     }
     case "CHARACTER_ENTERED_WORLD": {
@@ -376,6 +398,88 @@ export function applyEvent(state, event) {
     case "BUILDING_REVENUE_RECORDED": {
       const building = state.buildings.get(data.buildingId);
       if (building) { building.balance += data.amount; building.revenue += data.amount; }
+      break;
+    }
+    case "COURSE_OFFERED":
+      state.courses.set(data.id, { ...structuredClone(data), status: "open" });
+      break;
+    case "COURSE_ENROLLED": {
+      // Payment and the enrolment are one event, so a replayed half cannot exist: the
+      // tuition moves exactly when the seat does.
+      moveCredits(state, event, data.characterId, -data.price, "course_tuition", { courseId: data.courseId });
+      if (data.feeDestinationType === "building") {
+        const building = state.buildings.get(data.feeDestinationId);
+        if (building) { building.balance += data.price; building.revenue += data.price; }
+      } else {
+        moveFunding(state, event, data.feeDestinationType, data.feeDestinationId, data.price, "course_tuition");
+      }
+      state.courseEnrollments.set(data.enrollmentId, {
+        id: data.enrollmentId, courseId: data.courseId, characterId: data.characterId,
+        price: data.price, enrolledAt: event.worldTime, startBy: data.startBy,
+        status: "enrolled", enrolledByEventId: event.id,
+      });
+      break;
+    }
+    case "COURSE_STARTED": {
+      const enrollment = state.courseEnrollments.get(data.enrollmentId);
+      enrollment.status = "started";
+      enrollment.startedAt = data.startedAt;
+      enrollment.expectedEndAt = data.expectedEndAt;
+      state.characters.get(data.characterId).activity = {
+        type: "course", courseId: data.courseId, enrollmentId: data.enrollmentId,
+        title: data.title, locationId: data.locationId,
+        startedAt: data.startedAt, expectedEndAt: data.expectedEndAt, startedByEventId: event.id,
+        // A class holds attention the way rest does: no side conversations, so leaving
+        // early is the only way out and it forfeits the tuition.
+        compatibleSecondaryActions: [],
+      };
+      break;
+    }
+    case "COURSE_COMPLETED": {
+      const enrollment = state.courseEnrollments.get(data.enrollmentId);
+      enrollment.status = "completed";
+      enrollment.completedAt = event.worldTime;
+      const student = state.characters.get(data.characterId);
+      if (student.activity?.enrollmentId === data.enrollmentId) student.activity = null;
+      break;
+    }
+    case "COURSE_ABANDONED": {
+      const enrollment = state.courseEnrollments.get(data.enrollmentId);
+      enrollment.status = "abandoned";
+      enrollment.terminalCause = data.cause;
+      enrollment.terminalAt = event.worldTime;
+      const student = state.characters.get(data.characterId);
+      if (student.activity?.enrollmentId === data.enrollmentId) student.activity = null;
+      break;
+    }
+    case "REPUTATION_CHANGED":
+    case "DOMAIN_REPUTATION_CHANGED":
+      recordReputationChange(state, event, data);
+      break;
+    case "BUILDING_ROLE_APPLIED": {
+      state.jobs.get(data.jobId).applications.push({
+        id: data.applicationId, characterId: data.characterId,
+        appliedAt: event.worldTime, status: "pending", appliedByEventId: event.id,
+      });
+      break;
+    }
+    case "BUILDING_ROLE_APPLICATION_WITHDRAWN": {
+      const application = state.jobs.get(data.jobId).applications.find((item) => item.id === data.applicationId);
+      application.status = "withdrawn";
+      application.resolvedAt = event.worldTime;
+      break;
+    }
+    case "BUILDING_ROLE_FILLED": {
+      const application = state.jobs.get(data.jobId).applications.find((item) => item.id === data.applicationId);
+      application.status = "selected";
+      application.resolvedAt = event.worldTime;
+      break;
+    }
+    case "BUILDING_ROLE_CANDIDATE_REJECTED": {
+      const application = state.jobs.get(data.jobId).applications.find((item) => item.id === data.applicationId);
+      application.status = "rejected";
+      application.cause = data.cause;
+      application.resolvedAt = event.worldTime;
       break;
     }
     case "EVENT_ATTENDANCE_STARTED": {

@@ -552,6 +552,7 @@ function actionFingerprint(action) {
 function actionIdentity(action) {
   if (!action || typeof action !== "object") return "unknown";
   const target = action.destinationId ?? action.targetCharacterId ?? action.jobId ?? action.eventId
+    ?? action.courseId ?? action.applicationId
     ?? action.otherCharacterId ?? action.goalId ?? action.notificationEventId ?? action.conversationId ?? "";
   return `${action.type ?? "unknown"}:${target}`;
 }

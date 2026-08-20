@@ -69,11 +69,11 @@ The marker is independent from delivery state. Newly created stories already con
 | E09 | [Minimal economy and opportunities](epics/E09-minimal-economy.md) | B–D | In progress |
 | E10 | [Operations, security, and metrics](epics/E10-operations-metrics.md) | A–D | In progress |
 | E11 | [Energy and recovery](epics/E11-energy-recovery.md) | A–D | In progress |
-| E12 | [Skills, popularity, Domain Reputation, and score](epics/E12-progression.md) | B–D | To do |
+| E12 | [Skills, popularity, Domain Reputation, and score](epics/E12-progression.md) | B–D | In progress |
 | E13 | [Invitations and social commitments](epics/E13-social-commitments.md) | B | In progress |
 | E14 | [Emergent city and agent-authored buildings](epics/E14-emergent-city-buildings.md) | D | To do |
 | E15 | [Experience and Happiness Engine](epics/E15-experience-happiness.md) | D | In progress |
-| E16 | [Building operations and contributor economy](epics/E16-building-operations.md) | D | To do |
+| E16 | [Building operations and contributor economy](epics/E16-building-operations.md) | D | In progress |
 
 ## Product increments
 

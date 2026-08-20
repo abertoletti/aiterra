@@ -161,6 +161,92 @@ export const defaultConfig = Object.freeze({
     masteryMargin: 20,
     gainPerCompletion: 4,
   },
+  // AIT-1205. Work teaches only what it demands, so a resident below every rung on its own
+  // square can never climb: Nia stood at Foundry Square with technical 15 under a lowest
+  // technical rung of 25, and the one post she could take taught nothing. A course is the
+  // priced way INTO a skill you cannot yet work in - which is also why the reverted
+  // `teaches` field stays out: free menial learning would undercut the thing a course sells.
+  //
+  // Mechanical effects come only from this approved catalog. A provider - the city or a
+  // resident - picks an entry, a skill from the controlled set, and a price inside the
+  // entry's band; it can never author the numbers.
+  courses: {
+    policyVersion: 1,
+    catalogVersion: 1,
+    // Same shape as a job's start window: tuition buys a seat, not an open-ended option.
+    startGraceWorldHours: 2,
+    // Offering a course is a free announcement, and free announcements get spammed - the
+    // pilot's one proprietor created five events in nine minutes when hosting cost nothing.
+    maximumOpenCoursesPerBuilding: 2,
+    catalog: [
+      {
+        id: "foundations",
+        // +12 gets a resident below a 25-rung over it in one sitting (15 -> 27), and the
+        // 40 ceiling ends a course's usefulness exactly where real work takes over: work
+        // demanding 25 teaches to 45. Free work at your level gains 4 per completion, so
+        // a course is three completions' worth of a skill work cannot give you - a way in,
+        // never a cheaper ladder up.
+        gain: 12,
+        teachesTo: 40,
+        prerequisite: null,
+        tradeoffLoss: null,
+        durationGameMinutes: 45,
+        // In line with what a 45-minute post costs (the pilot board runs ~minutes/1.8),
+        // because sitting a course must compete with a shift for the same day.
+        energyCost: 20,
+        // The band brackets five errands' pay (12 each): reachable by exactly the work a
+        // locked-out resident can still do, and never so cheap that skipping the errands
+        // is free.
+        priceMinimum: 40,
+        priceMaximum: 120,
+      },
+      {
+        id: "specialization",
+        // Deepens an already-working skill toward mastery (70 stays short of the 100 cap:
+        // the last stretch belongs to demanding work alone) and charges a disclosed cost
+        // in another skill - the policy's required tradeoff, not a decoration.
+        gain: 10,
+        teachesTo: 70,
+        // You specialize in something you already do: the foundations ceiling is where
+        // this course becomes enterable, so the two entries chain instead of competing.
+        prerequisite: 30,
+        tradeoffLoss: 3,
+        durationGameMinutes: 90,
+        energyCost: 35,
+        priceMinimum: 100,
+        priceMaximum: 300,
+      },
+    ],
+  },
+  // AIT-1202, Domain Reputation policy v1. Domains are the five work skills: work is the
+  // only verified outcome stream running today, and hiring - the first reader of reputation
+  // - states its requirements in exactly these axes, so a track record in any other taxonomy
+  // would be one no decision could consume. Experience-dimension domains arrive with
+  // contributor outcomes (AIT-1608) as a new taxonomy version.
+  reputation: {
+    policyVersion: 1,
+    domainTaxonomyVersion: 1,
+    minimum: 0,
+    maximum: 100,
+    // Reliability is earned in units and lost in multiples: four completions and one
+    // no-show should leave a visible dent, or a no-show is just a day off.
+    weights: {
+      work_completed: { general: 2, domain: 3 },
+      work_no_show: { general: -8, domain: -6 },
+      work_abandoned: { general: -6, domain: -5 },
+      work_cancelled: { general: -3, domain: 0 },
+      commitment_kept: { general: 1, domain: 0 },
+      commitment_missed: { general: -4, domain: 0 },
+      // Per attendee whose evening actually resolved well, so an empty or bad night
+      // grants nothing; the repetition rule caps how much one night can pay.
+      experience_hosted: { general: 2, domain: 0 },
+    },
+    // The pilot's twenty-seven completions landed on three job ids: without a window the
+    // same standing post is a reputation pump. Full, then half, then nothing - the same
+    // shape appraisals already use - and the window slides, so a track record maintained
+    // over days keeps counting while a burst does not.
+    repetitionWindowWorldDays: 2,
+  },
   relationship: {
     policyVersion: 2,
     minimum: -100,
@@ -244,7 +330,7 @@ export const defaultConfig = Object.freeze({
     maximumOpenPerCharacter: 3,
   },
   rules: {
-    version: "agent-rules-v3",
+    version: "agent-rules-v4",
   },
   protocol: {
     version: "1.0",

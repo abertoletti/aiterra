@@ -14,6 +14,10 @@ export const ownerFeedTypes = new Set([
   "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ABANDONED", "SECONDARY_GOAL_EXPIRED",
   "JOB_CREATED", "JOB_ACCEPTED", "JOB_STARTED", "JOB_COMPLETED", "JOB_CANCELLED", "JOB_FAILED", "JOB_EXPIRED",
   "SKILL_CHANGED", "CHARACTER_ENTERED_WORLD",
+  "COURSE_OFFERED", "COURSE_ENROLLED", "COURSE_STARTED", "COURSE_COMPLETED", "COURSE_ABANDONED",
+  "REPUTATION_CHANGED", "DOMAIN_REPUTATION_CHANGED",
+  "BUILDING_ROLE_APPLIED", "BUILDING_ROLE_APPLICATION_WITHDRAWN",
+  "BUILDING_ROLE_FILLED", "BUILDING_ROLE_CANDIDATE_REJECTED",
   "EVENT_CREATED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED",
   "HAPPINESS_CHANGED", "HAPPINESS_DECAYED", "EXPERIENCE_HAPPINESS_RESOLVED", "EXPERIENCE_ACCESS_PAID",
   "PLOT_ACQUIRED", "BUILDING_CONSTRUCTION_STARTED", "BUILDING_ACTIVATED", "BUILDING_FUNDED",
@@ -68,6 +72,7 @@ export function createEmptyState() {
     agentCredentials: new Map(), agentEventChannels: new Map(), activeWorldConfigurationVersion: null,
     eventsById: new Map(), itemVersions: new Map(),
     plots: new Map(), buildings: new Map(),
+    courses: new Map(), courseEnrollments: new Map(),
     experienceAttendance: new Map(), happinessResolutions: new Map(),
     characterProjectionVersions: new Map(), globalProjectionVersion: 0,
     conversationAppraisals: new Set(),
@@ -85,7 +90,7 @@ export function itemsTouchedByEvent(event) {
   const data = event.data ?? {};
   return [...new Set([
     data.id, data.jobId, data.eventId, data.invitationId, data.commitmentId, data.characterId,
-    data.buildingId, data.plotId,
+    data.buildingId, data.plotId, data.courseId, data.enrollmentId, data.applicationId,
     ...(data.workerIds ?? []),
   ].filter((value) => typeof value === "string"))];
 }
@@ -199,6 +204,25 @@ export function skillGainsFor(requirements, skills, policy) {
     gains.push({ skill, gain: Math.min(gain, ceiling - current), ceiling });
   }
   return gains.sort((left, right) => (left.skill < right.skill ? -1 : 1));
+}
+
+// AIT-1205: the exact effects one completion of this course would apply to this character,
+// computed the same way at disclosure and at completion so the notice can never promise what
+// the ending does not deliver. The gain stops at the course's ceiling - a course sells a way
+// into a skill, and past its ceiling the only teacher is work that demands the level - and a
+// disclosed tradeoff loss stops at the policy floor. A gain of 0 is disclosed as 0 rather
+// than blocking enrolment: the server states the fact and the brain decides what it is worth.
+export function courseEffectsFor(course, skills, policy) {
+  const current = skills?.[course.skill] ?? 0;
+  const ceiling = Math.min(policy.maximum, course.teachesTo);
+  const gain = Math.max(0, Math.min(course.gain, ceiling - current));
+  const effects = [{ skill: course.skill, previous: current, delta: gain, value: current + gain, ceiling }];
+  if (course.tradeoffSkill) {
+    const level = skills?.[course.tradeoffSkill] ?? 0;
+    const loss = Math.min(course.tradeoffLoss, level - policy.minimum);
+    effects.push({ skill: course.tradeoffSkill, previous: level, delta: -loss, value: level - loss });
+  }
+  return effects;
 }
 
 export function buildingUpkeep(constructionCost, city) {
@@ -421,6 +445,11 @@ export function publicCharacter(character) {
     primaryGoal: character.primaryGoal, secondaryGoals: character.secondaryGoals,
     locationId: character.locationId, activity: character.activity, energy: character.energy,
     credits: character.credits, skills: character.skills, reputation: character.reputation, score: character.score,
+    // AIT-1202: the general value plus per-domain track record, with the recent causes that
+    // produced them - newest first and capped, like the wallet, because a number without its
+    // history explains nothing. Values are public by policy; the cause log is the owner's.
+    domainReputation: structuredClone(character.domainReputation ?? {}),
+    reputationLog: [...(character.reputationLog ?? [])].reverse(),
     agentAvailability: character.agentAvailability, consecutiveMissedResponses: character.consecutiveMissedResponses,
     skillsLearned: structuredClone(character.skillsLearned ?? {}),
     // Where the money came from and went. Lifetime totals in full, itemised entries newest
@@ -463,6 +492,12 @@ export function publicJob(job, energyCost = null) {
     boardLocationId: job.boardLocationId ?? job.locationId,
     durationGameMinutes: job.durationGameMinutes,
     compensation: job.compensation, requirements: job.requirements, status: job.status,
+    // AIT-1603: how the post is filled. A building role is applied for and selected, never
+    // taken off the board; direct_accept is every job that predates applications, so a
+    // replayed history keeps its old contract.
+    hiring: job.hiring ?? "direct_accept",
+    reputationRequirements: job.reputationRequirements ?? {},
+    applicationCount: (job.applications ?? []).filter((application) => application.status === "pending").length,
     visibility: job.visibility ?? "public",
     publishedAt: job.publishedAt,
     scheduledStartAt: job.scheduledStartAt, startGraceUntil: job.startGraceUntil,
@@ -477,8 +512,10 @@ export function publicJob(job, energyCost = null) {
 export function ownerFeedCategory(type) {
   if (["MOVEMENT_STARTED", "CHARACTER_ARRIVED", "REST_STARTED", "REST_COMPLETED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED"].includes(type)) return "action";
   if (["CO_PRESENCE_STARTED", "CO_PRESENCE_ENDED", "CONVERSATION_STARTED", "CONVERSATION_MESSAGE_SENT", "CONVERSATION_ENDED"].includes(type)) return "encounter";
-  if (["RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED", "KNOWLEDGE_LEARNED", "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED"].includes(type)) return "consequence";
-  if (type.startsWith("JOB_") || type === "EVENT_CREATED") return "opportunity";
+  if (["RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED", "KNOWLEDGE_LEARNED", "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED",
+    "REPUTATION_CHANGED", "DOMAIN_REPUTATION_CHANGED", "COURSE_COMPLETED"].includes(type)) return "consequence";
+  if (["COURSE_ENROLLED", "COURSE_STARTED", "COURSE_ABANDONED"].includes(type)) return "action";
+  if (type.startsWith("JOB_") || type.startsWith("BUILDING_ROLE_") || type === "EVENT_CREATED" || type === "COURSE_OFFERED") return "opportunity";
   if (type.includes("EXPIRED") || type.includes("TIMED_OUT") || type === "SILENCE_RESOLVED" || type === "AGENT_RESPONSE_MISSED") return "agent_timeout";
   if (type === "DECISION_RECORDED") return "decision";
   return "world";
@@ -506,6 +543,20 @@ export function ownerFeedDetails(event) {
     goalId: data.goalId ?? data.goal?.id, goal: data.goal ?? null,
   };
   if (event.type === "DECISION_RECORDED") return { declaredDecision: data.summary };
+  if (event.type.startsWith("COURSE_")) return {
+    courseId: data.courseId ?? data.id, title: data.title, price: data.price,
+    effects: data.effects, cause: data.cause, feeForfeited: data.feeForfeited,
+  };
+  if (["REPUTATION_CHANGED", "DOMAIN_REPUTATION_CHANGED"].includes(event.type)) return {
+    domain: data.domain, cause: data.cause, attributionRole: data.attributionRole,
+    previous: data.previous, delta: data.delta, value: data.value,
+    repetitionTreatment: data.repetitionTreatment, sourceEventId: data.sourceEventId,
+    reputationPolicyVersion: data.reputationPolicyVersion,
+  };
+  if (event.type.startsWith("BUILDING_ROLE_")) return {
+    jobId: data.jobId, applicationId: data.applicationId, candidateId: data.characterId ?? data.candidateId,
+    title: data.title, cause: data.cause,
+  };
   // An evening is only explainable to the owner if the factors reach them. The feed is
   // where "he expected a great night and it went badly" stops being a claim.
   if (event.type === "EXPERIENCE_HAPPINESS_RESOLVED") return {
@@ -543,7 +594,11 @@ export function summaryPriority(type) {
   // A resolved evening ranks with a completed job: it is the other thing a resident
   // spent their day on, and the one an owner returns to read about.
   if (type === "EXPERIENCE_HAPPINESS_RESOLVED") return 92;
-  if (["JOB_FAILED", "JOB_COMPLETED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ADOPTED"].includes(type)) return 90;
+  if (["JOB_FAILED", "JOB_COMPLETED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ADOPTED",
+    "COURSE_COMPLETED", "BUILDING_ROLE_FILLED"].includes(type)) return 90;
+  // A reputation move is the consequence an owner cannot see anywhere else; the outcome
+  // that caused it ranks just above it.
+  if (["REPUTATION_CHANGED", "DOMAIN_REPUTATION_CHANGED"].includes(type)) return 78;
   if (["AGENT_REACTION_TIMED_OUT", "CONVERSATION_TURN_EXPIRED", "SILENCE_RESOLVED"].includes(type)) return 85;
   if (type === "DECISION_RECORDED") return 80;
   if (type === "KNOWLEDGE_LEARNED") return 75;

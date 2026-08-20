@@ -670,20 +670,34 @@ test("the contributor loop closes: takings become a wage, a square becomes a hir
   });
   assert.equal(building().balance, 60, "the wage is reserved out of the takings");
 
-  // Anna is in the square where the notice hangs, so she can read it and take it - even
-  // though the venue itself is shut, which is exactly why the notice is not inside it.
+  // Tomas is in the square where the notice hangs, so he can read it and answer it - even
+  // though the venue itself is shut, which is exactly why the notice is not inside it. A
+  // resident-created role is applied for, not taken: the proprietor keeps the choice.
   world.startMove("tomas", "commons");
   clock.advanceGameMinutes(15);
   world.advanceTo(clock.now());
   const notice = world.getObservation("tomas").availableActions
-    .find((action) => action.type === "accept_job" && action.jobId === role.data.id);
+    .find((action) => action.type === "apply_for_role" && action.jobId === role.data.id);
   assert.ok(notice, "the notice is readable where it was pinned");
   assert.equal(notice.compensation, 40);
   assert.equal(notice.locationId, building().locationId, "and it says where the work happens");
   assert.deepEqual(notice.skillGains, [{ skill: "social", gain: 2, ceiling: 40 }],
     "including what doing it would teach him");
+  assert.equal(notice.hiring, "application", "and how it is answered");
+  assert.throws(() => world.acceptJob("tomas", role.data.id),
+    (error) => error instanceof DomainError && error.code === "ROLE_REQUIRES_APPLICATION",
+    "the board cannot be raced past the proprietor's choice");
 
-  world.acceptJob("tomas", role.data.id);
+  world.applyForRole("tomas", role.data.id);
+  const desk = world.getObservation("luca").availableActions
+    .find((action) => action.type === "select_applicant" && action.jobId === role.data.id);
+  assert.ok(desk, "the proprietor is offered the choice wherever he stands");
+  assert.equal(desk.applications.length, 1);
+  assert.equal(desk.applications[0].candidateId, "tomas");
+  assert.equal(typeof desk.applications[0].reputation.general, "number",
+    "each application carries the candidate's verified track record");
+  assert.equal(desk.applications[0].score, undefined, "and the server ranks nobody");
+  world.selectApplicant("luca", role.data.id, desk.applications[0].applicationId);
 
   // Staff get through a shut door: a venue that hired someone and locked them out could
   // never be staffed.

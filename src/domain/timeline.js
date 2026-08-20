@@ -45,6 +45,17 @@ const visibleTypes = new Set([
   "SECONDARY_GOAL_ABANDONED",
   "SECONDARY_GOAL_EXPIRED",
   "DECISION_RECORDED",
+  "COURSE_OFFERED",
+  "COURSE_ENROLLED",
+  "COURSE_STARTED",
+  "COURSE_COMPLETED",
+  "COURSE_ABANDONED",
+  "REPUTATION_CHANGED",
+  "DOMAIN_REPUTATION_CHANGED",
+  "BUILDING_ROLE_APPLIED",
+  "BUILDING_ROLE_APPLICATION_WITHDRAWN",
+  "BUILDING_ROLE_FILLED",
+  "BUILDING_ROLE_CANDIDATE_REJECTED",
 ]);
 
 export function buildTimeline(events, options = {}) {
@@ -170,6 +181,28 @@ function describe(event, name, location) {
       return `${name(data.characterId)}'s secondary goal ${data.goalId} expired.`;
     case "DECISION_RECORDED":
       return `${name(data.characterId)} decided: ${data.summary}`;
+    case "COURSE_OFFERED":
+      return `“${data.title}” went up on the ${location(data.boardLocationId)} board for ${data.price} credits.`;
+    case "COURSE_ENROLLED":
+      return `${name(data.characterId)} paid ${data.price} credits to enrol in “${data.title}”.`;
+    case "COURSE_STARTED":
+      return `${name(data.characterId)} started “${data.title}” at ${location(data.locationId)} until ${shortTime(data.expectedEndAt)}.`;
+    case "COURSE_COMPLETED":
+      return `${name(data.characterId)} completed “${data.title}”.`;
+    case "COURSE_ABANDONED":
+      return `${name(data.characterId)}'s enrolment ended (${humanize(data.cause)}); the ${data.feeForfeited}-credit tuition is forfeit.`;
+    case "REPUTATION_CHANGED":
+      return `${name(data.characterId)}'s reputation moved ${signed(data.delta)} to ${data.value} (${humanize(data.cause)}).`;
+    case "DOMAIN_REPUTATION_CHANGED":
+      return `${name(data.characterId)}'s ${data.domain} reputation moved ${signed(data.delta)} to ${data.value} (${humanize(data.cause)}).`;
+    case "BUILDING_ROLE_APPLIED":
+      return `${name(data.characterId)} applied for “${data.title}”.`;
+    case "BUILDING_ROLE_APPLICATION_WITHDRAWN":
+      return `${name(data.characterId)} withdrew from “${data.title}”.`;
+    case "BUILDING_ROLE_FILLED":
+      return `${name(data.characterId)} was selected for “${data.title}”.`;
+    case "BUILDING_ROLE_CANDIDATE_REJECTED":
+      return `${name(data.characterId)} was not selected for “${data.title}” (${humanize(data.cause)}).`;
     default:
       return humanize(event.type);
   }

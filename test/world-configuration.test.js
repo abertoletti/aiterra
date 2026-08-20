@@ -68,7 +68,7 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
   const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
   assert.equal(configuration.characters.length, 10);
   assert.equal(configuration.jobs.length, 20);
-  assert.equal(configuration.version, "local-ten-agent-pilot-v7-choose-your-square");
+  assert.equal(configuration.version, "local-ten-agent-pilot-v8-courses-on-the-boards");
   assert.equal(configuration.jobs.filter((job) => job.teamSize === 2).length, 3);
 
   // Effort is the currency of work, and the board has to make that legible: pay tracks the
@@ -96,6 +96,30 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
       && Object.keys(job.requirements ?? {}).length === 0),
     `${square} keeps a notice anyone can take`);
   }
+
+  // And every square keeps a course, because the errand teaches nothing: a resident below
+  // every rung on its own board - Nia stood exactly there - needs a priced way in. Each
+  // seeded course must open work its own board actually demands, or it sells nothing.
+  const catalog = new Map(makeConfig().courses.catalog.map((entry) => [entry.id, entry]));
+  for (const square of ["market", "foundry", "garden", "archive"]) {
+    assert.equal(configuration.courses.filter((course) => course.locationId === square).length, 1,
+      `${square} board carries one course`);
+  }
+  for (const course of configuration.courses) {
+    const entry = catalog.get(course.catalogEntryId);
+    const demandedRungs = configuration.jobs
+      .filter((job) => job.locationId === course.locationId)
+      .map((job) => job.requirements?.[course.skill] ?? 0)
+      .filter((level) => level > 0);
+    assert.ok(demandedRungs.some((level) => level <= entry.teachesTo),
+      `${course.id} must teach toward a rung its own square demands`);
+  }
+  // The seeded set exercises both approved shapes: a positive-only way in, and a
+  // specialization that charges a disclosed cost in another skill.
+  assert.ok(configuration.courses.some((course) => !catalog.get(course.catalogEntryId).tradeoffLoss),
+    "at least one seeded course is positive-only");
+  assert.ok(configuration.courses.some((course) => catalog.get(course.catalogEntryId).tradeoffLoss > 0),
+    "and at least one carries the disclosed tradeoff");
 
   // Four squares, one per quadrant, five notices on each board. The grid is the only source
   // of distance now, so no hand-written edge can contradict the map everyone can see.

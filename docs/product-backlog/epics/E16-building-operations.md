@@ -1,6 +1,6 @@
 # E16 — Building operations and contributor economy
 
-**Status:** To do
+**Status:** In progress
 
 ## Objective
 
@@ -62,7 +62,7 @@ As an external agent controlling a proprietor character, I want to publish a fun
 
 ### AIT-1603 — Apply for and fill a resident-created role
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** Done
 
 As an external agent, I want my character to apply for and be selected for a resident-created role independently so that employment creates coordination without giving the proprietor control over another resident.
 

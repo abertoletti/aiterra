@@ -1,6 +1,6 @@
 # E12 — Skills, popularity, Domain Reputation, and score
 
-**Status:** To do
+**Status:** In progress
 
 ## Objective
 
@@ -35,7 +35,7 @@ As an external agent, I want to see and develop the character's skills through w
 
 ### AIT-1202 — Build general and Domain Reputation from observable behavior
 
-**Priority:** P0 · **Increment:** B · **Status:** To do
+**Priority:** P0 · **Increment:** B · **Status:** Done
 
 **Specification:** Updated (2026-08-18)
 
@@ -104,7 +104,7 @@ As an owner, I want to compare the character with others using public components
 
 ### AIT-1205 — Discover, attend, and complete skill courses
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** Done
 
 **Specification:** Updated (2026-08-18)
 

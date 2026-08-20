@@ -280,6 +280,85 @@ test("the prompt states what a run is judged on, and stays a spec rather than an
   assert.ok(longest < 340, `no line should be a paragraph; longest was ${longest}`);
 });
 
+test("hiring and course actions validate against their offered envelopes, never free-handed", () => {
+  const current = observation({
+    availableActions: [
+      {
+        type: "select_applicant", jobId: "role-1",
+        applications: [{ applicationId: "app-1", candidateId: "pilot-02" }],
+      },
+      {
+        type: "offer_course", buildingId: "b1",
+        courseCatalog: [
+          { catalogEntryId: "foundations", priceMinimum: 40, priceMaximum: 120, tradeoffLoss: null },
+          { catalogEntryId: "specialization", priceMinimum: 100, priceMaximum: 300, tradeoffLoss: 3 },
+        ],
+        skillSet: ["social", "technical"],
+        boardChoices: [{ locationId: "commons" }],
+      },
+      { type: "enroll_course", courseId: "course-1" },
+      { type: "apply_for_role", jobId: "role-2" },
+    ],
+  });
+
+  assert.deepEqual(
+    validateAction({ type: "select_applicant", jobId: "role-1", applicationId: "app-1" }, current),
+    { type: "select_applicant", jobId: "role-1", applicationId: "app-1" },
+  );
+  assert.throws(() => validateAction({ type: "select_applicant", jobId: "role-1", applicationId: "invented" }, current),
+    (error) => error instanceof DecisionValidationError, "an invented application id is refused");
+
+  assert.deepEqual(
+    validateAction({ type: "apply_for_role", jobId: "role-2" }, current),
+    { type: "apply_for_role", jobId: "role-2" },
+  );
+  assert.deepEqual(
+    validateAction({ type: "enroll_course", courseId: "course-1" }, current),
+    { type: "enroll_course", courseId: "course-1" },
+  );
+  assert.throws(() => validateAction({ type: "enroll_course", courseId: "course-9" }, current),
+    (error) => error instanceof DecisionValidationError);
+
+  const offer = validateAction({
+    type: "offer_course", buildingId: "b1", catalogEntryId: "foundations", skill: "social",
+    price: 60, boardLocationId: "commons", title: "Working a room", description: "Basics.",
+  }, current);
+  assert.equal(offer.price, 60);
+  assert.equal(offer.tradeoffSkill, undefined, "a positive-only entry carries no tradeoff");
+  for (const bad of [
+    { price: 10 },
+    { skill: "magic" },
+    { catalogEntryId: "invented" },
+    { boardLocationId: "atlantis" },
+    { tradeoffSkill: "technical" },
+  ]) {
+    assert.throws(() => validateAction({
+      type: "offer_course", buildingId: "b1", catalogEntryId: "foundations", skill: "social",
+      price: 60, boardLocationId: "commons", title: "T", description: "D", ...bad,
+    }, current), (error) => error instanceof DecisionValidationError, `expected ${JSON.stringify(bad)} refused`);
+  }
+  // A tradeoff entry demands the paying skill, and it must be distinct.
+  assert.throws(() => validateAction({
+    type: "offer_course", buildingId: "b1", catalogEntryId: "specialization", skill: "social",
+    price: 150, boardLocationId: "commons", title: "T", description: "D",
+  }, current), (error) => error instanceof DecisionValidationError);
+  assert.equal(validateAction({
+    type: "offer_course", buildingId: "b1", catalogEntryId: "specialization", skill: "social",
+    tradeoffSkill: "technical", price: 150, boardLocationId: "commons", title: "T", description: "D",
+  }, current).tradeoffSkill, "technical");
+});
+
+test("the prompt names the course and hiring routes where free decisions are made", () => {
+  const prompt = buildDecisionMessages(observation())[0].content;
+  for (const route of ["enroll_course", "apply_for_role", "select_applicant", "offer_course"]) {
+    assert.ok(prompt.includes(route), `the decision list must offer ${route}`);
+  }
+  assert.ok(prompt.includes("Tuition is never refunded"),
+    "the one irreversible cost is stated where the choice is made");
+  assert.ok(prompt.includes("reputation is public"),
+    "and the agent is told what a track record is for");
+});
+
 test("a catalog request is honoured whichever envelope the model reaches for", async () => {
   // For three runs every request was wrapped inside `action`, because the output
   // contract says to answer with one, and every one was rejected as an unavailable

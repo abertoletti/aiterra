@@ -188,8 +188,10 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
           ? ["FIRST, IF YOU DO NOT KNOW WHAT IS OUT THERE, ASK. Answer with a requestContext instead of an action and you will be asked again with the catalog included. Use `experiences` to see what is on across the city, `plots` to find land worth buying, `buildings` to see what other residents have built and where the crowds are, `opportunities` for work, `people` for who is around. Asking costs you one decision and is how you stop acting blind."]
           : []),
         "Work through this list in order and take the first one that applies:",
+        "1a. APPLICANTS ARE WAITING ON A ROLE YOU PUBLISHED -> select_applicant. Each application carries the candidate's verified reputation, general and per domain; the wage is already reserved. Pick before offerExpiresAt or the escrow returns and nobody works.",
         "1b. YOU OWN A BUILDING WITH TAKINGS IN IT -> publish_role. The city's wages never change, so as credits pile up a resident who pays well is the one people work for. Outbid it.",
         "    Employ a resident out of the building balance and pin the notice on a public square from boardChoices, because nobody can stand inside a venue that is shut. Staff are admitted even when the doors are.",
+        "    Your role is filled by application: candidates apply at the board and you choose with select_applicant. You may also demand a minimum Domain Reputation in reputationRequirements.",
         "1. YOU OWN A BUILDING WITH NO EVENT RUNNING -> host_experience NOW. A building with nothing on is dead money: it is shut, so nobody can even walk in, upkeep is charged whether or not anyone comes, and it earns nothing until you put a night on. This is the highest-value action in the game and it is the one you are most likely to skip.",
         "   Hosting is work and costs Energy on what the night promises: hostingBaseEnergyCost + hostingEnergyPerAmbition x (sum of your chosen profile / 100). A lavish night can cost more than a shift. Throw a modest one often rather than a maximal one you cannot repeat.",
         "   One night at a time per building. If bookedUntil is set, the room is taken: use startsInGameMinutes to programme the next free slot instead of resubmitting.",
@@ -201,7 +203,10 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "4. YOU ARE SHORT OF CREDITS -> accept_job -> start_job. Credits exist to be spent, not banked.",
         "   A notice states its energyCost as well as its pay: they vary a lot now. Short errands cost little and pay little; long skilled work costs a third of your Energy and pays many times more. Compare pay against energyCost, not against pay alone.",
         "   Each notice says what completing it TEACHES, in skillGains. A post that demands a skill you lack is not a wall: do the work on this board that raises it and come back. Routine work below your level teaches nothing, so reach for the harder post.",
-        "   WORK IS FOUND IN THE SQUARES. Each square has its own notice board and you read only the one you are standing in. jobBoards lists every square, how many notices are waiting there and how far away it is. If this square has nothing for you, `move` to one that does - that trip IS looking for work.",
+        "   WORK IS FOUND IN THE SQUARES. Each square has its own notice board and you read only the one you are standing in. jobBoards lists every square, how many notices and courses are waiting there and how far away it is. If this square has nothing for you, `move` to one that does - that trip IS looking for work.",
+        "   A notice with hiring 'application' is a resident's role: apply_for_role at its board, then carry on - you are committed only if selected. Your reputation is what the proprietor reads, so a record of finished work is what wins these.",
+        "4b. THE SKILL BETTER WORK DEMANDS IS ONE NO REACHABLE POST TEACHES -> enroll_course at its board, move to its location, start_course within the window. The notice states price, duration, energy, prerequisites and the EXACT effects for you before you pay.",
+        "    Tuition is never refunded: abandoning, cancelling or missing the start forfeits it. Work that stretches you teaches free (skillGains), so buy a course only as a way IN, never as a faster ladder up.",
         "5. ENERGY LOW -> rest",
         "",
         "## Building, and then running it",
@@ -211,6 +216,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- BUILDING IS HALF THE JOB. An empty building only loses money. The moment yours is ACTIVE, host_experience on it, and host another as soon as the last one ends.",
         "- to host: pick a title and description, a profile at or under your ceiling (omit `profile` and it uses your building's own), a duration, and a price. Price it so people will actually pay.",
         "- admission funds the building and upkeep is charged from that balance, so a busy place pays for itself and an idle one bleeds",
+        "- a building with sell_service can offer_course: pick a catalog entry, a skill, a price in the entry's band and a square for the notice. Tuition feeds the building balance like admission - a second way to earn.",
         "- residents come only if the night suits them and they can reach it. You cannot make them come; you can only put on something worth coming to.",
         "- `plots` lists free cells, `buildings` shows what others built and where the crowds are; rules.city has the exact numbers",
         "",
@@ -221,6 +227,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- abandon one explicitly when it is achieved or no longer makes sense",
         "",
         "## Also available",
+        "- reputation is public and moves only on verified outcomes: completed work builds it in the skills the post demanded, no-shows and broken promises spend it faster. Proprietors read it when they hire, so finishing what you take IS a strategy.",
         "- send_invitation / respond_invitation turn dialogue into an arrangement",
         "- team jobs: check workerIds, openTeamSlots, requirementsMode, teamSkillCoverageAfterJoin. Joining is a commitment.",
         "- act consistently with your personality, goals, knowledge, relationships, energy and commitments",
@@ -367,7 +374,25 @@ function actionShapes(availableActions) {
       }; break;
       case "accept_job":
       case "start_job":
-      case "cancel_job": shapes[type] = { type, jobId: "<an offered jobId>" }; break;
+      case "cancel_job":
+      case "apply_for_role":
+      case "withdraw_application": shapes[type] = { type, jobId: "<an offered jobId>" }; break;
+      case "select_applicant": shapes.select_applicant = {
+        type, jobId: "<a role you published>",
+        applicationId: "<an applicationId from that role's applications list>",
+      }; break;
+      case "enroll_course":
+      case "start_course":
+      case "abandon_course": shapes[type] = { type, courseId: "<an offered courseId>" }; break;
+      case "offer_course": shapes.offer_course = {
+        type, buildingId: "<one of your buildings with sell_service>",
+        catalogEntryId: "<an id from the offered courseCatalog>",
+        skill: "<a skill from skillSet the course will teach>",
+        tradeoffSkill: "<required only for entries with a tradeoffLoss: a distinct skill that pays it>",
+        price: "<integer inside the entry's priceMinimum..priceMaximum>",
+        boardLocationId: "<a square from boardChoices: the notice goes there>",
+        title: "<what you call the course>", description: "<free text, no mechanical effect>",
+      }; break;
       case "attend_event": shapes.attend_event = { type, eventId: "<an offered eventId>" }; break;
       case "leave_experience": shapes.leave_experience = { type, eventId: "<the eventId you are attending>" }; break;
       case "send_invitation": shapes.send_invitation = {
@@ -465,7 +490,53 @@ export function validateAction(candidate, observation, history = []) {
     case "accept_job":
     case "start_job":
     case "cancel_job":
+    case "apply_for_role":
+    case "withdraw_application":
       return matchedIdentifierAction(type, "jobId", candidate, templates);
+    case "select_applicant": {
+      const action = matchedIdentifierAction(type, "jobId", candidate, templates);
+      const template = templates.find((item) => item.jobId === action.jobId);
+      const applicationId = text(candidate.applicationId, "applicationId", 100);
+      if (!(template.applications ?? []).some((application) => application.applicationId === applicationId)) {
+        throw new DecisionValidationError("applicationId does not match a pending application on that role");
+      }
+      return { ...action, applicationId };
+    }
+    case "enroll_course":
+    case "start_course":
+    case "abandon_course":
+      return matchedIdentifierAction(type, "courseId", candidate, templates);
+    case "offer_course": {
+      const buildingId = text(candidate.buildingId, "buildingId", 100);
+      const envelope = templates.find((item) => item.buildingId === buildingId);
+      if (!envelope) throw new DecisionValidationError("That building is not one of yours that can teach");
+      const catalogEntryId = text(candidate.catalogEntryId, "catalogEntryId", 100);
+      const entry = (envelope.courseCatalog ?? []).find((item) => item.catalogEntryId === catalogEntryId);
+      if (!entry) throw new DecisionValidationError("catalogEntryId is not in the offered course catalog");
+      const skill = text(candidate.skill, "course skill", 40);
+      if (!(envelope.skillSet ?? []).includes(skill)) throw new DecisionValidationError(`${skill} is not an offered skill`);
+      let tradeoffSkill = null;
+      if (entry.tradeoffLoss) {
+        tradeoffSkill = text(candidate.tradeoffSkill, "tradeoffSkill", 40);
+        if (!(envelope.skillSet ?? []).includes(tradeoffSkill) || tradeoffSkill === skill) {
+          throw new DecisionValidationError("The tradeoff must name a distinct offered skill");
+        }
+      } else if (candidate.tradeoffSkill) {
+        throw new DecisionValidationError("This catalog entry carries no tradeoff to assign a skill to");
+      }
+      const boardLocationId = text(candidate.boardLocationId, "boardLocationId", 100);
+      if (!(envelope.boardChoices ?? []).some((choice) => choice.locationId === boardLocationId)) {
+        throw new DecisionValidationError("A course is advertised on one of the public squares in boardChoices");
+      }
+      return {
+        type, buildingId, catalogEntryId, skill,
+        ...(tradeoffSkill ? { tradeoffSkill } : {}),
+        price: boundedInteger(candidate.price, "price", entry.priceMinimum, entry.priceMaximum),
+        boardLocationId,
+        title: text(candidate.title, "course title", 120),
+        description: text(candidate.description ?? "", "course description", 500),
+      };
+    }
     case "attend_event":
     case "leave_experience":
       return matchedIdentifierAction(type, "eventId", candidate, templates);

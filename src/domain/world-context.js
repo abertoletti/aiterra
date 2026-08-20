@@ -13,7 +13,7 @@
 import { DomainError, derivedTags, gridDistance, profileAffinity, publicJob } from "./world-support.js";
 
 export const CONTEXT_CONTRACT_VERSION = 3;
-export const CONTEXT_RESOURCES = ["opportunities", "experiences", "plots", "buildings", "people"];
+export const CONTEXT_RESOURCES = ["opportunities", "experiences", "plots", "buildings", "people", "courses"];
 export const CONTEXT_MODES = ["full", "progressive"];
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -35,6 +35,7 @@ const FILTERS = {
   plots: ["availableOnly", "maximumDistance", "feasibleOnly"],
   buildings: ["locationId", "tag", "minimumAffinity", "maximumDistance", "feasibleOnly"],
   people: ["locationId", "subjectCharacterId", "feasibleOnly"],
+  courses: ["locationId", "feasibleOnly"],
 };
 
 export function contextSummaries(world, characterId, since = 0) {
@@ -167,7 +168,29 @@ function knownItems(world, characterId, resource) {
   if (resource === "experiences") return knownExperiences(world, characterId);
   if (resource === "plots") return knownPlots(world, characterId);
   if (resource === "buildings") return knownBuildings(world, characterId);
+  if (resource === "courses") return knownCourses(world, characterId);
   return knownPeople(world, characterId);
+}
+
+// AIT-1205: the same board rule work follows - a course notice is read at its own square,
+// plus whatever this character is enrolled in or providing, which follows them anywhere.
+function knownCourses(world, characterId) {
+  const character = world.requireCharacter(characterId);
+  const enrollment = world.activeCourseEnrollmentFor(characterId);
+  return [...world.state.courses.values()]
+    .filter((course) => course.boardLocationId === character.locationId
+      || course.providerId === characterId
+      || enrollment?.courseId === course.id)
+    .sort((left, right) => (left.id < right.id ? -1 : 1))
+    .map((course) => {
+      const view = world.courseView(character, course);
+      return {
+        id: course.id,
+        feasible: view.feasibility.eligible,
+        changeKind: course.status === "open" ? "published" : "withdrawn",
+        item: view,
+      };
+    });
 }
 
 // The whole grid, because ground a resident cannot see is ground nobody will build on.
@@ -263,6 +286,7 @@ function knownOpportunities(world, characterId) {
   return [...world.state.jobs.values()]
     .filter((job) => job.workerIds.includes(characterId)
       || job.fundingSourceId === characterId
+      || job.creatorId === characterId
       || (job.status === "open"
         && (job.boardLocationId ?? job.locationId) === character.locationId))
     .sort((left, right) => (left.id < right.id ? -1 : 1))
@@ -385,6 +409,10 @@ function knownPeople(world, characterId) {
           coPresent,
           // Only this character's own outgoing edge; the reverse direction is private.
           relationship: world.getRelationship(characterId, otherId),
+          // AIT-1202 visibility policy: reputation values are public - they are built from
+          // outcomes anyone could have watched - while the causes stay with their owner.
+          reputation: other.reputation,
+          domainReputation: structuredClone(other.domainReputation ?? {}),
           ...(coPresent ? { locationId: other.locationId } : {}),
           conversationAvailability: availability,
         },

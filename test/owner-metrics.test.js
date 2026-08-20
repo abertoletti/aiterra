@@ -184,7 +184,7 @@ test("money is conserved: every credit is in a purse, a till, an escrow, or the 
   const before = accounts().supply;
   const built = world.constructBuilding("vera", {
     x: 6, y: 6, width: 1, height: 1, name: "The Room", description: "A room.",
-    profile: { music: 40 }, capabilities: ["host_event", "sell_access"],
+    profile: { music: 40 }, capabilities: ["host_event", "sell_access", "sell_service"],
   });
   clock.advanceGameMinutes(30);
   world.advanceTo(clock.now());
@@ -203,4 +203,29 @@ test("money is conserved: every credit is in a purse, a till, an escrow, or the 
   world.joinExperience("nia", gathering.data.id);
   assert.equal(world.getPublicState().overview.buildingCredits, 25);
   conserved("when a venue takes money at the door");
+
+  // Tuition is the newest movement: into a building's till like admission, or back to the
+  // treasury when the city itself taught the course. Both are reducer-moved, so both must
+  // reconcile like every other credit.
+  const foundations = world.config.courses.catalog.find((entry) => entry.id === "foundations");
+  const taught = world.offerResidentCourse("vera", {
+    buildingId: built.data.buildingId, boardLocationId: "square",
+    catalogEntryId: "foundations", skill: "social",
+    price: foundations.priceMinimum, title: "Working a room",
+  });
+  world.leaveExperience("nia", gathering.data.id);
+  world.startMove("nia", "square");
+  clock.advanceGameMinutes(10);
+  world.advanceTo(clock.now());
+  world.enrollInCourse("nia", taught.data.id);
+  conserved("when tuition reaches a building till");
+
+  const citySchool = world.offerCourse({
+    id: "city-course", providerType: "city", providerId: "budget",
+    locationId: "square", boardLocationId: "square",
+    catalogEntryId: "foundations", skill: "business",
+    price: foundations.priceMinimum, title: "The city teaches trade",
+  });
+  world.enrollInCourse("vera", citySchool.data.id);
+  conserved("when tuition returns to the treasury");
 });

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "local-ten-agent-pilot-v7-choose-your-square",
+  "version": "local-ten-agent-pilot-v8-courses-on-the-boards",
   "locations": [
     {
       "id": "foundry",
@@ -708,6 +708,46 @@
       "offerDurationGameMinutes": 100000,
       "repeatable": true,
       "cooldownGameMinutes": 30
+    }
+  ],
+  "courses": [
+    {
+      "id": "foundry-commerce-foundations",
+      "title": "Foundations of commerce at the supply office",
+      "description": "The paperwork behind every handoff: ledgers, quotes, and how the foundry buys and sells.",
+      "catalogEntryId": "foundations",
+      "skill": "business",
+      "locationId": "foundry",
+      "price": 60
+    },
+    {
+      "id": "market-hosting-foundations",
+      "title": "Working the crowd: a stallholder's course",
+      "description": "Greeting strangers, holding a table, and reading a busy square.",
+      "catalogEntryId": "foundations",
+      "skill": "social",
+      "locationId": "market",
+      "price": 60
+    },
+    {
+      "id": "garden-systems-specialization",
+      "title": "Residential systems, taken apart",
+      "description": "Meters, pumps, and wiring for people who already fix things. Deep focus - your social ease pays for it.",
+      "catalogEntryId": "specialization",
+      "skill": "technical",
+      "tradeoffSkill": "social",
+      "locationId": "garden",
+      "price": 150
+    },
+    {
+      "id": "archive-ledgers-specialization",
+      "title": "Civic ledgers and how to run them",
+      "description": "Indexing, audit, and the city's accounts for working traders. Rigor over flair - your creativity pays for it.",
+      "catalogEntryId": "specialization",
+      "skill": "business",
+      "tradeoffSkill": "creativity",
+      "locationId": "archive",
+      "price": 150
     }
   ],
   "events": []

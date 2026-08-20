@@ -385,7 +385,7 @@ test("the catalog rejects an unknown resource, filter, mode, or page size", () =
   const rejects = (code, run) => assert.throws(run,
     (error) => error instanceof DomainError && error.code === code, `expected ${code}`);
 
-  rejects("UNKNOWN_CONTEXT_RESOURCE", () => world.inspectContext(characterId, { resource: "courses" }));
+  rejects("UNKNOWN_CONTEXT_RESOURCE", () => world.inspectContext(characterId, { resource: "weather" }));
   rejects("UNKNOWN_CONTEXT_FILTER", () => world.inspectContext(characterId, {
     resource: "opportunities", filters: { organizerId: "mira" },
   }));
@@ -415,10 +415,10 @@ test("the rules manifest states the context discipline under a new version", () 
   const manifest = world.getAgentRules(characterId);
 
   assert.notEqual(manifest.version, "agent-rules-v1", "a manifest body change ships under a new version");
-  assert.equal(manifest.version, "agent-rules-v3");
+  assert.equal(manifest.version, "agent-rules-v4");
   assert.equal(manifest.context.contractVersion, 3);
   assert.deepEqual(manifest.context.requestable,
-    ["opportunities", "experiences", "plots", "buildings", "people"]);
+    ["opportunities", "experiences", "plots", "buildings", "people", "courses"]);
   for (const field of ["instruction", "summaryReading", "caching", "authority"]) {
     assert.equal(typeof manifest.context[field], "string");
     assert.ok(manifest.context[field].length > 0, `context.${field} must say something`);
