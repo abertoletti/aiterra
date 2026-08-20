@@ -173,9 +173,9 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 .resident-heading-line { display: flex; align-items: end; gap: 24px; }
 .resident-heading-line .character-picker { width: min(260px, 34vw); }
 
-.dashboard { display: grid; grid-template-columns: minmax(270px, 360px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.dashboard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
 .character-panel, .story-panel { background: rgba(251,250,246,.88); border: 1px solid rgba(23,33,29,.10); box-shadow: var(--shadow); }
-.character-panel { padding: 28px; border-radius: 18px; position: sticky; top: 24px; }
+.character-panel { padding: 28px; border-radius: 18px; }
 .story-panel { min-height: 680px; padding: clamp(26px, 4vw, 48px); border-radius: 18px; }
 
 .identity { display: flex; align-items: center; gap: 15px; }
@@ -725,3 +725,69 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 .meter-fill.fill-95, .lived-fill.fill-95 { width: 95%; }
 .meter-fill.fill-100, .lived-fill.fill-100 { width: 100%; }
 
+
+/* A wallet: what it opened with, what moved, and what each movement left behind. */
+.wallet-block { margin-top: 16px; }
+.wallet-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.wallet-totals > div {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  display: grid;
+  gap: 1px;
+}
+.wallet-totals span { font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.wallet-totals strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.wallet-totals .in strong { color: var(--green); }
+.wallet-totals .out strong { color: var(--coral); }
+.wallet-totals .balance { background: rgba(104, 115, 110, .07); }
+
+.wallet-ledger { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.wallet-row {
+  display: grid;
+  grid-template-columns: 62px 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 6px;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--line);
+}
+.wallet-row:last-child { border-bottom: none; }
+.wallet-row.empty { grid-template-columns: 1fr; color: var(--muted); }
+.wallet-amount { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.wallet-row.in .wallet-amount { color: var(--green); }
+.wallet-row.out .wallet-amount { color: var(--coral); }
+.wallet-balance { font-variant-numeric: tabular-nums; color: var(--muted); }
+.wallet-when { font-size: 10px; color: var(--muted); }
+
+/* The profile is a full-width band above the story rather than a narrow sticky column: at
+   360px it pushed everything worth reading far below the fold. Wide means its own sections
+   sit side by side instead of stacking into a single long strip. */
+.character-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 18px clamp(18px, 2.5vw, 32px);
+  align-items: start;
+}
+.character-panel > .identity,
+.character-panel > .loading { grid-column: 1 / -1; }
+.character-panel > .stats,
+.character-panel > .stats.secondary { grid-column: 1 / -1; }
+.character-panel .meters { max-height: none; }
+
+/* The ledger is a question, not a headline: the four balances answer it at a glance. */
+.wallet-details > summary {
+  cursor: pointer;
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.wallet-details > summary:hover { color: var(--ink); }
+.wallet-details[open] > summary { margin-bottom: 4px; }

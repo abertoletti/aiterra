@@ -418,6 +418,14 @@ export function publicCharacter(character) {
     credits: character.credits, skills: character.skills, reputation: character.reputation, score: character.score,
     agentAvailability: character.agentAvailability, consecutiveMissedResponses: character.consecutiveMissedResponses,
     skillsLearned: structuredClone(character.skillsLearned ?? {}),
+    // Where the money came from and went. Lifetime totals in full, itemised entries newest
+    // first and capped, because a balance without its history explains nothing.
+    wallet: {
+      opening: character.wallet?.opening ?? 0,
+      earned: character.wallet?.earned ?? 0,
+      spent: character.wallet?.spent ?? 0,
+      entries: [...(character.wallet?.entries ?? [])].reverse(),
+    },
     // AIT-1501: a character sees its own Happiness and its own preference vector, and
     // never another character's. Credits answer whether it can afford something,
     // Energy whether it can sustain it, Happiness whether any of it is worth living.

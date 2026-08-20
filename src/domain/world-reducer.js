@@ -7,10 +7,33 @@ import { coPresenceKey, experienceAttendanceKey, relationshipKey, round2 } from 
 // A wage comes from somewhere and, when it is not earned, goes back there. There are three
 // kinds of purse now that a building can employ people, and four places in this reducer used
 // to branch on the type by hand - so one of them was always going to be forgotten.
-function moveFunding(state, type, id, amount) {
+function moveFunding(state, event, type, id, amount, reason) {
   if (type === "system_budget") state.systemBudgets.get(id).balance += amount;
   else if (type === "building") state.buildings.get(id).balance += amount;
-  else state.characters.get(id).credits += amount;
+  else moveCredits(state, event, id, amount, reason);
+}
+
+// Every credit a character gains or loses passes through here, so the wallet is right by
+// construction instead of by somebody remembering to append to it. There were nine places
+// that moved a character's credits across seven event types, and a ledger assembled by
+// touching nine of them is a ledger that will be wrong the first time a tenth appears.
+//
+// Running totals are kept in full and the itemised entries are capped: a run can move credits
+// hundreds of times, and the last stretch plus the lifetime totals answer every question the
+// observer actually asks of a wallet.
+const WALLET_ENTRY_CAP = 60;
+
+function moveCredits(state, event, characterId, amount, reason, extra = {}) {
+  const character = state.characters.get(characterId);
+  if (!character || !amount) return;
+  character.credits += amount;
+  const wallet = character.wallet;
+  if (amount > 0) wallet.earned += amount;
+  else wallet.spent -= amount;
+  wallet.entries.push({
+    at: event.worldTime, amount, reason, balance: character.credits, ...extra,
+  });
+  if (wallet.entries.length > WALLET_ENTRY_CAP) wallet.entries.shift();
 }
 
 export function applyEvent(state, event) {
@@ -30,6 +53,17 @@ export function applyEvent(state, event) {
         ...structuredClone(data), activity: null, reputation: 0, score: 0,
         agentAvailability: "available", consecutiveMissedResponses: 0,
         skillsLearned: {},
+        // A ledger that starts at the first transaction cannot explain the balance, so the
+        // opening credits are its first line.
+        wallet: {
+          // Kept apart from earned so that opening + earned - spent === credits is an
+          // identity a reader can check, rather than three numbers that nearly agree.
+          opening: data.credits ?? 0,
+          earned: 0, spent: 0,
+          entries: data.credits
+            ? [{ at: event.worldTime, amount: data.credits, reason: "opening_balance", balance: data.credits }]
+            : [],
+        },
         secondaryGoals: [],
       });
       state.knowledge.set(data.id, new Map());
@@ -124,7 +158,7 @@ export function applyEvent(state, event) {
       const fundingSourceType = data.fundingSourceType ?? "character";
       const fundingSourceId = data.fundingSourceId ?? data.creatorId;
       const boardLocationId = data.boardLocationId ?? data.locationId;
-      moveFunding(state, fundingSourceType, fundingSourceId, -data.compensation);
+      moveFunding(state, event, fundingSourceType, fundingSourceId, -data.compensation, "job_funded");
       const reservation = data.reservation ?? {
         id: `legacy-${data.id}`, amount: data.compensation, currency: "credits",
         originalFundingSource: { type: fundingSourceType, id: fundingSourceId },
@@ -180,7 +214,7 @@ export function applyEvent(state, event) {
     }
     case "JOB_REOPENED": {
       const job = state.jobs.get(data.jobId);
-      moveFunding(state, data.fundingSourceType, data.fundingSourceId, -data.amount);
+      moveFunding(state, event, data.fundingSourceType, data.fundingSourceId, -data.amount, "job_refunded_for_reopen");
       job.status = "open";
       job.workerId = null;
       job.workerIds = [];
@@ -224,7 +258,7 @@ export function applyEvent(state, event) {
       job.completedAt = event.worldTime;
       const workerIds = data.workerIds ?? [data.workerId];
       const payouts = data.payouts ?? workerIds.map((workerId) => ({ workerId, amount: data.compensation / workerIds.length }));
-      for (const payout of payouts) state.characters.get(payout.workerId).credits += payout.amount;
+      for (const payout of payouts) moveCredits(state, event, payout.workerId, payout.amount, "work_paid", { jobId: data.jobId, title: data.title ?? null });
       for (const workerId of workerIds) state.characters.get(workerId).activity = null;
       break;
     }
@@ -250,9 +284,9 @@ export function applyEvent(state, event) {
       job.reservation.workerAmount = data.workerAmount;
       job.reservation.refundAmount = data.refundAmount;
       if (data.payouts?.length) {
-        for (const payout of data.payouts) state.characters.get(payout.workerId).credits += payout.amount;
-      } else if (data.workerAmount > 0 && data.workerId) state.characters.get(data.workerId).credits += data.workerAmount;
-      moveFunding(state, job.fundingSourceType, job.fundingSourceId, data.refundAmount);
+        for (const payout of data.payouts) moveCredits(state, event, payout.workerId, payout.amount, "work_part_paid", { jobId: data.jobId });
+      } else if (data.workerAmount > 0 && data.workerId) moveCredits(state, event, data.workerId, data.workerAmount, "work_part_paid", { jobId: data.jobId });
+      moveFunding(state, event, job.fundingSourceType, job.fundingSourceId, data.refundAmount, "job_escrow_returned");
       for (const workerId of data.workerIds ?? [data.workerId].filter(Boolean)) {
         const worker = state.characters.get(workerId);
         if (worker.activity?.jobId === data.jobId) worker.activity = null;
@@ -275,7 +309,7 @@ export function applyEvent(state, event) {
       state.gatherings.set(data.id, { ...structuredClone(data), attendees: new Set() });
       break;
     case "BUILDING_CONSTRUCTION_STARTED": {
-      state.characters.get(data.proprietorId).credits -= data.constructionCost;
+      moveCredits(state, event, data.proprietorId, -data.constructionCost, "building_built", { buildingId: data.buildingId, name: data.name });
       state.buildings.set(data.buildingId, {
         ...structuredClone(data),
         locationId: null, balance: 0, lastUpkeepAt: null, revenue: 0, upkeepPaid: 0,
@@ -299,7 +333,7 @@ export function applyEvent(state, event) {
       break;
     }
     case "BUILDING_FUNDED": {
-      state.characters.get(data.characterId).credits -= data.credits;
+      moveCredits(state, event, data.characterId, -data.credits, "building_funded", { buildingId: data.buildingId });
       state.buildings.get(data.buildingId).balance += data.credits;
       break;
     }
@@ -308,7 +342,7 @@ export function applyEvent(state, event) {
       building.balance -= data.fromBalance ?? data.amount;
       if (data.fromProprietor) {
         const proprietor = state.characters.get(data.proprietorId);
-        if (proprietor) proprietor.credits -= data.fromProprietor;
+        if (proprietor) moveCredits(state, event, data.proprietorId, -data.fromProprietor, "building_upkeep", { buildingId: data.buildingId });
       }
       building.upkeepPaid += data.amount;
       building.lastUpkeepAt = data.chargedAt;
@@ -360,7 +394,7 @@ export function applyEvent(state, event) {
       break;
     }
     case "EXPERIENCE_ACCESS_PAID": {
-      state.characters.get(data.characterId).credits -= data.price;
+      moveCredits(state, event, data.characterId, -data.price, "experience_admission", { eventId: data.eventId });
       if (data.destinationType === "system_budget") {
         const budget = state.systemBudgets.get(data.destinationId);
         if (budget) budget.balance += data.price;
@@ -369,7 +403,7 @@ export function applyEvent(state, event) {
         if (building) { building.balance += data.price; building.revenue += data.price; }
       } else {
         const proprietor = state.characters.get(data.destinationId);
-        if (proprietor) proprietor.credits += data.price;
+        if (proprietor) moveCredits(state, event, data.destinationId, data.price, "admission_received", { eventId: data.eventId });
       }
       break;
     }

@@ -51,3 +51,36 @@ test("the health page exists, because a run once stalled in silence", () => {
   assert.match(script, /consecutiveMissedResponses/);
   assert.match(script, /healthBadge/);
 });
+test("a wallet shows the balances and keeps the ledger behind a disclosure", () => {
+  const script = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+
+  // Four reconciling numbers answer the question at a glance; the itemised movements are a
+  // follow-up question, not a headline, so they open on request.
+  for (const total of ["Opened with", "Earned", "Spent", "Balance"]) {
+    assert.ok(script.includes(total), `the wallet must state ${total}`);
+  }
+  assert.match(script, /<details class="wallet-details">/,
+    "the ledger opens on request rather than filling the panel");
+  assert.match(script, /purse\.opening/);
+
+  // The profile is a full-width band above the story: at 360px in a sticky column it pushed
+  // everything worth reading below the fold.
+  assert.match(styles, /\.dashboard \{ display: grid; grid-template-columns: minmax\(0, 1fr\)/);
+  assert.doesNotMatch(styles, /\.character-panel \{[^}]*position: sticky/);
+});
+
+test("every meter width is a class, because the page's own CSP blocks inline styles", () => {
+  const script = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+
+  // style-src 'self' blocks an inline style attribute in parsed markup, so every bar in the
+  // observer used to draw at zero width with nothing to show but a console error.
+  assert.match(server, /style-src 'self'/, "the header stays strict");
+  assert.ok(!/style="width/.test(script), "no width may be set through a style attribute");
+  assert.match(script, /function fillClass\(/);
+  for (const percent of [0, 50, 100]) {
+    assert.ok(styles.includes(`.meter-fill.fill-${percent}`), `a class must exist for ${percent}%`);
+  }
+});

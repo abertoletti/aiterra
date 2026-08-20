@@ -492,3 +492,52 @@ test("work that stretches a worker teaches them, and routine work does not", () 
   const routine = world.getObservation("vera").availableActions.find((action) => action.jobId === "ledger");
   assert.deepEqual(routine.skillGains, [], "she has outgrown it, so it has nothing to teach");
 });
+
+test("a wallet reconciles: opening plus earned minus spent is the balance", () => {
+  // Nine places across seven event types used to move a character's credits. A ledger
+  // assembled by remembering to touch nine of them is a ledger that goes wrong the first
+  // time a tenth appears, so every movement goes through one function and the wallet is
+  // right by construction. The identity below is the whole point of keeping opening apart.
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "square", name: "Square", x: 5, y: 5 });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 10_000 });
+  world.createCharacter({
+    id: "nia", name: "Nia", locationId: "square", personality: [], goal: "Earn.",
+    credits: 200, skills: { business: 40 },
+  });
+  world.createSystemJob({
+    budgetId: "budget", id: "ledger", title: "Keep the ledger", locationId: "square",
+    durationGameMinutes: 10, compensation: 60, requirements: { business: 30 },
+  });
+
+  const wallet = () => world.getObservation("nia").character.wallet;
+  const credits = () => world.getObservation("nia").character.credits;
+  const reconciles = () => {
+    const purse = wallet();
+    assert.equal(purse.opening + purse.earned - purse.spent, credits(),
+      "opening + earned - spent must equal the balance");
+  };
+
+  assert.equal(wallet().opening, 200);
+  assert.deepEqual(wallet().entries.map((entry) => entry.reason), ["opening_balance"],
+    "a ledger that starts at the first transaction cannot explain the balance");
+  reconciles();
+
+  world.acceptJob("nia", "ledger");
+  world.startJob("nia", "ledger");
+  clock.advanceGameMinutes(10);
+  world.advanceTo(clock.now());
+
+  assert.equal(credits(), 260);
+  assert.equal(wallet().earned, 60);
+  assert.equal(wallet().spent, 0);
+  reconciles();
+
+  // Newest first, and each line carries the balance it left behind.
+  const [latest] = wallet().entries;
+  assert.equal(latest.reason, "work_paid");
+  assert.equal(latest.amount, 60);
+  assert.equal(latest.jobId, "ledger");
+  assert.equal(latest.balance, 260, "every line says what the balance became");
+});

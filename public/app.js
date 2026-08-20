@@ -668,6 +668,10 @@ function renderCharacter() {
       <div class="minor-heading"><h3>Skills</h3><span>gates which work is possible</span></div>
       <div class="meters">${skills}</div>
     </div>
+    <div class="wallet-block">
+      <div class="minor-heading"><h3>Wallet</h3><span>balances at a glance, the ledger on request</span></div>
+      ${wallet(character)}
+    </div>
     <div class="relationships">
       <div class="minor-heading"><h3>Goals</h3><span>what it is pursuing</span></div>
       <ul class="goal-list">${goalList}</ul>
@@ -698,6 +702,32 @@ function renderCharacter() {
 function fillClass(value, maximum) {
   const percent = Math.max(0, Math.min(100, (value / maximum) * 100));
   return `fill-${Math.round(percent / 5) * 5}`;
+}
+
+// A balance on its own says nothing about how it was reached. The totals reconcile against
+// the balance, and the entries say what each movement was and what it left behind.
+function wallet(character) {
+  const purse = character.wallet ?? { opening: 0, earned: 0, spent: 0, entries: [] };
+  const rows = purse.entries.length
+    ? purse.entries.map((entry) => `
+      <li class="wallet-row ${entry.amount > 0 ? "in" : "out"}">
+        <span class="wallet-amount">${entry.amount > 0 ? "+" : "−"}${number(Math.abs(entry.amount))}</span>
+        <span class="wallet-reason">${escapeHtml(humanize(entry.reason))}</span>
+        <span class="wallet-balance">${number(entry.balance)}</span>
+        <span class="wallet-when">${escapeHtml(formatTime(entry.at))}</span>
+      </li>`).join("")
+    : `<li class="wallet-row empty"><span>Nothing has moved yet.</span></li>`;
+  return `
+    <div class="wallet-totals">
+      <div><span>Opened with</span><strong>${number(purse.opening)}</strong></div>
+      <div class="in"><span>Earned</span><strong>+${number(purse.earned)}</strong></div>
+      <div class="out"><span>Spent</span><strong>−${number(purse.spent)}</strong></div>
+      <div class="balance"><span>Balance</span><strong>${number(character.credits)}</strong></div>
+    </div>
+    <details class="wallet-details">
+      <summary>${purse.entries.length} movement${purse.entries.length === 1 ? "" : "s"}</summary>
+      <ol class="wallet-ledger">${rows}</ol>
+    </details>`;
 }
 
 function meter(label, value, maximum, tone = "", gained = null) {
