@@ -4,6 +4,15 @@
 // run over the history in order.
 import { coPresenceKey, experienceAttendanceKey, relationshipKey, round2 } from "./world-support.js";
 
+// A wage comes from somewhere and, when it is not earned, goes back there. There are three
+// kinds of purse now that a building can employ people, and four places in this reducer used
+// to branch on the type by hand - so one of them was always going to be forgotten.
+function moveFunding(state, type, id, amount) {
+  if (type === "system_budget") state.systemBudgets.get(id).balance += amount;
+  else if (type === "building") state.buildings.get(id).balance += amount;
+  else state.characters.get(id).credits += amount;
+}
+
 export function applyEvent(state, event) {
   const data = event.data;
   switch (event.type) {
@@ -113,8 +122,8 @@ export function applyEvent(state, event) {
     case "JOB_CREATED": { 
       const fundingSourceType = data.fundingSourceType ?? "character";
       const fundingSourceId = data.fundingSourceId ?? data.creatorId;
-      if (fundingSourceType === "system_budget") state.systemBudgets.get(fundingSourceId).balance -= data.compensation;
-      else state.characters.get(fundingSourceId).credits -= data.compensation;
+      const boardLocationId = data.boardLocationId ?? data.locationId;
+      moveFunding(state, fundingSourceType, fundingSourceId, -data.compensation);
       const reservation = data.reservation ?? {
         id: `legacy-${data.id}`, amount: data.compensation, currency: "credits",
         originalFundingSource: { type: fundingSourceType, id: fundingSourceId },
@@ -123,7 +132,7 @@ export function applyEvent(state, event) {
       };
       state.jobs.set(data.id, {
         ...structuredClone(data),
-        fundingSourceType, fundingSourceId,
+        fundingSourceType, fundingSourceId, boardLocationId,
         scheduledStartAt: data.scheduledStartAt ?? data.availableFrom,
         startGraceUntil: data.startGraceUntil ?? data.availableUntil,
         offerExpiresAt: data.offerExpiresAt ?? data.availableUntil,
@@ -170,11 +179,7 @@ export function applyEvent(state, event) {
     }
     case "JOB_REOPENED": {
       const job = state.jobs.get(data.jobId);
-      if (data.fundingSourceType === "system_budget") {
-        state.systemBudgets.get(data.fundingSourceId).balance -= data.amount;
-      } else {
-        state.characters.get(data.fundingSourceId).credits -= data.amount;
-      }
+      moveFunding(state, data.fundingSourceType, data.fundingSourceId, -data.amount);
       job.status = "open";
       job.workerId = null;
       job.workerIds = [];
@@ -192,6 +197,11 @@ export function applyEvent(state, event) {
         policyVersion: data.escrowPolicyVersion, state: "reserved",
       };
       job.timesCompleted = job.timesCompleted ?? 0;
+      break;
+    }
+    case "SKILL_CHANGED": {
+      const character = state.characters.get(data.characterId);
+      character.skills[data.skill] = data.value;
       break;
     }
     case "JOB_COMPLETED": {
@@ -237,11 +247,7 @@ export function applyEvent(state, event) {
       if (data.payouts?.length) {
         for (const payout of data.payouts) state.characters.get(payout.workerId).credits += payout.amount;
       } else if (data.workerAmount > 0 && data.workerId) state.characters.get(data.workerId).credits += data.workerAmount;
-      if (job.fundingSourceType === "system_budget") {
-        state.systemBudgets.get(job.fundingSourceId).balance += data.refundAmount;
-      } else {
-        state.characters.get(job.fundingSourceId).credits += data.refundAmount;
-      }
+      moveFunding(state, job.fundingSourceType, job.fundingSourceId, data.refundAmount);
       for (const workerId of data.workerIds ?? [data.workerId].filter(Boolean)) {
         const worker = state.characters.get(workerId);
         if (worker.activity?.jobId === data.jobId) worker.activity = null;

@@ -432,3 +432,63 @@ test("finishing a job frees the worker for a different one, not just the same on
   world.acceptJob("mira", "tidy");
   assert.equal(world.state.jobs.get("tidy").status, "accepted");
 });
+
+test("work that stretches a worker teaches them, and routine work does not", () => {
+  // Skills gated work and nothing ever wrote them: 33,102 of 97,695 job affordances in one
+  // pilot were blocked by a skill that could never be gained. A resident five points short
+  // of a requirement was five points short for the life of the world.
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "square", name: "Square", x: 5, y: 5 });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 10_000 });
+  world.createCharacter({
+    id: "nia", name: "Nia", locationId: "square", personality: [], goal: "Grow.",
+    skills: { business: 30 },
+  });
+  const post = (id, required) => world.createSystemJob({
+    budgetId: "budget", id, title: `Post ${id}`, locationId: "square",
+    durationGameMinutes: 10, compensation: 60, requirements: { business: required },
+    repeatable: true, cooldownGameMinutes: 1,
+  });
+  const business = () => world.getObservation("nia").character.skills.business;
+  const work = (id) => {
+    world.acceptJob("nia", id);
+    world.startJob("nia", id);
+    clock.advanceGameMinutes(10);
+    world.advanceTo(clock.now());
+  };
+
+  post("ledger", 30);
+  post("audit", 35);
+
+  // The notice states what it would teach, so "you need 35" is a plan rather than a wall.
+  const offer = world.getObservation("nia").availableActions
+    .find((action) => action.jobId === "ledger");
+  assert.deepEqual(offer.skillGains, [{ skill: "business", gain: 4, ceiling: 50 }]);
+  const locked = world.getObservation("nia").opportunities.find((entry) => entry.jobId === "audit");
+  assert.deepEqual(locked.blockedBy, ["SKILL_REQUIREMENT"], "the harder post is out of reach for now");
+
+  work("ledger");
+  assert.equal(business(), 34, "a completed post teaches the skill it demanded");
+  assert.ok(world.history.some((event) => event.type === "SKILL_CHANGED"
+    && event.data.skill === "business" && event.data.reason === "work_completed"));
+
+  clock.advanceGameMinutes(2);
+  world.advanceTo(clock.now());
+  work("ledger");
+  assert.equal(business(), 37, "and the gain shrinks as the work stops stretching them");
+
+  // Which is the whole point: the post that was locked is now simply available.
+  clock.advanceGameMinutes(2);
+  world.advanceTo(clock.now());
+  const opened = world.getObservation("nia").availableActions.find((action) => action.jobId === "audit");
+  assert.ok(opened, "two completions turned a permanent wall into an open notice");
+
+  // Routine work below the worker's level teaches nothing at all.
+  world.createCharacter({
+    id: "vera", name: "Vera", locationId: "square", personality: [], goal: "Coast.",
+    skills: { business: 90 },
+  });
+  const routine = world.getObservation("vera").availableActions.find((action) => action.jobId === "ledger");
+  assert.deepEqual(routine.skillGains, [], "she has outgrown it, so it has nothing to teach");
+});

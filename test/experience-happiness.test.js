@@ -702,3 +702,31 @@ test("the affordance, the catalog, and the join command never disagree", () => {
       `${scenario.name}: the command must refuse with the disclosed code`);
   }
 });
+
+test("what a repeat will cost is stated before the ticket is bought, not after", () => {
+  // The only realized factor a brain cannot read off the world is its own history. It was
+  // computed and never shipped, so one resident paid three times for the same night and got
+  // -5.3, then -11.0, then -11.4: each worse, and nothing said so until the money was gone.
+  const { world, clock } = experienceWorld();
+  nightAtTheClub(world, clock, { id: "first-night", title: "First night" });
+
+  const before = offered(world.getObservation("jack"), byEvent("attend_event", "first-night"));
+  assert.equal(before.entry.repetition.priorSimilarAttendances, 0);
+  assert.equal(before.entry.repetition.factor, 0, "a first visit carries no penalty");
+
+  world.joinExperience("jack", "first-night");
+  clock.advanceGameMinutes(120);
+  world.advanceTo(clock.now());
+
+  nightAtTheClub(world, clock, { id: "again", title: "The same thing again" });
+  const after = offered(world.getObservation("jack"), byEvent("attend_event", "again"));
+  assert.equal(after.entry.repetition.priorSimilarAttendances, 1,
+    "the resolved evening counts against the next one like it");
+  assert.ok(after.entry.repetition.factor < 0,
+    "and the penalty already earned is stated before the ticket is bought");
+  assert.ok(after.entry.repetition.windowWorldDays > 0, "with the window it applies over");
+
+  // The same warning reaches the city-wide listing, which is where a night is chosen.
+  const listed = world.getObservation("jack").cityTonight.find((night) => night.eventId === "again");
+  assert.equal(listed.repetition.factor, after.entry.repetition.factor);
+});

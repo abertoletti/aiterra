@@ -140,6 +140,23 @@ export const defaultConfig = Object.freeze({
     minimumAccessPrice: 0,
     maximumAccessPrice: 200,
   },
+  // AIT-1201. Skills gated work and nothing ever changed them: a resident five points short
+  // of a requirement was five points short for the life of the world, and across one pilot
+  // 33,102 of 97,695 job affordances were blocked by a skill that could never be gained.
+  //
+  // You learn from work that stretches you. A post requiring R teaches until you reach
+  // R + masteryMargin, and the gain shrinks as you approach that ceiling: routine work
+  // teaches nothing, which is what makes harder work worth seeking. The policy shape is
+  // fixed by the course and skill progression policy; these are the calibration values it
+  // left open.
+  skills: {
+    policyVersion: 1,
+    set: ["social", "business", "creativity", "technical", "fitness"],
+    minimum: 0,
+    maximum: 100,
+    masteryMargin: 20,
+    gainPerCompletion: 4,
+  },
   relationship: {
     policyVersion: 2,
     minimum: -100,

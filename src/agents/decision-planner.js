@@ -184,14 +184,17 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
           ? ["FIRST, IF YOU DO NOT KNOW WHAT IS OUT THERE, ASK. Answer with a requestContext instead of an action and you will be asked again with the catalog included. Use `experiences` to see what is on across the city, `plots` to find land worth buying, `buildings` to see what other residents have built and where the crowds are, `opportunities` for work, `people` for who is around. Asking costs you one decision and is how you stop acting blind."]
           : []),
         "Work through this list in order and take the first one that applies:",
+        "1b. YOU OWN A BUILDING WITH TAKINGS IN IT -> publish_role. Employ a resident out of the building balance and pin the notice on a public square from boardChoices, because nobody can stand inside a venue that is shut. Staff are admitted even when the doors are.",
         "1. YOU OWN A BUILDING WITH NO EVENT RUNNING -> host_experience NOW. A building with nothing on is dead money: it is shut, so nobody can even walk in, upkeep is charged whether or not anyone comes, and it earns nothing until you put a night on. This is the highest-value action in the game and it is the one you are most likely to skip.",
         "   Hosting is work and costs Energy on what the night promises: hostingBaseEnergyCost + hostingEnergyPerAmbition x (sum of your chosen profile / 100). A lavish night can cost more than a shift. Throw a modest one often rather than a maximal one you cannot repeat.",
         "   One night at a time per building. If bookedUntil is set, the room is taken: use startsInGameMinutes to programme the next free slot instead of resubmitting.",
         "2. SOMETHING IN cityTonight SUITS YOU (high affinity, affordable) -> `move` to its locationId, then `attend_event` when you arrive. cityTonight lists every public experience with its affinity for you, its price and how far away it is.",
-        "   affinity is out of 100 and is what that night is worth TO YOU. A low one costs credits and Energy to be made LESS happy. Repeating the same night pays less each time.",
+        "   affinity is out of 100 and is what that night is worth TO YOU. A low one costs credits and Energy to be made LESS happy.",
+        "   repetition.factor on each night is the penalty you have ALREADY earned by going to things like it: repetition.priorSimilarAttendances says how many. A second visit is worth less than the first and a third less again, so read it before paying, not after.",
         "   A venue is open only while it has something on: a `move` to a shut one says BUILDING_CLOSED and carries opensAt to plan around.",
         "3. YOU CAN AFFORD A BUILDING AND HAVE NONE -> construct_building {x,y,...}. One action: pick any free cell and it is yours. Build near where people already are; check cityTonight and nearby for where that is. The affordance names cheapestUsefulBuilding and takenCells.",
         "4. YOU ARE SHORT OF CREDITS -> accept_job -> start_job. Credits exist to be spent, not banked.",
+        "   Each notice says what completing it TEACHES, in skillGains. A post that demands a skill you lack is not a wall: do the work on this board that raises it and come back. Routine work below your level teaches nothing, so reach for the harder post.",
         "   WORK IS FOUND IN THE SQUARES. Each square has its own notice board and you read only the one you are standing in. jobBoards lists every square, how many notices are waiting there and how far away it is. If this square has nothing for you, `move` to one that does - that trip IS looking for work.",
         "5. ENERGY LOW -> rest",
         "",
@@ -309,6 +312,13 @@ function actionShapes(availableActions) {
         description: "<required, what it is; free text, no mechanical effect>",
         profile: "<object of profile dimensions to 0-100; what the place delivers, priced convexly>",
         capabilities: "<array from the offered capabilities>",
+      }; break;
+      case "publish_role": shapes.publish_role = {
+        type, buildingId: "<one of your ACTIVE buildings>",
+        boardLocationId: "<a square from boardChoices: the notice goes there>",
+        title: "<the role>", description: "<the duties>",
+        requirements: "<object of skill -> 0..100, only skills in skillSet>",
+        durationGameMinutes: "<integer>", wage: "<integer, paid from the building balance>",
       }; break;
       case "host_experience": shapes.host_experience = {
         type,
@@ -500,6 +510,23 @@ export function validateAction(candidate, observation, history = []) {
         description: text(candidate.description, "building description", 500),
         profile: profileObject(candidate.profile, envelope.profileDimensions ?? []),
         capabilities,
+      };
+    }
+    case "publish_role": {
+      const buildingId = text(candidate.buildingId, "buildingId", 100);
+      const envelope = templates.find((item) => item.buildingId === buildingId);
+      if (!envelope) throw new DecisionValidationError("That building is not one of yours to employ from");
+      const boardLocationId = text(candidate.boardLocationId, "boardLocationId", 100);
+      if (!(envelope.boardChoices ?? []).some((choice) => choice.locationId === boardLocationId)) {
+        throw new DecisionValidationError("A role is advertised on one of the public squares in boardChoices");
+      }
+      const wage = boundedInteger(candidate.wage, "wage", 1, envelope.balance ?? 0);
+      return {
+        type, buildingId, boardLocationId, wage,
+        title: text(candidate.title, "role title", 120),
+        description: text(candidate.description ?? "", "role duties", 500),
+        requirements: profileObject(candidate.requirements ?? {}, envelope.skillSet ?? []),
+        durationGameMinutes: boundedInteger(candidate.durationGameMinutes, "durationGameMinutes", 1, 1440),
       };
     }
     case "host_experience": {

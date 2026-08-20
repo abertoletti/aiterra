@@ -588,3 +588,117 @@ test("the diary is disclosed, so the next free slot can be chosen without being 
   assert.equal(booked.bookedUntil, night.data.endsAt,
     "and a taken room says until when, which is what startsInGameMinutes needs");
 });
+
+test("a proprietor employs out of the takings, and pins the notice in a square", () => {
+  // AIT-1602. A venue earned from tickets and employed nobody, so credits pooled inside
+  // buildings and stopped circulating. The notice cannot go inside the premises: a venue is
+  // shut whenever nothing is on, so nobody would ever be standing there to read it.
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  const buildingId = started.data.buildingId;
+  const building = () => world.state.buildings.get(buildingId);
+
+  // Takings first: the wage comes out of the building's own purse, not the proprietor's.
+  world.hostExperience("luca", {
+    buildingId, title: "Opening Night", profile: { music: 30 },
+    durationGameMinutes: 120, accessPrice: 40,
+  });
+  // Anna has to walk there first - the doors are open now that something is on.
+  const eventId = world.state.gatherings.values().next().value.id;
+  world.startMove("anna", building().locationId);
+  clock.advanceGameMinutes(25);
+  world.advanceTo(clock.now());
+  world.joinExperience("anna", eventId);
+  assert.equal(building().balance, 40, "the door money is the building's");
+
+  const offer = world.getObservation("luca").availableActions
+    .find((action) => action.type === "publish_role");
+  assert.ok(offer, "an active building that can create jobs offers the role");
+  assert.equal(offer.fundedFrom, "building_balance");
+  assert.equal(offer.balance, 40);
+  assert.ok(offer.boardChoices.every((choice) => choice.locationId !== buildingId),
+    "and the boards on offer are public squares, never the premises");
+
+  assert.throws(() => world.publishRole("luca", {
+    buildingId, boardLocationId: buildingId, title: "Door staff",
+    durationGameMinutes: 30, wage: 20,
+  }), (error) => error instanceof DomainError && error.code === "BOARD_NOT_PUBLIC");
+
+  assert.throws(() => world.publishRole("luca", {
+    buildingId, boardLocationId: "commons", title: "Door staff",
+    durationGameMinutes: 30, wage: 500,
+  }), (error) => error instanceof DomainError && error.code === "INSUFFICIENT_BUILDING_BALANCE");
+
+  const role = world.publishRole("luca", {
+    buildingId, boardLocationId: "commons", title: "Work the door",
+    description: "Check the list, keep the room right.", requirements: { social: 20 },
+    durationGameMinutes: 30, wage: 25,
+  });
+  assert.equal(role.data.fundingSourceType, "building");
+  assert.equal(role.data.boardLocationId, "commons", "read in the square");
+  assert.equal(role.data.locationId, buildingId, "worked at the building");
+  assert.equal(building().balance, 15, "and the wage is reserved from the takings");
+});
+
+test("the contributor loop closes: takings become a wage, a square becomes a hire", () => {
+  // The whole chain the three stories add, end to end. It was assembled from parts that each
+  // passed their own tests and still did not connect: acceptance was gated on the work site
+  // rather than the board, and publicJob dropped boardLocationId, so every building role
+  // read as WRONG_LOCATION to the one person standing where it was advertised.
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  const buildingId = started.data.buildingId;
+  const building = () => world.state.buildings.get(buildingId);
+  // Anna carries no skills in this world, and the role asks for some - so the loop needs
+  // someone who actually meets the bar, which is the point of the bar.
+  world.createCharacter({
+    id: "tomas", name: "Tomas", locationId: "homes", credits: 40,
+    personality: ["Steady"], goal: "Earn a living.", skills: { social: 30 },
+  });
+  const tomas = () => world.getObservation("tomas").character;
+
+  world.fundBuilding("luca", buildingId, 100);
+
+  const role = world.publishRole("luca", {
+    buildingId, boardLocationId: "commons", title: "Work the door",
+    description: "Check the list, keep the room right.",
+    requirements: { social: 20 }, durationGameMinutes: 20, wage: 40,
+  });
+  assert.equal(building().balance, 60, "the wage is reserved out of the takings");
+
+  // Anna is in the square where the notice hangs, so she can read it and take it - even
+  // though the venue itself is shut, which is exactly why the notice is not inside it.
+  world.startMove("tomas", "commons");
+  clock.advanceGameMinutes(15);
+  world.advanceTo(clock.now());
+  const notice = world.getObservation("tomas").availableActions
+    .find((action) => action.type === "accept_job" && action.jobId === role.data.id);
+  assert.ok(notice, "the notice is readable where it was pinned");
+  assert.equal(notice.compensation, 40);
+  assert.equal(notice.locationId, building().locationId, "and it says where the work happens");
+  assert.deepEqual(notice.skillGains, [{ skill: "social", gain: 2, ceiling: 40 }],
+    "including what doing it would teach him");
+
+  world.acceptJob("tomas", role.data.id);
+
+  // Staff get through a shut door: a venue that hired someone and locked them out could
+  // never be staffed.
+  world.startMove("tomas", building().locationId);
+  clock.advanceGameMinutes(25);
+  world.advanceTo(clock.now());
+  assert.equal(tomas().locationId, building().locationId);
+
+  const before = tomas().credits;
+  const socialBefore = tomas().skills.social;
+  world.startJob("tomas", role.data.id);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+
+  assert.equal(tomas().credits - before, 40, "the building paid him, not the proprietor");
+  assert.equal(tomas().skills.social, socialBefore + 2, "and the work taught him something");
+  assert.equal(building().balance, 60, "the escrow settled out of the reservation");
+});

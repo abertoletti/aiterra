@@ -13,6 +13,7 @@ export const ownerFeedTypes = new Set([
   "KNOWLEDGE_LEARNED", "RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED",
   "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED", "SECONDARY_GOAL_ABANDONED", "SECONDARY_GOAL_EXPIRED",
   "JOB_CREATED", "JOB_ACCEPTED", "JOB_STARTED", "JOB_COMPLETED", "JOB_CANCELLED", "JOB_FAILED", "JOB_EXPIRED",
+  "SKILL_CHANGED",
   "EVENT_CREATED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED",
   "HAPPINESS_CHANGED", "HAPPINESS_DECAYED", "EXPERIENCE_HAPPINESS_RESOLVED", "EXPERIENCE_ACCESS_PAID",
   "PLOT_ACQUIRED", "BUILDING_CONSTRUCTION_STARTED", "BUILDING_ACTIVATED", "BUILDING_FUNDED",
@@ -176,6 +177,23 @@ export function hostingEnergyCost(profile, experience) {
   const ambition = Object.values(profile ?? {}).reduce((sum, value) => sum + (value ?? 0), 0) / 100;
   return Math.max(1, Math.round(experience.hostingBaseEnergyCost
     + experience.hostingEnergyPerAmbition * ambition));
+}
+
+// What one completed post would teach, per skill it demanded. A post requiring R teaches up
+// to R + masteryMargin and the gain decays linearly to nothing at that ceiling, so the same
+// work stops paying once you have outgrown it. Returns only the skills that would move.
+export function skillGainsFor(requirements, skills, policy) {
+  const gains = [];
+  for (const [skill, required] of Object.entries(requirements ?? {})) {
+    if (!policy.set.includes(skill) || !(required > 0)) continue;
+    const ceiling = Math.min(policy.maximum, required + policy.masteryMargin);
+    const current = skills?.[skill] ?? 0;
+    if (current >= ceiling) continue;
+    const gain = Math.max(1, Math.round(policy.gainPerCompletion
+      * (ceiling - current) / policy.masteryMargin));
+    gains.push({ skill, gain: Math.min(gain, ceiling - current), ceiling });
+  }
+  return gains.sort((left, right) => (left.skill < right.skill ? -1 : 1));
 }
 
 export function buildingUpkeep(constructionCost, city) {
@@ -423,8 +441,13 @@ export function publicJob(job, energyCost = null) {
   return structuredClone({
     id: job.id, creatorId: job.creatorId, workerId: job.workerId, workerIds: job.workerIds,
     teamSize: job.teamSize, openTeamSlots: Math.max(0, job.teamSize - job.workerIds.length),
-    requirementsMode: job.requirementsMode, title: job.title,
-    locationId: job.locationId, durationGameMinutes: job.durationGameMinutes,
+    requirementsMode: job.requirementsMode, title: job.title, description: job.description ?? null,
+    locationId: job.locationId,
+    // Where the notice is read, which is not always where the work happens. Dropping it here
+    // made every building role read as WRONG_LOCATION, because the affordance is built from
+    // this projection rather than from the job record.
+    boardLocationId: job.boardLocationId ?? job.locationId,
+    durationGameMinutes: job.durationGameMinutes,
     compensation: job.compensation, requirements: job.requirements, status: job.status,
     visibility: job.visibility ?? "public",
     publishedAt: job.publishedAt,

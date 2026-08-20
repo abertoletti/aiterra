@@ -12,7 +12,7 @@ import {
   appraisalOutcomeKey, dominantDimension, evenPreferences, experienceAttendanceKey,
   normalizeExperienceProfile, normalizePreferences, normalizeTopics, topicFitFor,
   profileAffinity, round2, derivedTags,
-  buildingCost, buildingUpkeep, gridDistance, hostingEnergyCost, plotKey,
+  buildingCost, buildingUpkeep, gridDistance, hostingEnergyCost, plotKey, skillGainsFor,
   conversationObservation, createEmptyState, directionalRelationshipEventTypes, forbidden,
   goalMatchesEvidence, invalid, isNotificationTerminal, nonProjectionEventTypes,
   normalizeFact, normalizeGoal, normalizeRelationship, normalizeSkills,
@@ -837,8 +837,15 @@ export class World {
     if (character.locationId === destinationId) throw invalid("ALREADY_THERE", "Character is already at that location");
     if (character.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot move while ${character.activity.type}`);
     const doors = this.buildingDoorState(destinationId);
-    // The proprietor always gets in: someone has to be able to open up.
-    if (doors.isVenue && !doors.open && doors.proprietorId !== characterId) {
+    // The proprietor always gets in: someone has to be able to open up. So does anyone
+    // employed there - a venue that hires staff and then locks them out could never be
+    // staffed, and the notice they answered was pinned in a public square precisely
+    // because nobody can stand inside a place that is shut.
+    const employedHere = [...this.state.jobs.values()].some((job) =>
+      job.locationId === destinationId
+      && job.workerIds?.includes(characterId)
+      && !TERMINAL_JOB_STATUSES.has(job.status));
+    if (doors.isVenue && !doors.open && doors.proprietorId !== characterId && !employedHere) {
       throw conflict("BUILDING_CLOSED", doors.opensAt
         ? `The venue is closed; it opens at ${doors.opensAt} for ${doors.title}`
         : "The venue is closed and has nothing programmed");
@@ -864,6 +871,47 @@ export class World {
     this.endCoPresenceForCharacter(characterId, movement.id);
     this.endActiveConversations(characterId, "departure", movement.id);
     return movement;
+  }
+
+  fundingBalance(type, id) {
+    if (type === "system_budget") return this.state.systemBudgets.get(id)?.balance ?? 0;
+    if (type === "building") return this.state.buildings.get(id)?.balance ?? 0;
+    return this.state.characters.get(id)?.credits ?? 0;
+  }
+
+  // AIT-1602. A proprietor employs people out of the building's own takings, and pins the
+  // notice in a square rather than inside the premises - because a board is read by whoever
+  // is standing at it, and nobody is standing inside a venue that is shut. The work happens
+  // at the building; only the advertisement lives in the square.
+  publishRole(characterId, {
+    buildingId, boardLocationId, title, description = "", requirements = {},
+    durationGameMinutes, wage, teamSize = 1, id = this.idGenerator(),
+  }) {
+    this.requireCharacter(characterId);
+    const building = this.requireBuilding(buildingId);
+    if (building.proprietorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the proprietor can employ here");
+    if (building.status !== "ACTIVE") throw conflict("BUILDING_NOT_ACTIVE", `Building is ${building.status}`);
+    if (!building.capabilities.includes("create_job")) {
+      throw forbidden("CAPABILITY_MISSING", "This building cannot publish roles");
+    }
+    const board = this.requireLocation(boardLocationId);
+    // A notice pinned inside the premises would be unreadable: the venue is shut whenever
+    // nothing is on, so nobody could ever be standing there to read it.
+    if (board.buildingId) throw invalid("BOARD_NOT_PUBLIC", "A role must be advertised on a public square, not inside a building");
+    if (!Number.isFinite(wage) || wage <= 0) throw invalid("INVALID_COMPENSATION", "A wage must be positive");
+    if (building.balance < wage) {
+      throw conflict("INSUFFICIENT_BUILDING_BALANCE",
+        `${building.name} holds ${building.balance} and the wage is ${wage}`);
+    }
+    return this.publishJob({
+      id, creatorId: characterId,
+      fundingSourceType: "building", fundingSourceId: buildingId,
+      title, description,
+      // Read in the square, worked at the building.
+      locationId: building.locationId, boardLocationId,
+      durationGameMinutes, compensation: wage, requirements, teamSize,
+      availableCredits: building.balance, visibility: "public",
+    });
   }
 
   createJob({ creatorId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teamSize = 1, availableFrom, availableUntil, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
@@ -903,7 +951,7 @@ export class World {
     });
   }
 
-  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, locationId, durationGameMinutes, compensation, requirements, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
+  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, description = null, locationId, boardLocationId = null, durationGameMinutes, compensation, requirements, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
     // createJob and createSystemJob always generate one, but a direct call without an
     // id silently created a job keyed `undefined`, which nothing could ever reach.
     requiredId(id, "job id");
@@ -929,7 +977,10 @@ export class World {
         fundingSourceType,
         fundingSourceId,
         title,
+        description,
         locationId,
+        // Where the notice is pinned, when that is not where the work happens.
+        boardLocationId: boardLocationId ?? locationId,
         durationGameMinutes,
         compensation,
         requirements: normalizeSkills(requirements),
@@ -980,7 +1031,14 @@ export class World {
     if (job.creatorId === workerId) throw conflict("SELF_EMPLOYMENT", "A character cannot accept its own funded job");
     if (worker.agentAvailability === "unavailable") throw conflict("AGENT_UNAVAILABLE", "Unavailable agents cannot accept new jobs");
     if (worker.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot accept a job while ${worker.activity.type}`);
-    if (worker.locationId !== job.locationId) throw invalid("WRONG_LOCATION", "Character must be at the job location to accept it");
+    // You take a notice off the board you are standing at; you go to the site to do it.
+    // These were the same place until a proprietor could advertise a job inside a venue that
+    // is shut whenever nothing is on - and then requiring presence at the site to accept
+    // made such a role unacceptable by anyone.
+    const boardLocationId = job.boardLocationId ?? job.locationId;
+    if (worker.locationId !== boardLocationId) {
+      throw invalid("WRONG_LOCATION", "Character must be at the notice board to accept it");
+    }
     if (job.workerIds.includes(workerId)) throw conflict("ALREADY_JOINED_TEAM", "Character already joined this job");
     const existingCommitment = this.activeCommitmentFor(workerId);
     if (existingCommitment) throw conflict("JOB_COMMITMENT_CONFLICT", `Character is already committed to job ${existingCommitment.id}`);
@@ -2377,6 +2435,16 @@ export class World {
         });
         break;
       }
+      case "publish_role": {
+        const event = this.publishRole(characterId, {
+          buildingId: action.buildingId, boardLocationId: action.boardLocationId,
+          title: action.title, description: action.description,
+          requirements: action.requirements, durationGameMinutes: action.durationGameMinutes,
+          wage: action.wage, teamSize: action.teamSize,
+        });
+        result = this.actionResult(characterId, event, { jobId: event.data.id });
+        break;
+      }
       case "host_experience": {
         const event = this.hostExperience(characterId, action);
         result = this.actionResult(characterId, event, {
@@ -2540,6 +2608,8 @@ export class World {
           this.changeHappiness(workerId, -this.config.happiness.completedWorkCost, "work_completed", {
             causedByEventIds: [completed.id], worldTime: activity.expectedEndAt,
           });
+          // Only a completed post teaches, and only the skills it actually demanded.
+          this.grantSkillGains(workerId, job, completed.id, activity.expectedEndAt);
         }
         this.record("JOB_ESCROW_SETTLED", {
           actorCharacterId: job.creatorId,
@@ -2594,9 +2664,7 @@ export class World {
     for (const job of [...this.state.jobs.values()]) {
       if (!job.repeatable || !TERMINAL_JOB_STATUSES.has(job.status) || !job.reopensAt) continue;
       if (new Date(job.reopensAt) > target) continue;
-      const funding = job.fundingSourceType === "system_budget"
-        ? this.state.systemBudgets.get(job.fundingSourceId)?.balance ?? 0
-        : this.state.characters.get(job.fundingSourceId)?.credits ?? 0;
+      const funding = this.fundingBalance(job.fundingSourceType, job.fundingSourceId);
       // When the funder can no longer cover it the post simply stays closed. A world
       // that has spent its bootstrap budget should run out of work, not out of rules.
       if (funding < job.compensation) continue;
@@ -3518,6 +3586,21 @@ export class World {
           });
         }
       }
+      for (const building of myBuildings.filter((item) => item.status === "ACTIVE"
+        && item.capabilities.includes("create_job"))) {
+        // Employ out of the building's own takings, advertised on a public square. The
+        // affordance names the purse and the boards, because a proprietor cannot guess
+        // either and being refused is a poor way to learn them.
+        actions.push({
+          type: "publish_role", buildingId: building.buildingId, name: building.name,
+          fundedFrom: "building_balance", balance: building.balance,
+          boardChoices: [...this.state.locations.values()]
+            .filter((location) => !location.buildingId)
+            .map((location) => ({ locationId: location.id, name: location.name })),
+          workHappensAt: building.locationId,
+          skillSet: [...this.config.skills.set],
+        });
+      }
       for (const building of myBuildings) {
         actions.push({
           type: "fund_building", buildingId: building.buildingId, name: building.name,
@@ -3541,6 +3624,13 @@ export class World {
             capacity: gathering.capacity ?? null,
             attendeeCount: this.currentAttendeeCount(gathering.id),
             endsAt: gathering.endsAt,
+            // Repetition is the only factor in the realized outcome that comes from private
+            // history rather than from something visible, and it was computed but never
+            // shipped. One resident paid to attend the same night three times for -5.3,
+            // -11.0 and -11.4 happiness, each worse than the last, and nothing before the
+            // third payment said the second had already cost her. The server still computes
+            // no expected value: it states the factor and the brain does the arithmetic.
+            repetition: this.repetitionOutlook(character.id, gathering),
             feasibility: this.eventAttendanceFeasibility(character, gathering),
           });
         }
@@ -3750,6 +3840,9 @@ export class World {
   // accept_job affordance and by the requested opportunity catalog, so the two can
   // never disagree about requirements, costs, or blockers.
   jobOpportunityView(character, job) {
+    // What this post would teach, stated on the notice. Without it "you need business 35"
+    // is a wall; with it, it is two completions of the business work already on this board.
+    const skillGains = skillGainsFor(job.requirements, character.skills, this.config.skills);
     const individualUnmetRequirements = Object.entries(job.requirements ?? {})
       .filter(([skill, required]) => (character.skills?.[skill] ?? 0) < required)
       .map(([skill, required]) => ({ skill, required, actual: character.skills?.[skill] ?? 0 }));
@@ -3779,6 +3872,7 @@ export class World {
       scheduledStartAt: job.scheduledStartAt,
       startGraceUntil: job.startGraceUntil,
       offerExpiresAt: job.offerExpiresAt,
+      skillGains,
       feasibility: this.jobAcceptanceFeasibility(
         character, job,
         job.teamSize > 1 && job.workerIds.length + 1 < job.teamSize ? [] : unmetRequirements,
@@ -3819,7 +3913,9 @@ export class World {
     if (job.creatorId === character.id) blockingCodes.push("SELF_EMPLOYMENT");
     if (character.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
     if (character.activity) blockingCodes.push("ACTIVITY_CONFLICT");
-    if (character.locationId !== job.locationId) blockingCodes.push("WRONG_LOCATION");
+    // Acceptance is gated on the board, not the site: the affordance and the command have to
+    // agree about which place matters, or one of them is lying.
+    if (character.locationId !== (job.boardLocationId ?? job.locationId)) blockingCodes.push("WRONG_LOCATION");
     if (job.workerIds.includes(character.id)) blockingCodes.push("ALREADY_JOINED_TEAM");
     if (job.workerIds.length >= job.teamSize) blockingCodes.push("TEAM_FULL");
     if (this.activeCommitmentFor(character.id)) blockingCodes.push("JOB_COMMITMENT_CONFLICT");
@@ -3884,6 +3980,7 @@ export class World {
           : this.travelDurationBetween(character.locationId, gathering.locationId);
         const building = gathering.buildingId ? this.state.buildings.get(gathering.buildingId) : null;
         return {
+          repetition: this.repetitionOutlook(character.id, gathering),
           eventId: gathering.id,
           title: gathering.title,
           locationId: gathering.locationId,
@@ -3927,6 +4024,26 @@ export class World {
       .filter((gathering) => gathering.buildingId === buildingId && new Date(gathering.endsAt) > now)
       .map((gathering) => new Date(gathering.endsAt));
     return ends.length > 0 ? new Date(Math.max(...ends)).toISOString() : null;
+  }
+
+  // Work that stretches you teaches you. Applied once, on completion, bounded by the policy
+  // ceiling, and never declared by the client: a skill five points short used to be five
+  // points short for the life of the world.
+  grantSkillGains(workerId, job, causedByEventId, worldTime) {
+    const worker = this.requireCharacter(workerId);
+    for (const { skill, gain, ceiling } of skillGainsFor(job.requirements, worker.skills, this.config.skills)) {
+      const previous = worker.skills?.[skill] ?? 0;
+      this.record("SKILL_CHANGED", {
+        actorCharacterId: workerId,
+        causedByEventIds: [causedByEventId],
+        worldTime,
+        data: {
+          characterId: workerId, skill, previous, delta: gain, value: previous + gain,
+          ceiling, reason: "work_completed", jobId: job.id,
+          skillPolicyVersion: this.config.skills.policyVersion,
+        },
+      });
+    }
   }
 
   locationAtCell(x, y) {

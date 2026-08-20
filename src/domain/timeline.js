@@ -22,6 +22,7 @@ const visibleTypes = new Set([
   "JOB_COMPLETED",
   "JOB_CANCELLED",
   "JOB_FAILED",
+  "SKILL_CHANGED",
   "JOB_EXPIRED",
   "CREDITS_TRANSFERRED",
   "EVENT_CREATED",
@@ -121,6 +122,8 @@ function describe(event, name, location) {
       return `${name(data.workerId)} started “${data.title}” at ${location(data.locationId)} until ${shortTime(data.expectedEndAt)}.`;
     case "JOB_COMPLETED":
       return `${name(data.workerId)} completed “${data.title}”.`;
+    case "SKILL_CHANGED":
+      return `${name(data.characterId)} got better at ${data.skill}: ${data.previous} to ${data.value}.`;
     case "JOB_CANCELLED":
     case "JOB_FAILED":
     case "JOB_EXPIRED":
