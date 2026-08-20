@@ -495,16 +495,18 @@ test("putting a night on is work, and a lavish one exhausts whoever throws it", 
   const beforeModest = energy();
   world.hostExperience("luca", {
     buildingId, title: "Quiet Tuesday", profile: { music: 20 },
-    durationGameMinutes: 60, accessPrice: 5,
+    durationGameMinutes: 60, accessPrice: 5, startsInGameMinutes: 120,
   });
   assert.equal(beforeModest - energy(), 13, "a small night promises little and costs little");
 
   // And the spam run is simply unaffordable now.
+  // Booked into free slots so nothing clashes: the wall they hit is Energy, not the diary.
   assert.throws(() => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       world.hostExperience("luca", {
         buildingId, title: `Again ${attempt}`, profile: { music: 90, socializing: 80, luxury: 20 },
         durationGameMinutes: 120, accessPrice: 30,
+        startsInGameMinutes: 180 + attempt * 130,
       });
     }
   }, (error) => error instanceof DomainError && error.code === "INSUFFICIENT_ENERGY");
@@ -525,4 +527,62 @@ test("the host is told what a night will cost before choosing its profile", () =
     "what this building's own profile would cost to deliver in full");
   assert.equal(offer.energy, world.getObservation("luca").character.energy,
     "against what the host actually has");
+});
+
+test("a building hosts one night at a time", () => {
+  // Four overlapping experiences ran in a room that seats ten. Two nights sharing a building
+  // and an hour is not a richer programme, it is the same crowd counted twice.
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  const buildingId = started.data.buildingId;
+
+  world.hostExperience("luca", {
+    buildingId, title: "Opening Night", profile: { music: 30 },
+    durationGameMinutes: 120, accessPrice: 10,
+  });
+
+  for (const [when, why] of [[0, "starting at the same moment"], [60, "starting midway through"]]) {
+    assert.throws(() => world.hostExperience("luca", {
+      buildingId, title: "Clash", profile: { music: 30 },
+      durationGameMinutes: 120, accessPrice: 10, startsInGameMinutes: when,
+    }), (error) => error instanceof DomainError && error.code === "BUILDING_ALREADY_BOOKED", why);
+  }
+
+  // The clash names the night already booked, so the host can pick another slot.
+  try {
+    world.hostExperience("luca", {
+      buildingId, title: "Clash", profile: { music: 30 }, durationGameMinutes: 60,
+    });
+  } catch (error) {
+    assert.match(error.message, /Opening Night/);
+  }
+
+  // The slot after it is free, and a second building of one's own is unaffected.
+  const later = world.hostExperience("luca", {
+    buildingId, title: "Afters", profile: { music: 30 },
+    durationGameMinutes: 60, accessPrice: 10, startsInGameMinutes: 120,
+  });
+  assert.equal(later.data.title, "Afters");
+});
+
+test("the diary is disclosed, so the next free slot can be chosen without being refused", () => {
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  const buildingId = started.data.buildingId;
+
+  const clear = world.getObservation("luca").availableActions
+    .find((action) => action.type === "host_experience");
+  assert.equal(clear.bookedUntil, null, "an empty diary says so");
+
+  const night = world.hostExperience("luca", {
+    buildingId, title: "Opening Night", profile: { music: 30 }, durationGameMinutes: 120,
+  });
+  const booked = world.getObservation("luca").availableActions
+    .find((action) => action.type === "host_experience");
+  assert.equal(booked.bookedUntil, night.data.endsAt,
+    "and a taken room says until when, which is what startsInGameMinutes needs");
 });

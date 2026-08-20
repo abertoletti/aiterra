@@ -373,17 +373,30 @@ export class World {
     // one at her building's ceiling - because an announcement that costs nothing is worth
     // making again immediately. Charged on the same ambition the building was priced on, so
     // a modest evening can be thrown often and a lavish one exhausts whoever throws it.
+    const startsAt = addGameMinutes(this.clock.now(), startsInGameMinutes);
+    const endsAt = addGameMinutes(startsAt, durationGameMinutes);
+    // One night at a time. A room seats what it seats and a proprietor can only run one
+    // thing at once, so two experiences sharing a building and an hour is not a richer
+    // programme - it is the same crowd counted twice, and in the pilot it was four
+    // overlapping nights in a room for ten. The clash names the night already booked, so
+    // the fix is to pick another slot rather than to guess.
+    const clash = [...this.state.gatherings.values()].find((gathering) =>
+      gathering.buildingId === buildingId
+      && timeWindowsOverlap(startsAt, endsAt, gathering.startsAt, gathering.endsAt));
+    if (clash) {
+      throw conflict("BUILDING_ALREADY_BOOKED",
+        `${building.name} is already hosting ${clash.title} until ${clash.endsAt}`);
+    }
     const energyCost = hostingEnergyCost(normalizedProfile, this.config.experience);
     this.requireEnergy(character, energyCost);
     const energyEvent = this.changeEnergy(characterId, -energyCost, "hosting");
-    const startsAt = addGameMinutes(this.clock.now(), startsInGameMinutes);
     return this.createEvent({
       causedByEventIds: [energyEvent.id],
       creatorId: characterId,
       title, description,
       locationId: building.locationId,
       startsAt,
-      endsAt: addGameMinutes(startsAt, durationGameMinutes),
+      endsAt,
       profile: normalizedProfile,
       accessPrice,
       capacity: seats,
@@ -3463,6 +3476,9 @@ export class World {
             hostingEnergyPerAmbition: this.config.experience.hostingEnergyPerAmbition,
             hostingEnergyCostAtCeiling: hostingEnergyCost(building.profile, this.config.experience),
             energy: character.energy,
+            // One night at a time: if the room is booked, say until when, so the host picks
+            // the next free slot instead of learning the rule by being refused.
+            bookedUntil: this.buildingBookedUntil(building.buildingId),
           });
         }
       }
@@ -3821,6 +3837,15 @@ export class World {
     const now = this.clock.now();
     return [...this.state.gatherings.values()].filter((gathering) =>
       gathering.buildingId === building.buildingId && new Date(gathering.endsAt) >= now).length;
+  }
+
+  // The end of the last experience already programmed here, or null when the diary is clear.
+  buildingBookedUntil(buildingId) {
+    const now = this.clock.now();
+    const ends = [...this.state.gatherings.values()]
+      .filter((gathering) => gathering.buildingId === buildingId && new Date(gathering.endsAt) > now)
+      .map((gathering) => new Date(gathering.endsAt));
+    return ends.length > 0 ? new Date(Math.max(...ends)).toISOString() : null;
   }
 
   locationAtCell(x, y) {
