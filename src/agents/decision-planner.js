@@ -207,6 +207,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "   WORK IS FOUND IN THE SQUARES. Each square has its own notice board and you read only the one you are standing in. jobBoards lists every square, how many notices and courses are waiting there and how far away it is. If this square has nothing for you, move to one that does.",
         "   A notice with hiring 'application' is a resident's role: apply_for_role at its board, then carry on - you are committed only if selected. The proprietor reads your reputation when it selects.",
         "4b. THE SKILL BETTER WORK DEMANDS IS ONE NO REACHABLE POST TEACHES -> {\"type\":\"enroll_course\",...} at its board, move to its location, then {\"type\":\"start_course\",...} within the window. The notice states price, duration, energy, prerequisites and the EXACT effects for you before you pay.",
+        "    effects is computed for YOU: each entry says what completion changes from your current level. A course whose every delta is 0 changes nothing you have, at full price.",
         "    Tuition is never refunded: abandoning, cancelling or missing the start forfeits it. Work that stretches you teaches for nothing (skillGains).",
         "",
         "## Building, and then running it",
