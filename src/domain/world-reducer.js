@@ -220,6 +220,16 @@ export function applyEvent(state, event) {
       job.status = data.terminalStatus;
       job.terminalCause = data.terminalCause;
       job.terminalAt = event.worldTime;
+      // A standing post survives a bad outcome the same way it survives a good one. Only a
+      // completion used to schedule the reopen, so a worker who accepted a job and then got
+      // distracted deleted it from the board for good: three of the pilot's twenty seeded
+      // jobs died that way, two to no-shows and one to a cancellation. The post is still
+      // needed after nobody turns up - the no-show already costs the worker the grace window
+      // and blocks any other commitment during it, which is penalty enough.
+      if (job.repeatable) {
+        job.reopensAt = new Date(new Date(event.worldTime).getTime()
+          + (job.cooldownGameMinutes ?? 0) * 60_000).toISOString();
+      }
       job.escrow = 0;
       job.reservation.state = data.workerAmount > 0 ? "split" : "refunded";
       job.reservation.workerAmount = data.workerAmount;

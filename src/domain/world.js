@@ -25,6 +25,10 @@ import {
 // public surface, because the server and the tests import it from here.
 export { DomainError };
 
+// Every way a job can end. A repeatable post goes back on the board after any of them,
+// so a no-show or a cancellation costs the board a cooldown rather than a job.
+const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
+
 export class World {
   // `random` is injected for the same reason `idGenerator` is: the variance factor is
   // drawn in the command path and recorded on the event, so a replay must never redraw
@@ -918,8 +922,7 @@ export class World {
     if (worker.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot accept a job while ${worker.activity.type}`);
     if (worker.locationId !== job.locationId) throw invalid("WRONG_LOCATION", "Character must be at the job location to accept it");
     if (job.workerIds.includes(workerId)) throw conflict("ALREADY_JOINED_TEAM", "Character already joined this job");
-    const existingCommitment = [...this.state.jobs.values()].find((candidate) =>
-      candidate.workerIds?.includes(workerId) && (candidate.status !== "open" || candidate.workerIds.length > 0));
+    const existingCommitment = this.activeCommitmentFor(workerId);
     if (existingCommitment) throw conflict("JOB_COMMITMENT_CONFLICT", `Character is already committed to job ${existingCommitment.id}`);
     if (this.clock.now() >= new Date(job.offerExpiresAt)) {
       this.expireJobOffer(job.id, job.offerExpiresAt);
@@ -1055,6 +1058,18 @@ export class World {
       terminalStatus: "expired", terminalCause: "offer_expired",
       workerShare: 0, actorCharacterId: null, worldTime,
     });
+  }
+
+  // A job a character has finished is not a job they are still on. The check used to match
+  // any post that listed them as a worker and was not open, which a completed post still is
+  // until its cooldown returns it to the board - so finishing a job locked a resident out of
+  // the entire market until that same job came back. They could only ever re-do the one they
+  // had just done, which is why the pilot's twenty-seven completions landed on three job ids
+  // and two residents did twenty-six of them.
+  activeCommitmentFor(characterId) {
+    return [...this.state.jobs.values()].find((candidate) => candidate.workerIds?.includes(characterId)
+      && !TERMINAL_JOB_STATUSES.has(candidate.status)
+      && (candidate.status !== "open" || candidate.workerIds.length > 0));
   }
 
   failJobForNoShow(jobId, worldTime) {
@@ -2510,11 +2525,12 @@ export class World {
 
   // A standing post comes back after its cooldown instead of expiring. The board never
   // empties, so a resident can work its way up to a building rather than racing the
-  // clock, and a run does not quietly run out of things to do.
+  // clock, and a run does not quietly run out of things to do. Every terminal outcome
+  // counts, not just a completion - a post nobody turned up for is still a post.
   reopenRepeatableJobs(targetWorldTime) {
     const target = new Date(targetWorldTime);
     for (const job of [...this.state.jobs.values()]) {
-      if (!job.repeatable || job.status !== "completed" || !job.reopensAt) continue;
+      if (!job.repeatable || !TERMINAL_JOB_STATUSES.has(job.status) || !job.reopensAt) continue;
       if (new Date(job.reopensAt) > target) continue;
       const funding = job.fundingSourceType === "system_budget"
         ? this.state.systemBudgets.get(job.fundingSourceId)?.balance ?? 0
@@ -3637,9 +3653,7 @@ export class World {
     if (character.locationId !== job.locationId) blockingCodes.push("WRONG_LOCATION");
     if (job.workerIds.includes(character.id)) blockingCodes.push("ALREADY_JOINED_TEAM");
     if (job.workerIds.length >= job.teamSize) blockingCodes.push("TEAM_FULL");
-    const existingCommitment = [...this.state.jobs.values()].find((candidate) =>
-      candidate.workerIds?.includes(character.id) && (candidate.status !== "open" || candidate.workerIds.length > 0));
-    if (existingCommitment) blockingCodes.push("JOB_COMMITMENT_CONFLICT");
+    if (this.activeCommitmentFor(character.id)) blockingCodes.push("JOB_COMMITMENT_CONFLICT");
     if (this.clock.now() >= new Date(job.offerExpiresAt)) blockingCodes.push("JOB_OFFER_EXPIRED");
     else if (this.clock.now() > new Date(job.startGraceUntil)) blockingCodes.push("START_WINDOW_CLOSED");
     if (unmetRequirements.length > 0) blockingCodes.push("SKILL_REQUIREMENT");

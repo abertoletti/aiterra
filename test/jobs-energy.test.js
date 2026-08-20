@@ -324,3 +324,74 @@ test("a standing post stays closed once its funder cannot cover it", async () =>
   assert.equal(world.state.jobs.get("sweep").status, "completed");
   assert.equal(world.getPublicState().economy.systemBudgets.find((e) => e.id === "budget").balance, 0);
 });
+
+test("a post nobody turned up for goes back on the board, it is not deleted", () => {
+  // Only a completion used to schedule the reopen, so a worker who accepted a job and then
+  // wandered off deleted it permanently: three of the pilot's twenty seeded jobs died that
+  // way, two to no-shows and one to a cancellation. The post is still needed afterwards.
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "commons", name: "Commons" });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 1_000 });
+  world.createCharacter({
+    id: "mira", name: "Mira", locationId: "commons", personality: [], goal: "Earn.",
+  });
+  world.createSystemJob({
+    budgetId: "budget", id: "sweep", title: "Sweep the commons", locationId: "commons",
+    durationGameMinutes: 10, compensation: 50, repeatable: true, cooldownGameMinutes: 30,
+  });
+
+  world.acceptJob("mira", "sweep");
+  // Never started. The grace window closes and the world calls it a no-show.
+  clock.advanceGameMinutes(makeConfig().jobs.startGraceWorldHours * 60 + 1);
+  world.advanceTo(clock.now());
+  const failed = world.state.jobs.get("sweep");
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.terminalCause, "worker_no_show");
+  assert.ok(failed.reopensAt, "a repeatable post schedules its return even after a no-show");
+
+  clock.advanceGameMinutes(31);
+  world.advanceTo(clock.now());
+  const reopened = world.state.jobs.get("sweep");
+  assert.equal(reopened.status, "open", "the board keeps the post");
+  assert.deepEqual(reopened.workerIds, []);
+  assert.ok(world.history.some((event) => event.type === "JOB_REOPENED" && event.data.jobId === "sweep"));
+});
+
+test("finishing a job frees the worker for a different one, not just the same one again", () => {
+  // Completing a post used to count as still being committed to it, because the check
+  // matched any job that listed the character and was not "open" - which a completed job
+  // stays until its cooldown returns it. A resident who finished a job was therefore locked
+  // out of the whole board until that same job came back, so the only job they could ever
+  // take was the one they had just done. The pilot's 27 completions landed on three job ids.
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "commons", name: "Commons" });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 1_000 });
+  world.createCharacter({
+    id: "mira", name: "Mira", locationId: "commons", personality: [], goal: "Earn.",
+  });
+  for (const id of ["sweep", "tidy"]) {
+    world.createSystemJob({
+      budgetId: "budget", id, title: `Job ${id}`, locationId: "commons",
+      durationGameMinutes: 10, compensation: 50, repeatable: true, cooldownGameMinutes: 30,
+    });
+  }
+
+  world.acceptJob("mira", "sweep");
+  world.startJob("mira", "sweep");
+  clock.advanceGameMinutes(10);
+  world.advanceTo(clock.now());
+  assert.equal(world.state.jobs.get("sweep").status, "completed");
+
+  // "sweep" is finished but still on cooldown, so it has not reopened and still lists Mira.
+  assert.equal(world.state.jobs.get("sweep").workerIds.includes("mira"), true);
+  const tidy = world.getObservation("mira").availableActions
+    .find((action) => action.type === "accept_job" && action.jobId === "tidy");
+  assert.ok(tidy, "the other job is still offered");
+  assert.ok(!(tidy.feasibility.blockingCodes ?? []).includes("JOB_COMMITMENT_CONFLICT"),
+    "a finished job must not read as an active commitment");
+
+  world.acceptJob("mira", "tidy");
+  assert.equal(world.state.jobs.get("tidy").status, "accepted");
+});
