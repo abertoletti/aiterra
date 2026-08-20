@@ -394,8 +394,10 @@ function renderCity() {
           </div>
           <div class="building-capacity"><strong>${building.capacity}</strong><span>capacity</span></div>
         </div>
-        <p class="location-caption">${escapeHtml(characterName(building.proprietorId))}${
-  live.length ? ` · <span class="live-now">${live.length} on now</span>` : " · nothing on"
+        <p class="location-caption">${escapeHtml(characterName(building.proprietorId))} · ${
+  building.open
+    ? `<span class="live-now">open${live.length ? ` · ${live.length} on now` : ""}</span>`
+    : `<span class="shut">closed${building.opensAt ? ` · opens ${escapeHtml(formatTime(building.opensAt))} for ${escapeHtml(building.nextEventTitle ?? "")}` : " · nothing programmed"}</span>`
 }</p>
         ${building.description ? `<p class="building-description">${escapeHtml(building.description)}</p>` : ""}
         <div class="meters compact">${profile}</div>

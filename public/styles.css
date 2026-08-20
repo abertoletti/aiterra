@@ -647,3 +647,7 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
 .location-signals .positive { color: var(--green); }
 .location-signals .negative { color: var(--coral); }
 .live-now { color: var(--green); font-weight: 600; }
+
+/* A venue with nothing on is shut. Reading that off the map beats inferring it from who
+   happens to be standing inside. */
+.shut { color: var(--muted); }

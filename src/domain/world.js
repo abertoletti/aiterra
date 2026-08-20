@@ -778,11 +778,49 @@ export class World {
       && (prior.locationId === gathering.locationId || (dominant && prior.dominantDimension === dominant))).length;
   }
 
+  // A building someone built is a venue, not a public room. It admits the city when it has
+  // something on - and for the time it takes to walk there beforehand, so a resident can set
+  // out before the doors open rather than always arriving after the start. When nothing is
+  // programmed the place is shut, which is what makes an idle building cost its proprietor
+  // instead of quietly serving as free shelter. The building and its whole bill stay visible
+  // either way: a closed door is something to plan around, not something to hide.
+  buildingDoorState(locationId, at = this.clock.now()) {
+    const location = this.state.locations.get(locationId);
+    const building = location?.buildingId ? this.state.buildings.get(location.buildingId) : null;
+    if (!building) return { isVenue: false, open: true, opensAt: null, eventId: null, title: null };
+    const moment = new Date(at);
+    const lead = this.config.city.doorsOpenBeforeWorldMinutes;
+    let open = false;
+    let next = null;
+    for (const gathering of this.state.gatherings.values()) {
+      if (gathering.buildingId !== building.buildingId) continue;
+      if (new Date(gathering.endsAt) < moment) continue;
+      const opensAt = addGameMinutes(new Date(gathering.startsAt), -lead);
+      if (opensAt <= moment) { open = true; next = { opensAt, gathering }; break; }
+      if (!next || opensAt < next.opensAt) next = { opensAt, gathering };
+    }
+    return {
+      isVenue: true,
+      open,
+      proprietorId: building.proprietorId,
+      opensAt: next ? next.opensAt.toISOString() : null,
+      eventId: next?.gathering.id ?? null,
+      title: next?.gathering.title ?? null,
+    };
+  }
+
   startMove(characterId, destinationId) {
     const character = this.requireCharacter(characterId);
     this.requireLocation(destinationId);
     if (character.locationId === destinationId) throw invalid("ALREADY_THERE", "Character is already at that location");
     if (character.activity) throw conflict("ACTIVITY_CONFLICT", `Cannot move while ${character.activity.type}`);
+    const doors = this.buildingDoorState(destinationId);
+    // The proprietor always gets in: someone has to be able to open up.
+    if (doors.isVenue && !doors.open && doors.proprietorId !== characterId) {
+      throw conflict("BUILDING_CLOSED", doors.opensAt
+        ? `The venue is closed; it opens at ${doors.opensAt} for ${doors.title}`
+        : "The venue is closed and has nothing programmed");
+    }
     this.requireEnergy(character, this.config.energy.movementCost);
 
     const durationGameMinutes = this.travelDurationBetween(character.locationId, destinationId);
@@ -3109,6 +3147,11 @@ export class World {
         upkeepPerInterval: building.upkeepPerInterval,
         balance: building.balance, revenue: building.revenue, upkeepPaid: building.upkeepPaid,
         completesAt: building.completesAt ?? null,
+        // Whether the doors are actually open, so the observer can see an idle venue for
+        // what it is rather than inferring it from who happens to be standing inside.
+        ...(building.locationId ? (({ open, opensAt, title }) => ({
+          open, opensAt, nextEventTitle: title,
+        }))(this.buildingDoorState(building.locationId)) : { open: false, opensAt: null, nextEventTitle: null }),
       })),
       seededLocations: [...this.state.locations.values()]
         .filter((location) => !location.buildingId)
@@ -3324,10 +3367,19 @@ export class World {
     if (!character.activity) {
       const locations = this.reachableLocations(character.locationId);
       for (const location of locations) {
-        if (location.id !== character.locationId) actions.push({
+        if (location.id === character.locationId) continue;
+        const doors = this.buildingDoorState(location.id);
+        const shut = doors.isVenue && !doors.open && doors.proprietorId !== character.id;
+        actions.push({
           type: "move", destinationId: location.id, name: location.name,
           energyCost: this.config.energy.movementCost,
           durationGameMinutes: this.travelDurationBetween(character.locationId, location.id),
+          // A shut venue stays on the list with its next opening, because knowing when a
+          // place opens is exactly what a resident needs in order to plan to be there.
+          ...(doors.isVenue ? { opensAt: doors.opensAt, nextEventId: doors.eventId, nextEventTitle: doors.title } : {}),
+          feasibility: shut
+            ? { status: "blocked", eligible: false, blockingCode: "BUILDING_CLOSED", blockingCodes: ["BUILDING_CLOSED"] }
+            : { status: "ready", eligible: true, blockingCode: null, blockingCodes: [] },
         });
       }
       for (const job of jobs.filter((item) => item.status === "accepted" && item.workerIds.includes(character.id))) {

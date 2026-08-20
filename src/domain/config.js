@@ -60,6 +60,9 @@ export const defaultConfig = Object.freeze({
     upkeepMinimum: 5,
     upkeepIntervalWorldMinutes: 1440,
     maximumBuildingsPerCharacter: 3,
+    // A venue admits the public when it has something on, plus the time it takes to walk
+    // there, so a resident can set out before the doors open instead of always arriving late.
+    doorsOpenBeforeWorldMinutes: 30,
     nameMaximumLength: 80,
     descriptionMaximumLength: 500,
   },

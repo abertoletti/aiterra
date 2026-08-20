@@ -101,7 +101,7 @@ test("construction is priced convexly, so promising everything is unaffordable",
   }, (error) => error instanceof DomainError && error.code === "INSUFFICIENT_CREDITS");
 });
 
-test("a finished building becomes a location anyone can walk to", () => {
+test("a finished building is a venue: the city gets in when something is on", () => {
   const { world, clock } = cityWorld();
   const started = buildTheHole(world);
   assert.equal(started.data.status, "UNDER_CONSTRUCTION");
@@ -117,6 +117,26 @@ test("a finished building becomes a location anyone can walk to", () => {
   assert.equal(building.status, "ACTIVE");
   assert.equal(building.locationId, started.data.buildingId);
 
+  // Built, but nothing programmed: a private venue is not a public room, and walking in
+  // for free was how residents took the co-presence without ever buying a ticket.
+  assert.throws(() => world.startMove("anna", building.locationId),
+    (error) => error instanceof DomainError && error.code === "BUILDING_CLOSED");
+
+  // Shut is not hidden. The destination stays on the board with the reason, so a resident
+  // can plan around a closed door instead of being unable to see it.
+  const shutOffer = world.getObservation("anna").availableActions
+    .find((action) => action.type === "move" && action.destinationId === building.locationId);
+  assert.ok(shutOffer, "a closed venue is still listed as a destination");
+  assert.equal(shutOffer.feasibility.blockingCode, "BUILDING_CLOSED");
+
+  // The proprietor can always get in: someone has to open up.
+  assert.ok(world.startMove("luca", building.locationId));
+
+  world.hostExperience("luca", {
+    buildingId: building.buildingId, title: "Friday Night", description: "Doors at ten.",
+    profile: { music: 90, socializing: 70 }, durationGameMinutes: 120, accessPrice: 30,
+  });
+
   // Anna is at homes (10,7), the club is at (12,10): five cells, five minutes each.
   const move = world.startMove("anna", building.locationId);
   assert.equal(move.data.durationGameMinutes, 25,
@@ -124,6 +144,35 @@ test("a finished building becomes a location anyone can walk to", () => {
   clock.advanceGameMinutes(25);
   world.advanceTo(clock.now());
   assert.equal(world.getObservation("anna").character.locationId, building.locationId);
+});
+
+test("the doors open early enough to walk there before the start", () => {
+  // A venue that only admitted people once the event had begun would guarantee everyone
+  // arrived late, since the trip itself takes game minutes.
+  const { world, clock } = cityWorld();
+  const started = buildTheHole(world);
+  clock.advanceGameMinutes(20);
+  world.advanceTo(clock.now());
+  const buildingId = started.data.buildingId;
+
+  const lead = makeConfig().city.doorsOpenBeforeWorldMinutes;
+  world.hostExperience("luca", {
+    buildingId, title: "Later Tonight", profile: { music: 60 },
+    durationGameMinutes: 60, accessPrice: 10, startsInGameMinutes: lead + 10,
+  });
+
+  const stillShut = world.getObservation("anna").availableActions
+    .find((action) => action.type === "move" && action.destinationId === buildingId);
+  assert.equal(stillShut.feasibility.eligible, false, "too early: the doors have not opened");
+  assert.ok(stillShut.opensAt, "but the observation says when they will");
+  assert.equal(stillShut.nextEventTitle, "Later Tonight");
+
+  clock.advanceGameMinutes(11);
+  const nowOpen = world.getObservation("anna").availableActions
+    .find((action) => action.type === "move" && action.destinationId === buildingId);
+  assert.equal(nowOpen.feasibility.eligible, true,
+    "the doors open a lead time before the start, so the trip can begin");
+  assert.ok(world.startMove("anna", buildingId));
 });
 
 test("the building's profile is the ceiling on what it can host", () => {
