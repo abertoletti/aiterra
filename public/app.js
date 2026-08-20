@@ -9,6 +9,8 @@ const locationGrid = document.querySelector("#location-grid");
 const locationMeta = document.querySelector("#location-meta");
 const jobList = document.querySelector("#job-list");
 const jobMeta = document.querySelector("#job-meta");
+const courseList = document.querySelector("#course-list");
+const courseMeta = document.querySelector("#course-meta");
 const boardSummary = document.querySelector("#board-summary");
 const eventList = document.querySelector("#event-list");
 const eventMeta = document.querySelector("#event-meta");
@@ -108,6 +110,7 @@ function renderWorldOverview() {
 
   renderLocations();
   renderJobs();
+  renderCourses();
   renderEvents();
   renderEconomy();
   renderStandings();
@@ -420,10 +423,23 @@ function renderCity() {
     if (roles.length === 0) return "";
     return `<ul class="building-roles">${roles.map((role) => {
       const staff = (role.workerIds ?? []).map(characterById).filter(Boolean);
+      const applicants = role.status === "open" && role.hiring === "application"
+        ? ` · ${plural(role.applicationCount ?? 0, "applicant")}` : "";
       return `<li><span class="role-title">${escapeHtml(role.title)}</span>
         <span class="role-wage">${number(role.compensation)} cr</span>
-        <span class="role-who">${staff.length ? escapeHtml(staff.map((person) => person.name).join(", ")) : "unfilled"}</span></li>`;
+        <span class="role-who">${staff.length ? escapeHtml(staff.map((person) => person.name).join(", ")) : `unfilled${applicants}`}</span></li>`;
     }).join("")}</ul>`;
+  })()}
+        ${(() => {
+    // Tuition is the building's second income after admission, so a place that teaches
+    // should say so where its takings are explained.
+    const taught = (state.world.courses ?? []).filter((course) =>
+      course.buildingId === building.buildingId && course.status === "open");
+    if (taught.length === 0) return "";
+    return `<ul class="building-roles">${taught.map((course) => `
+      <li><span class="role-title">${escapeHtml(course.title)}</span>
+        <span class="role-wage">${number(course.price)} cr tuition</span>
+        <span class="role-who">teaches ${escapeHtml(humanize(course.skill))} · ${course.completedCount ?? 0} completed</span></li>`).join("")}</ul>`;
   })()}
         <p class="routes">Can: ${escapeHtml(building.capabilities.join(" · "))}</p>
         ${building.status === "UNDER_CONSTRUCTION" && building.completesAt
@@ -475,11 +491,13 @@ function renderJobs() {
   boardSummary.innerHTML = squares.map((square) => {
     const open = state.world.jobs.filter((job) => job.status === "open"
       && (job.boardLocationId ?? job.locationId) === square.id).length;
+    const coursesHere = (state.world.courses ?? []).filter((course) => course.status === "open"
+      && course.boardLocationId === square.id).length;
     const here = state.world.characters.filter((person) => person.locationId === square.id).length;
     return `<div class="board-tile${open === 0 ? " empty" : ""}">
       <span class="board-name">${escapeHtml(square.name)}</span>
       <strong>${open}</strong><span class="board-unit">open</span>
-      <span class="board-here">${here} here</span>
+      <span class="board-here">${here} here${coursesHere ? ` · ${plural(coursesHere, "course")}` : ""}</span>
     </div>`;
   }).join("");
   const statusOrder = { running: 0, accepted: 1, open: 2, completed: 3, cancelled: 4, failed: 5, expired: 6 };
@@ -487,7 +505,14 @@ function renderJobs() {
   jobList.innerHTML = jobs.length ? jobs.map((job) => {
     const location = locationById(job.locationId);
     const workers = (job.workerIds ?? [job.workerId]).map(characterById).filter(Boolean);
-    const requirements = Object.entries(job.requirements ?? {}).filter(([, value]) => value > 0);
+    // Skill demands and reputation demands read as one bar to clear, because to a
+    // candidate they are: both decide whether the application is even accepted.
+    const requirements = [
+      ...Object.entries(job.requirements ?? {}).filter(([, value]) => value > 0)
+        .map(([skill, value]) => `${humanize(skill)} ${value}+`),
+      ...Object.entries(job.reputationRequirements ?? {}).filter(([, value]) => value > 0)
+        .map(([domain, value]) => `${humanize(domain)} reputation ${value}+`),
+    ];
     // A resident-funded role hangs on a public square and is worked somewhere else, so the
     // two places have to be told apart. A city post is read where it is done.
     const board = locationById(job.boardLocationId ?? job.locationId);
@@ -512,8 +537,10 @@ function renderJobs() {
           <div><dt>Pay</dt><dd>${number(job.compensation)} cr</dd></div>
           <div><dt>Duration</dt><dd>${formatDuration(job.durationGameMinutes)}</dd></div>
           <div><dt>Energy</dt><dd>${job.energyCost} / ${state.world.rules.maximumEnergy}</dd></div>
-          <div><dt>Requirements</dt><dd>${requirements.length ? requirements.map(([skill, value]) => `${humanize(skill)} ${value}+`).join(", ") : "None"}</dd></div>
+          <div><dt>Requirements</dt><dd>${requirements.length ? requirements.join(", ") : "None"}</dd></div>
           <div><dt>Paid by</dt><dd>${employer ? `${escapeHtml(employer.name)}'s takings` : "the city budget"}</dd></div>
+          ${job.hiring === "application"
+    ? `<div><dt>Hiring</dt><dd>by application · ${job.status === "open" ? plural(job.applicationCount ?? 0, "applicant") : "selected"}</dd></div>` : ""}
           ${job.teamSize > 1 ? `<div><dt>Team</dt><dd>${workers.length} / ${job.teamSize} · collective coverage</dd></div>` : ""}
         </dl>
         <div class="job-window">
@@ -522,6 +549,49 @@ function renderJobs() {
         </div>
       </article>`;
   }).join("") : `<p class="empty-state">No jobs exist in this world.</p>`;
+}
+
+// AIT-1205. The learning market beside the job market, because they compete for the same
+// day: a course is the priced way into a skill no reachable post teaches, and the observer
+// should be able to see whether anyone is actually buying one.
+function renderCourses() {
+  const courses = state.world.courses ?? [];
+  const open = courses.filter((course) => course.status === "open");
+  const completed = courses.reduce((total, course) => total + (course.completedCount ?? 0), 0);
+  const enrolled = courses.reduce((total, course) => total + (course.enrollmentCount ?? 0), 0);
+  courseMeta.textContent = `${open.length} on offer · ${enrolled} enrolments · ${completed} completed`;
+  courseList.innerHTML = courses.length ? courses.map((course) => {
+    const board = locationById(course.boardLocationId);
+    const building = course.buildingId ? buildingById(course.buildingId) : null;
+    const provider = building
+      ? `${building.name} (${characterName(course.providerId)})`
+      : "the city";
+    const prerequisites = Object.entries(course.prerequisites ?? {})
+      .map(([skill, minimum]) => `${humanize(skill)} ${minimum}+`);
+    const effect = `${humanize(course.skill)} +${course.gain} up to ${course.teachesTo}`
+      + (course.tradeoffSkill ? ` · ${humanize(course.tradeoffSkill)} −${course.tradeoffLoss}` : "");
+    const abandoned = course.abandonedCount ?? 0;
+    return `
+      <article class="job-row${building ? " employed" : ""}">
+        <div class="job-primary">
+          <div class="job-title-line">
+            <span class="status-badge status-${escapeHtml(course.status)}">${escapeHtml(course.status)}</span>
+            ${building ? `<span class="employer-badge">${escapeHtml(building.name)}</span>` : ""}
+            <h3>${escapeHtml(course.title)}</h3>
+          </div>
+          <p>posted at <strong>${escapeHtml(board?.name ?? course.boardLocationId)}</strong>${
+  building ? ` · taught at ${escapeHtml(building.name)}` : ""} · by ${escapeHtml(provider)}</p>
+        </div>
+        <dl class="job-facts">
+          <div><dt>Teaches</dt><dd>${escapeHtml(effect)}</dd></div>
+          <div><dt>Tuition</dt><dd>${number(course.price)} cr · no refund</dd></div>
+          <div><dt>Duration</dt><dd>${formatDuration(course.durationGameMinutes)}</dd></div>
+          <div><dt>Energy</dt><dd>${course.energyCost} / ${state.world.rules.maximumEnergy}</dd></div>
+          <div><dt>Prerequisites</dt><dd>${prerequisites.length ? prerequisites.join(", ") : "None"}</dd></div>
+          <div><dt>Taken</dt><dd>${plural(course.enrollmentCount ?? 0, "enrolment")} · ${course.completedCount ?? 0} completed${abandoned ? ` · ${abandoned} forfeited` : ""}</dd></div>
+        </dl>
+      </article>`;
+  }).join("") : `<p class="empty-state">No courses are on offer.</p>`;
 }
 
 function renderEvents() {
@@ -625,6 +695,27 @@ function renderCharacter() {
     .map(([skill, value]) => meter(skill, value, 100, learned[skill] ? "grown" : "",
       learned[skill] ? `+${learned[skill]}` : null)).join("");
 
+  // AIT-1202: the track record beside the skills it was earned in. Values are public;
+  // the causes are this resident's own, newest first, and open on request like the wallet.
+  const domainReputation = Object.entries(character.domainReputation ?? {})
+    .filter(([, value]) => value > 0)
+    .sort(([, left], [, right]) => right - left)
+    .map(([domain, value]) => meter(domain, round1(value), 100, value >= 30 ? "grown" : ""))
+    .join("");
+  const reputationCauses = (character.reputationLog ?? []).slice(0, 10);
+  const reputationLedger = reputationCauses.length
+    ? `<details class="wallet-details">
+        <summary>${plural(reputationCauses.length, "recent cause")}</summary>
+        <ol class="wallet-ledger">${reputationCauses.map((entry) => `
+          <li class="wallet-row ${entry.delta > 0 ? "in" : "out"}">
+            <span class="wallet-amount">${entry.delta > 0 ? "+" : "−"}${number(Math.abs(entry.delta))}</span>
+            <span class="wallet-reason">${escapeHtml(humanize(entry.cause))}${entry.domain ? ` · ${escapeHtml(entry.domain)}` : ""}</span>
+            <span class="wallet-balance">${number(entry.value)}</span>
+            <span class="wallet-when">${escapeHtml(formatTime(entry.at))}</span>
+          </li>`).join("")}</ol>
+      </details>`
+    : "";
+
   const goals = [
     ...(character.primaryGoal ? [{ ...character.primaryGoal, kind: "primary" }] : []),
     ...(character.secondaryGoals ?? []).map((goal) => ({ ...goal, kind: "secondary" })),
@@ -674,7 +765,7 @@ function renderCharacter() {
       ${stat("Lived total", signed(round1(character.livedHappiness)), livedTone)}
     </div>
     <div class="stats secondary">
-      ${stat("Reputation", character.reputation)}
+      ${stat("Reputation", round1(character.reputation))}
       ${stat("Score", character.score)}
       ${stat("Buildings", owned.length)}
     </div>
@@ -686,6 +777,11 @@ function renderCharacter() {
     <div class="meter-block">
       <div class="minor-heading"><h3>Skills</h3><span>gates which work is possible</span></div>
       <div class="meters">${skills}</div>
+    </div>
+    <div class="meter-block">
+      <div class="minor-heading"><h3>Track record</h3><span>public · written only by verified outcomes</span></div>
+      <div class="meters">${meter("general", round1(character.reputation), 100, character.reputation >= 30 ? "grown" : "")}${domainReputation}</div>
+      ${reputationLedger}
     </div>
     <div class="wallet-block">
       <div class="minor-heading"><h3>Wallet</h3><span>balances at a glance, the ledger on request</span></div>
@@ -798,6 +894,7 @@ function describeActivity(activity, location) {
   if (activity.type === "work") return { title: activity.title, detail: `Working at ${location} until ${formatTime(activity.expectedEndAt)}` };
   if (activity.type === "moving") return { title: "On the move", detail: `Travelling to ${locationById(activity.destinationId)?.name ?? activity.destinationId}` };
   if (activity.type === "attend_event") return { title: activity.title, detail: `Attending at ${location}` };
+  if (activity.type === "course") return { title: activity.title, detail: `In class at ${location} until ${formatTime(activity.expectedEndAt)}` };
   if (activity.type === "rest") return { title: "Resting", detail: `Recovering at ${location} until ${formatTime(activity.expectedEndAt)}` };
   return { title: humanize(activity.type), detail: location };
 }
@@ -819,10 +916,10 @@ function worldRouteCount() {
 function characterById(id) { return state.world?.characters.find((item) => item.id === id); }
 function locationById(id) { return state.world?.locations.find((item) => item.id === id); }
 function stat(label, value, tone = "") { return `<div class="stat ${tone}"><span>${label}</span><strong>${value}</strong></div>`; }
-function isTurningPoint(type) { return ["AGENT_NOTIFICATION_QUEUED", "KNOWLEDGE_LEARNED", "RELATIONSHIP_CHANGED", "DECISION_RECORDED"].includes(type); }
+function isTurningPoint(type) { return ["AGENT_NOTIFICATION_QUEUED", "KNOWLEDGE_LEARNED", "RELATIONSHIP_CHANGED", "DECISION_RECORDED", "COURSE_COMPLETED", "BUILDING_ROLE_FILLED"].includes(type); }
 function activityCategory(type) {
-  if (type.startsWith("JOB_")) return "job";
-  if (type.startsWith("CONVERSATION_") || type.startsWith("RELATIONSHIP_")) return "social";
+  if (type.startsWith("JOB_") || type.startsWith("COURSE_") || type.startsWith("BUILDING_ROLE_")) return "job";
+  if (type.startsWith("CONVERSATION_") || type.startsWith("RELATIONSHIP_") || type.includes("REPUTATION_")) return "social";
   if (type.startsWith("EVENT_")) return "event";
   return "world";
 }
