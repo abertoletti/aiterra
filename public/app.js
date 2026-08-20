@@ -695,12 +695,20 @@ function renderCharacter() {
     .map(([skill, value]) => meter(skill, value, 100, learned[skill] ? "grown" : "",
       learned[skill] ? `+${learned[skill]}` : null)).join("");
 
-  // AIT-1202: the track record beside the skills it was earned in. Values are public;
+  // AIT-1202: reputation beside the skills it was earned in. Every domain renders, zeros
+  // included, because "trained but unproven" is a reading this panel exists to allow: a
+  // resident can hold skill 50 and reputation 0 in the same column, and hiding the zero
+  // made that look like a missing row instead of a missing record. Values are public;
   // the causes are this resident's own, newest first, and open on request like the wallet.
-  const domainReputation = Object.entries(character.domainReputation ?? {})
-    .filter(([, value]) => value > 0)
+  const domainNames = [...new Set([
+    ...Object.keys(character.skills ?? {}),
+    ...Object.keys(character.domainReputation ?? {}),
+  ])];
+  const domainReputation = domainNames
+    .map((domain) => [domain, character.domainReputation?.[domain] ?? 0])
     .sort(([, left], [, right]) => right - left)
-    .map(([domain, value]) => meter(domain, round1(value), 100, value >= 30 ? "grown" : ""))
+    .map(([domain, value]) => meter(domain, round1(value), 100,
+      value >= 30 ? "grown" : value === 0 ? "faint" : ""))
     .join("");
   const reputationCauses = (character.reputationLog ?? []).slice(0, 10);
   const reputationLedger = reputationCauses.length
@@ -779,7 +787,7 @@ function renderCharacter() {
       <div class="meters">${skills}</div>
     </div>
     <div class="meter-block">
-      <div class="minor-heading"><h3>Track record</h3><span>public · written only by verified outcomes</span></div>
+      <div class="minor-heading"><h3>Reputation</h3><span>public · moves only on verified outcomes</span></div>
       <div class="meters">${meter("general", round1(character.reputation), 100, character.reputation >= 30 ? "grown" : "")}${domainReputation}</div>
       ${reputationLedger}
     </div>
