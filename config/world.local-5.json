@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "local-ten-agent-pilot-v7-choose-your-square",
+  "version": "local-ten-agent-pilot-v8-menial-work-teaches",
   "locations": [
     {
       "id": "foundry",
@@ -401,7 +401,10 @@
       "startsInGameMinutes": 0,
       "offerDurationGameMinutes": 100000,
       "repeatable": true,
-      "cooldownGameMinutes": 30
+      "cooldownGameMinutes": 30,
+      "teaches": {
+        "social": 15
+      }
     },
     {
       "id": "welcome-table",
@@ -481,7 +484,10 @@
       "startsInGameMinutes": 0,
       "offerDurationGameMinutes": 100000,
       "repeatable": true,
-      "cooldownGameMinutes": 30
+      "cooldownGameMinutes": 30,
+      "teaches": {
+        "technical": 15
+      }
     },
     {
       "id": "bench-repair",
@@ -561,7 +567,10 @@
       "startsInGameMinutes": 0,
       "offerDurationGameMinutes": 100000,
       "repeatable": true,
-      "cooldownGameMinutes": 30
+      "cooldownGameMinutes": 30,
+      "teaches": {
+        "creativity": 15
+      }
     },
     {
       "id": "welcome-packs",
@@ -641,7 +650,10 @@
       "startsInGameMinutes": 0,
       "offerDurationGameMinutes": 100000,
       "repeatable": true,
-      "cooldownGameMinutes": 30
+      "cooldownGameMinutes": 30,
+      "teaches": {
+        "business": 15
+      }
     },
     {
       "id": "digitize-records",

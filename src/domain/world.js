@@ -947,11 +947,11 @@ export class World {
     });
   }
 
-  createJob({ creatorId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, energyCost = null, teamSize = 1, availableFrom, availableUntil, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
+  createJob({ creatorId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teaches = null, energyCost = null, teamSize = 1, availableFrom, availableUntil, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
     const creator = this.requireCharacter(creatorId);
     return this.publishJob({
       id, creatorId, fundingSourceType: "character", fundingSourceId: creatorId,
-      title, locationId, durationGameMinutes, compensation, requirements, energyCost, teamSize,
+      title, locationId, durationGameMinutes, compensation, requirements, teaches, energyCost, teamSize,
       scheduledStartAt: scheduledStartAt ?? availableFrom,
       offerExpiresAt: offerExpiresAt ?? availableUntil,
       availableCredits: creator.credits,
@@ -979,7 +979,7 @@ export class World {
     });
   }
 
-  createSystemJob({ budgetId = this.config.economy.bootstrapBudgetId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
+  createSystemJob({ budgetId = this.config.economy.bootstrapBudgetId, id = this.idGenerator(), title, locationId, durationGameMinutes, compensation, requirements = {}, teaches = null, energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, repeatable = false, cooldownGameMinutes = null }) {
     const budget = this.state.systemBudgets.get(budgetId);
     if (!budget) throw new DomainError("BUDGET_NOT_FOUND", `System budget ${budgetId} not found`, 404);
     const openSystemJobs = [...this.state.jobs.values()].filter((job) =>
@@ -989,13 +989,13 @@ export class World {
     }
     return this.publishJob({
       id, creatorId: null, fundingSourceType: "system_budget", fundingSourceId: budgetId,
-      title, locationId, durationGameMinutes, compensation, requirements, energyCost, teamSize,
+      title, locationId, durationGameMinutes, compensation, requirements, teaches, energyCost, teamSize,
       scheduledStartAt, offerExpiresAt, availableCredits: this.fundingBalance("system_budget", budgetId),
       visibility: "public", repeatable, cooldownGameMinutes,
     });
   }
 
-  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, description = null, locationId, boardLocationId = null, durationGameMinutes, compensation, requirements, energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
+  publishJob({ id, creatorId, fundingSourceType, fundingSourceId, title, description = null, locationId, boardLocationId = null, durationGameMinutes, compensation, requirements, teaches = null, energyCost = null, teamSize = 1, scheduledStartAt, offerExpiresAt, availableCredits, visibility, repeatable = false, cooldownGameMinutes = null }) {
     // createJob and createSystemJob always generate one, but a direct call without an
     // id silently created a job keyed `undefined`, which nothing could ever reach.
     requiredId(id, "job id");
@@ -1032,6 +1032,8 @@ export class World {
         energyCost: energyCost ?? this.config.energy.workCost,
         compensation,
         requirements: normalizeSkills(requirements),
+        // What the work develops, when that is not simply what it demands.
+        teaches: teaches ? normalizeSkills(teaches) : null,
         teamSize,
         requirementsMode: teamSize > 1 ? "team_coverage" : "individual",
         visibility,
@@ -3971,7 +3973,7 @@ export class World {
   jobOpportunityView(character, job) {
     // What this post would teach, stated on the notice. Without it "you need business 35"
     // is a wall; with it, it is two completions of the business work already on this board.
-    const skillGains = skillGainsFor(job.requirements, character.skills, this.config.skills);
+    const skillGains = skillGainsFor(job.requirements, character.skills, this.config.skills, job.teaches);
     const individualUnmetRequirements = Object.entries(job.requirements ?? {})
       .filter(([skill, required]) => (character.skills?.[skill] ?? 0) < required)
       .map(([skill, required]) => ({ skill, required, actual: character.skills?.[skill] ?? 0 }));
@@ -4160,7 +4162,7 @@ export class World {
   // points short for the life of the world.
   grantSkillGains(workerId, job, causedByEventId, worldTime) {
     const worker = this.requireCharacter(workerId);
-    for (const { skill, gain, ceiling } of skillGainsFor(job.requirements, worker.skills, this.config.skills)) {
+    for (const { skill, gain, ceiling } of skillGainsFor(job.requirements, worker.skills, this.config.skills, job.teaches)) {
       const previous = worker.skills?.[skill] ?? 0;
       this.record("SKILL_CHANGED", {
         actorCharacterId: workerId,

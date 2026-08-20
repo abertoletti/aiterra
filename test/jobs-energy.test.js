@@ -541,3 +541,58 @@ test("a wallet reconciles: opening plus earned minus spent is the balance", () =
   assert.equal(latest.jobId, "ledger");
   assert.equal(latest.balance, 260, "every line says what the balance became");
 });
+
+test("menial work asks nothing and still teaches, up to a low ceiling", () => {
+  // Learning came only from what a post DEMANDED, so a resident below every rung on its
+  // square could never climb: the one post it could take was the one that taught it nothing.
+  // In the ten-agent run Nia stood at technical 15 on a board whose lowest technical rung was
+  // 25, with a floor to sweep that asked nothing and taught nothing.
+  const clock = new ManualClock("2042-01-01T09:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  world.defineLocation({ id: "foundry", name: "Foundry Square", x: 6, y: 6 });
+  world.bootstrapEconomy({ budgetId: "budget", credits: 10_000 });
+  world.createCharacter({
+    id: "nia", name: "Nia", locationId: "foundry", personality: [], goal: "Make things.",
+    skills: { technical: 15 },
+  });
+  world.createSystemJob({
+    budgetId: "budget", id: "sweep", title: "Clear the floor", locationId: "foundry",
+    durationGameMinutes: 5, compensation: 12, requirements: {}, teaches: { technical: 15 },
+    energyCost: 3, repeatable: true, cooldownGameMinutes: 1,
+  });
+  world.createSystemJob({
+    budgetId: "budget", id: "bench", title: "Repair the benches", locationId: "foundry",
+    durationGameMinutes: 15, compensation: 45, requirements: { technical: 25 },
+  });
+
+  const technical = () => world.getObservation("nia").character.skills.technical;
+  const sweep = () => {
+    world.acceptJob("nia", "sweep");
+    world.startJob("nia", "sweep");
+    clock.advanceGameMinutes(5);
+    world.advanceTo(clock.now());
+    clock.advanceGameMinutes(2);
+    world.advanceTo(clock.now());
+  };
+
+  // The errand demands nothing, so anyone may take it, and it says what it will teach.
+  const offer = world.getObservation("nia").availableActions.find((action) => action.jobId === "sweep");
+  assert.deepEqual(offer.requirements, { social: 0, business: 0, creativity: 0, technical: 0 });
+  assert.deepEqual(offer.skillGains, [{ skill: "technical", gain: 4, ceiling: 35 }]);
+  assert.ok(!world.getObservation("nia").availableActions.some((action) => action.jobId === "bench"),
+    "the first real rung is out of reach to begin with");
+
+  sweep(); sweep(); sweep();
+  assert.equal(technical(), 25, "three errands are enough to reach the first rung");
+  assert.ok(world.getObservation("nia").availableActions.some((action) => action.jobId === "bench"),
+    "and the rung is now simply available");
+
+  // But menial work stops helping long before it could replace real work.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const gains = world.getObservation("nia").availableActions
+      .find((action) => action.jobId === "sweep")?.skillGains ?? [];
+    if (gains.length === 0) break;
+    sweep();
+  }
+  assert.equal(technical(), 35, "the errand's ceiling is where it stops, far below the hard posts");
+});
