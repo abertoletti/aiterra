@@ -22,14 +22,14 @@ test("the protocol authenticates character-scoped observation and validates acti
   assert.equal(body.character.id, "jack");
   assert.equal(body.nearby.length, 0);
   assert.equal(body.world, undefined, "observation does not expose global state");
-  assert.equal(body.rulesVersion, "agent-rules-v4");
+  assert.equal(body.rulesVersion, "agent-rules-v5");
 
   const rulesResponse = await fetch(`${baseUrl}/api/characters/jack/rules`, {
     headers: { Authorization: "Bearer jack-secret" },
   });
   assert.equal(rulesResponse.status, 200);
   const rules = await rulesResponse.json();
-  assert.equal(rules.version, "agent-rules-v4");
+  assert.equal(rules.version, "agent-rules-v5");
   assert.equal(rules.conversations.maximumTurns, 8);
   assert.ok(world.history.some((event) => event.type === "AGENT_RULES_REQUESTED"
     && event.data.characterId === "jack" && event.data.manifestBytes > 0));
@@ -231,7 +231,7 @@ test("connection testing reports actionable compatibility problems without mecha
   assert.equal(compatible.status, 200);
   const compatibleBody = await compatible.json();
   assert.equal(compatibleBody.compatible, true);
-  assert.equal(compatibleBody.rulesVersion, "agent-rules-v4");
+  assert.equal(compatibleBody.rulesVersion, "agent-rules-v5");
   assert.equal(compatibleBody.rulesUrl, "/api/characters/jack/rules");
 });
 
