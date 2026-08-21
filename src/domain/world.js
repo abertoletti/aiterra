@@ -444,7 +444,7 @@ export class World {
     primaryGoal = null,
     energy = this.config.energy.maximum,
     credits = 0,
-    skills = { social: 0, business: 0, creativity: 0, technical: 0 },
+    skills = {},
     preferences = null,
   }) {
     requiredId(id, "character id");
@@ -455,7 +455,9 @@ export class World {
     // it matches no square, so no co-presence, no neighbour and no board ever finds it.
     if (locationId !== null && locationId !== undefined) this.requireLocation(locationId);
     if (this.state.characters.has(id)) throw conflict("CHARACTER_EXISTS", `Character ${id} already exists`);
-    if (!Array.isArray(personality) || personality.length > 12) throw invalid("INVALID_PERSONALITY", "Personality must contain at most 12 traits");
+    if (!Array.isArray(personality) || personality.length > this.config.protocol.maximumPersonalityTraits) {
+      throw invalid("INVALID_PERSONALITY", `Personality must contain at most ${this.config.protocol.maximumPersonalityTraits} traits`);
+    }
     if (!Number.isFinite(energy) || energy < 0 || energy > this.config.energy.maximum) throw invalid("INVALID_ENERGY", "Invalid starting energy");
     if (!Number.isFinite(credits) || credits < 0) throw invalid("INVALID_CREDITS", "Invalid starting credits");
 
@@ -470,7 +472,7 @@ export class World {
         primaryGoal: primaryGoal ? normalizeGoal(primaryGoal, { id: `primary-${id}`, className: "primary" }) : null,
         energy,
         credits,
-        skills: normalizeSkills(skills),
+        skills: normalizeSkills(skills, this.config.skills.set),
         happiness: this.config.happiness.initial,
         livedHappiness: 0,
         preferences: preferences
@@ -652,14 +654,15 @@ export class World {
     const presenceValue = clamp(
       others.reduce((total, otherId) => {
         const relationship = this.getRelationship(characterId, otherId);
-        return total + (relationship ? (relationship.affinity - relationship.tension) / 200 : 0);
+        return total + (relationship ? (relationship.affinity - relationship.tension) / policy.presenceValueDivisor : 0);
       }, 0),
       -policy.presenceValueBound, policy.presenceValueBound,
     );
 
     const plannedMinutes = Math.max(1, Math.round((new Date(gathering.endsAt) - new Date(gathering.startsAt)) / 60_000));
     const share = presenceMinutes / plannedMinutes;
-    const participation = share < 0.10 ? -4 : share < 0.40 ? -2 : share < 0.75 ? 0 : 2;
+    const participation = policy.participationBands
+      .find((band) => band.belowShare === null || share < band.belowShare).value;
 
     const interactionDetail = this.socialInteractionValue(character, attendance, gathering);
     const interaction = interactionDetail.value;
@@ -667,7 +670,8 @@ export class World {
     const capacity = gathering.capacity ?? null;
     const crowd = capacity === null
       ? clamp(others.length - 1, -policy.crowdBound, policy.crowdBound)
-      : clamp(Math.round((others.length / capacity) * 4) - 2, -policy.crowdBound, policy.crowdBound);
+      : clamp(Math.round((others.length / capacity) * policy.crowdFillScale) - policy.crowdFillOffset,
+        -policy.crowdBound, policy.crowdBound);
 
     const repetition = repetitionFactor(
       this.similarPriorAttendances(characterId, gathering, worldTime), policy);
@@ -741,7 +745,7 @@ export class World {
       const importance = relationship
         ? clamp(
           policy.strangerImportance
-            + (Math.abs(relationship.affinity) + relationship.tension) / 100,
+            + (Math.abs(relationship.affinity) + relationship.tension) / policy.importanceDivisor,
           policy.strangerImportance, 1,
         )
         : policy.strangerImportance;
@@ -1320,7 +1324,9 @@ export class World {
     if (!Number.isFinite(compensation) || compensation <= 0) throw invalid("INVALID_COMPENSATION", "Compensation must be positive");
     if (availableCredits < compensation) throw invalid("INSUFFICIENT_CREDITS", "Funding source cannot fund job escrow");
     if (!Number.isFinite(durationGameMinutes) || durationGameMinutes <= 0) throw invalid("INVALID_DURATION", "Job duration must be positive");
-    if (!Number.isInteger(teamSize) || teamSize < 1 || teamSize > 5) throw invalid("INVALID_TEAM_SIZE", "Team size must be between 1 and 5");
+    if (!Number.isInteger(teamSize) || teamSize < 1 || teamSize > this.config.jobs.maximumTeamSize) {
+      throw invalid("INVALID_TEAM_SIZE", `Team size must be between 1 and ${this.config.jobs.maximumTeamSize}`);
+    }
     if (this.state.jobs.has(id)) throw conflict("JOB_EXISTS", `Job ${id} already exists`);
     const publishedAt = this.clock.now();
     const start = new Date(scheduledStartAt ?? publishedAt);
@@ -1347,7 +1353,7 @@ export class World {
         // were indistinguishable to a resident deciding what to spend its day on.
         energyCost: energyCost ?? this.config.energy.workCost,
         compensation,
-        requirements: normalizeSkills(requirements),
+        requirements: normalizeSkills(requirements, this.config.skills.set),
         reputationRequirements: structuredClone(reputationRequirements),
         hiring,
         teamSize,
@@ -2443,7 +2449,7 @@ export class World {
         && event.data.sourceType === "subjective_appraisal"
         && event.data.category === rule.category
         && event.worldTime.slice(0, 10) === worldDay).length;
-      multiplier = prior === 0 ? 1 : prior === 1 ? 0.5 : 0;
+      multiplier = this.config.relationship.appraisalRepetitionMultipliers[prior] ?? 0;
     }
     const changes = [];
     for (const dimension of ["affinity", "trust", "tension"]) {
@@ -2488,8 +2494,9 @@ export class World {
   recordDecision(characterId, summary, influencedByEventIds) {
     this.requireCharacter(characterId);
     requiredText(summary, "decision summary", 500);
-    if (!Array.isArray(influencedByEventIds) || influencedByEventIds.length === 0 || influencedByEventIds.length > 12) {
-      throw invalid("MISSING_CAUSALITY", "A later decision must reference 1-12 permitted causal events");
+    if (!Array.isArray(influencedByEventIds) || influencedByEventIds.length === 0
+      || influencedByEventIds.length > this.config.protocol.maximumDecisionCauses) {
+      throw invalid("MISSING_CAUSALITY", `A later decision must reference 1-${this.config.protocol.maximumDecisionCauses} permitted causal events`);
     }
     for (const eventId of influencedByEventIds) {
       const source = this.eventById(eventId);
@@ -4228,6 +4235,9 @@ export class World {
         systemBudgets: [...this.state.systemBudgets.values()].map((budget) => structuredClone(budget)),
       },
       city,
+      // The whole tuning surface, verbatim: finding the balance is a matter of playing
+      // with parameters, and an operator cannot play with numbers it cannot see.
+      parameters: structuredClone(this.config),
       worldConfigurationVersion: this.state.activeWorldConfigurationVersion,
     };
   }
@@ -4268,7 +4278,7 @@ export class World {
     }
     if (actor && actor.locationId === observer.locationId) factors.sameLocation = weights.sameLocation;
     const relationship = actor ? this.getRelationship(observerId, actorId) : null;
-    if (relationship && relationshipStrength(relationship) >= 60) factors.strongRelationship = weights.strongRelationship;
+    if (relationship && relationshipStrength(relationship) >= this.config.relevance.strongRelationshipStrength) factors.strongRelationship = weights.strongRelationship;
     else if (relationship) factors.knownRelationship = weights.knownRelationship;
     if (context.directTarget) factors.directTarget = weights.directTarget;
     if (!observer.activity || ["work", "attend_event"].includes(observer.activity.type)) factors.compatibleActivity = weights.compatibleActivity;
@@ -5105,7 +5115,7 @@ export class World {
       && event.data.characterId === characterId
       && event.data.repetitionKey === repetitionKey
       && new Date(event.worldTime) >= since).length;
-    const multiplier = priorOutcomes === 0 ? 1 : priorOutcomes === 1 ? 0.5 : 0;
+    const multiplier = policy.repetitionMultipliers[priorOutcomes] ?? 0;
     const changes = [];
     const apply = (domain, raw) => {
       if (!raw) return;
@@ -5124,7 +5134,7 @@ export class World {
           characterId, domain: domain ?? null, cause, attributionRole: role,
           sourceEventId, previous, delta: round2(value - previous), value,
           repetitionKey,
-          repetitionTreatment: raw < 0 ? "full" : priorOutcomes === 0 ? "full" : priorOutcomes === 1 ? "halved" : "exhausted",
+          repetitionTreatment: raw < 0 || priorOutcomes === 0 ? "full" : multiplier > 0 ? "halved" : "exhausted",
           repetitionWindowWorldDays: policy.repetitionWindowWorldDays,
           reputationPolicyVersion: policy.policyVersion,
           domainTaxonomyVersion: policy.domainTaxonomyVersion,

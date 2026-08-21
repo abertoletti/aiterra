@@ -587,8 +587,8 @@ export function validateAction(candidate, observation, history = []) {
       }
       return {
         type,
-        x: boundedInteger(candidate.x, "x", 1, 20),
-        y: boundedInteger(candidate.y, "y", 1, 20),
+        x: boundedInteger(candidate.x, "x", 1, envelope.gridWidth ?? 20),
+        y: boundedInteger(candidate.y, "y", 1, envelope.gridHeight ?? 20),
         width: boundedInteger(candidate.width ?? 1, "width", 1, maximum.width),
         height: boundedInteger(candidate.height ?? 1, "height", 1, maximum.height),
         name: text(candidate.name, "building name", 80),

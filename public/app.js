@@ -31,10 +31,12 @@ const healthMeta = document.querySelector("#health-meta");
 const healthNote = document.querySelector("#health-note");
 const healthSummary = document.querySelector("#health-summary");
 const healthBadge = document.querySelector("#health-badge");
+const parameterGroups = document.querySelector("#parameter-groups");
+const parametersMeta = document.querySelector("#parameters-meta");
 
 // Pages rather than one long scroll. The hash carries the page so a reload, or a link
 // sent to someone else, lands where it was.
-const pages = ["overview", "residents", "city", "economy", "health"];
+const pages = ["overview", "residents", "city", "economy", "parameters", "health"];
 
 function showPage(name) {
   const page = pages.includes(name) ? name : "overview";
@@ -144,7 +146,54 @@ function renderWorldOverview() {
   renderStandings();
   renderResidents();
   renderCity();
+  renderParameters();
   renderHealth();
+}
+
+// The whole tuning surface, read-only, grouped by domain exactly as the server declares
+// it: finding the balance is a matter of playing with parameters, and an operator cannot
+// play with numbers it cannot see. Rendered generically so a parameter added to config
+// appears here without anyone remembering to.
+function renderParameters() {
+  const parameters = state.world.parameters;
+  if (!parameters) {
+    parametersMeta.textContent = "not shipped by this server";
+    parameterGroups.innerHTML = `<p class="empty-note">This server predates the parameters endpoint; restart it to see the tuning surface.</p>`;
+    return;
+  }
+  const groups = Object.entries(parameters);
+  parametersMeta.textContent = `${groups.length} domains · read-only · world configuration ${state.world.worldConfigurationVersion ?? "—"}`;
+  parameterGroups.innerHTML = groups.map(([domain, values]) => `
+    <article class="parameter-group">
+      <h3>${escapeHtml(domain)}</h3>
+      <dl class="parameter-list">${parameterRows(values)}</dl>
+    </article>`).join("");
+}
+
+function parameterRows(value, prefix = "") {
+  return Object.entries(value).map(([key, entry]) => {
+    const label = prefix ? `${prefix}.${key}` : key;
+    if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
+      return parameterRows(entry, label);
+    }
+    return `<div class="parameter-row">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(parameterValue(entry))}</dd>
+    </div>`;
+  }).join("");
+}
+
+function parameterValue(entry) {
+  if (entry === null) return "—";
+  if (Array.isArray(entry)) {
+    return entry.every((item) => typeof item !== "object" || item === null)
+      ? entry.map((item) => String(item ?? "—")).join(", ")
+      // Catalogs and bands: one compact line per entry, every field visible.
+      : entry.map((item) => Object.entries(item)
+        .map(([field, fieldValue]) => `${field} ${fieldValue === null ? "—" : fieldValue}`).join(" · "))
+        .join("  |  ");
+  }
+  return String(entry);
 }
 
 // A run once ran for two hours while four of seven brains had stopped answering. The

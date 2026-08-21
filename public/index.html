@@ -25,6 +25,7 @@
       <button class="tab" role="tab" data-page="residents" aria-selected="false">Residents</button>
       <button class="tab" role="tab" data-page="city" aria-selected="false">City</button>
       <button class="tab" role="tab" data-page="economy" aria-selected="false">Economy</button>
+      <button class="tab" role="tab" data-page="parameters" aria-selected="false">Parameters</button>
       <button class="tab" role="tab" data-page="health" aria-selected="false">Health<span class="tab-badge" id="health-badge"></span></button>
     </nav>
 
@@ -163,6 +164,18 @@
             <div id="economy-overview"></div>
           </section>
         </div>
+      </section>
+
+      <!-- PARAMETERS: the whole tuning surface, read-only. Finding the balance is a
+           matter of playing with parameters, and you cannot play with what you cannot see. -->
+      <section class="page" id="page-parameters" aria-label="Run parameters" hidden>
+        <section class="overview-panel">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">The tuning surface</p><h2>Parameters</h2></div>
+            <span class="section-meta" id="parameters-meta"></span>
+          </div>
+          <div class="parameter-groups" id="parameter-groups"></div>
+        </section>
       </section>
 
       <!-- HEALTH: a run once died in silence because four of seven brains stopped

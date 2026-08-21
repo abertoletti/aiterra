@@ -25,12 +25,15 @@ test("the observer is paged, and every tab has a page to show", () => {
   // One long scroll made the map, the job board and one resident's life compete for the
   // same attention. Each page now answers a single question.
   const tabs = [...html.matchAll(/data-page="([a-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(tabs, ["overview", "residents", "city", "economy", "health"]);
+  assert.deepEqual(tabs, ["overview", "residents", "city", "economy", "parameters", "health"]);
   for (const page of tabs) {
     assert.match(html, new RegExp(`id="page-${page}"`), `missing the ${page} page`);
   }
-  assert.match(script, /const pages = \["overview", "residents", "city", "economy", "health"\]/,
+  assert.match(script, /const pages = \["overview", "residents", "city", "economy", "parameters", "health"\]/,
     "the router and the tab bar must agree on the page list");
+  // The parameters page renders whatever config the server declares, so a new knob shows
+  // up without anyone remembering to add it to the observer.
+  assert.match(script, /state\.world\.parameters/, "the tuning surface comes from the server, never a copy");
 
   // World operations and one resident's detail stay separate sections, in that order.
   const worldSection = html.indexOf("observer-section world-section");

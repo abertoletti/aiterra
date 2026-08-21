@@ -361,9 +361,12 @@ export function relationshipStrength(relationship) {
   return Math.max(Math.abs(relationship.affinity), Math.abs(relationship.trust), relationship.tension);
 }
 
-export function normalizeSkills(skills) {
+// The controlled skill set is configuration, not this function's opinion: it used to
+// hardcode four names while the policy declared five, so `fitness` was silently dropped
+// from every character and requirement that carried it.
+export function normalizeSkills(skills, set) {
   const result = {};
-  for (const skill of ["social", "business", "creativity", "technical"]) {
+  for (const skill of set) {
     const value = Number(skills?.[skill] ?? 0);
     if (!Number.isFinite(value) || value < 0 || value > 100) throw invalid("INVALID_SKILL", `${skill} must be between 0 and 100`);
     result[skill] = value;

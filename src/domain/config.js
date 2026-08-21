@@ -25,6 +25,9 @@ export const defaultConfig = Object.freeze({
     defaultOfferDurationWorldHours: 24,
     startGraceWorldHours: 2,
     employerCancellationWorkerShare: 0.2,
+    // Coverage is collective above one, and five is where "a team" stops being a
+    // coordination story and starts being a queue.
+    maximumTeamSize: 5,
   },
   economy: {
     bootstrapBudgetId: "world-bootstrap",
@@ -127,11 +130,29 @@ export const defaultConfig = Object.freeze({
     affinityScale: 0.15,
     affinityMinimum: -6,
     affinityMaximum: 9,
-    // Presence is the small factor, interaction the large one.
+    // Presence is the small factor, interaction the large one. Each co-present person
+    // contributes (affinity - tension) / presenceValueDivisor toward the bounded total.
     presenceValueBound: 2,
+    presenceValueDivisor: 200,
     interactionValueMaximum: 6,
     strangerImportance: 0.3,
     firstMeetingNovelty: 1.3,
+    // How much a person matters scales with |affinity| + tension over this divisor,
+    // clamped between strangerImportance and 1.
+    importanceDivisor: 100,
+    // How much of the planned evening you were actually there for. First matching band
+    // wins; the null band is "otherwise". Walking out after a minute is worse than not
+    // coming, staying to the end is the only positive.
+    participationBands: [
+      { belowShare: 0.10, value: -4 },
+      { belowShare: 0.40, value: -2 },
+      { belowShare: 0.75, value: 0 },
+      { belowShare: null, value: 2 },
+    ],
+    // Fill ratio mapped to a crowd feeling: round(fill x scale) - offset, then clamped
+    // to crowdBound - an empty room reads lonely, a full one reads alive.
+    crowdFillScale: 4,
+    crowdFillOffset: 2,
     // Outcomes are declared by the perceiving brain, so no server-side classifier is
     // needed and a bad exchange can lower Happiness.
     interactionOutcomes: {
@@ -279,10 +300,12 @@ export const defaultConfig = Object.freeze({
       experience_hosted: { general: 2, domain: 0 },
     },
     // The pilot's twenty-seven completions landed on three job ids: without a window the
-    // same standing post is a reputation pump. Full, then half, then nothing - the same
-    // shape appraisals already use - and the window slides, so a track record maintained
-    // over days keeps counting while a burst does not.
+    // same standing post is a reputation pump. The multipliers price each repeat of the
+    // same evidence inside the window, in order; beyond the list it pays nothing. The
+    // window slides, so a track record maintained over days keeps counting while a burst
+    // does not.
     repetitionWindowWorldDays: 2,
+    repetitionMultipliers: [1, 0.5],
   },
   relationship: {
     policyVersion: 2,
@@ -290,6 +313,9 @@ export const defaultConfig = Object.freeze({
     maximum: 100,
     tensionMinimum: 0,
     tensionMaximum: 100,
+    // A repeated positive appraisal of the same kind on the same day pays less, then
+    // nothing: affection cannot be minted by saying "appreciated" in a loop.
+    appraisalRepetitionMultipliers: [1, 0.5],
     rules: {
       greeting_appreciated: { affinity: 1, trust: 0, tension: 0, sourceType: "subjective_appraisal", category: "greeting" },
       interaction_appreciated: { affinity: 2, trust: 0, tension: 0, sourceType: "subjective_appraisal", category: "interaction" },
@@ -305,6 +331,8 @@ export const defaultConfig = Object.freeze({
   },
   relevance: {
     ruleVersion: 1,
+    // A relationship counts as strong for attention purposes at this strength.
+    strongRelationshipStrength: 60,
     weights: {
       sameLocation: 25,
       knownRelationship: 20,
@@ -379,6 +407,10 @@ export const defaultConfig = Object.freeze({
   protocol: {
     version: "1.0",
     minimumCapabilities: ["observe", "act", "events", "ack"],
+    // Content caps, not balance: how many causal events a declared decision may cite and
+    // how many traits a persona may carry.
+    maximumDecisionCauses: 12,
+    maximumPersonalityTraits: 12,
     requestBodyLimitBytes: 64 * 1024,
     rateLimitWindowMs: 60_000,
     rateLimitRequests: 120,
