@@ -336,6 +336,7 @@ function renderResidents() {
           <small>${resident.energy}</small>
         </div>
         <div class="resident-card-tags">
+          ${resident.vehicle ? `<span class="built">${escapeHtml(resident.vehicle.id)}</span>` : ""}
           ${topSkills.map(([skill, value]) => `<span>${escapeHtml(skill)} ${value}</span>`).join("")}
           ${bestDomain && bestDomain[1] > 0 ? `<span class="proven">${escapeHtml(bestDomain[0])} reputation ${round1(bestDomain[1])}</span>` : ""}
           ${owned ? `<span class="built">${plural(owned, "building")}</span>` : ""}
@@ -818,7 +819,7 @@ function renderCharacter() {
     </div>
     <div class="stats secondary">
       ${stat("Reputation", round1(character.reputation))}
-      ${stat("Score", character.score)}
+      ${stat("Vehicle", character.vehicle?.id ?? "—")}
       ${stat("Buildings", owned.length)}
     </div>
     <div class="goal-block"><span>Goal</span><p>${escapeHtml(character.goal)}</p></div>

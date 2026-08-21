@@ -415,7 +415,7 @@ test("the rules manifest states the context discipline under a new version", () 
   const manifest = world.getAgentRules(characterId);
 
   assert.notEqual(manifest.version, "agent-rules-v1", "a manifest body change ships under a new version");
-  assert.equal(manifest.version, "agent-rules-v5");
+  assert.equal(manifest.version, "agent-rules-v6");
   assert.equal(manifest.context.contractVersion, 3);
   assert.deepEqual(manifest.context.requestable,
     ["opportunities", "experiences", "plots", "buildings", "people", "courses"]);

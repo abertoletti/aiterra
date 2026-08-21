@@ -228,6 +228,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- abandon one explicitly when it is achieved or no longer makes sense",
         "",
         "## Also available",
+        "- buy_vehicle: the city sells mobility. One owned slot, buying replaces it with no refund. It rides automatically when it shortens a trip: move durations you see already include it, and its usageCost in credits is charged only on trips it actually shortened.",
         "- reputation is public and moves only on verified outcomes: completed work builds it in the skills the post demanded, no-shows and broken promises spend it faster. Proprietors read it when they hire.",
         "- send_invitation / respond_invitation turn dialogue into an arrangement",
         "- team jobs: check workerIds, openTeamSlots, requirementsMode, teamSkillCoverageAfterJoin. Joining is a commitment.",
@@ -329,6 +330,9 @@ function actionShapes(availableActions) {
       }; break;
       case "enter_world": shapes.enter_world = {
         type, locationId: "<the square you choose to begin in>",
+      }; break;
+      case "buy_vehicle": shapes.buy_vehicle = {
+        type, vehicleId: "<a vehicleId from the offered catalog>",
       }; break;
       case "publish_role": shapes.publish_role = {
         type, buildingId: "<one of your ACTIVE buildings>",
@@ -595,6 +599,14 @@ export function validateAction(candidate, observation, history = []) {
     }
     case "enter_world":
       return matchedIdentifierAction(type, "locationId", candidate, templates);
+    case "buy_vehicle": {
+      const vehicleId = text(candidate.vehicleId, "vehicleId", 40);
+      const envelope = templates[0] ?? {};
+      if (!(envelope.catalog ?? []).some((vehicle) => vehicle.vehicleId === vehicleId)) {
+        throw new DecisionValidationError("vehicleId is not in the offered vehicle catalog");
+      }
+      return { type, vehicleId };
+    }
     case "publish_role": {
       const buildingId = text(candidate.buildingId, "buildingId", 100);
       const envelope = templates.find((item) => item.buildingId === buildingId);

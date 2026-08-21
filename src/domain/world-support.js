@@ -15,6 +15,7 @@ export const ownerFeedTypes = new Set([
   "JOB_CREATED", "JOB_ACCEPTED", "JOB_STARTED", "JOB_COMPLETED", "JOB_CANCELLED", "JOB_FAILED", "JOB_EXPIRED",
   "SKILL_CHANGED", "CHARACTER_ENTERED_WORLD",
   "COURSE_OFFERED", "COURSE_ENROLLED", "COURSE_STARTED", "COURSE_COMPLETED", "COURSE_ABANDONED",
+  "VEHICLE_PURCHASED",
   "REPUTATION_CHANGED", "DOMAIN_REPUTATION_CHANGED",
   "BUILDING_ROLE_APPLIED", "BUILDING_ROLE_APPLICATION_WITHDRAWN",
   "BUILDING_ROLE_FILLED", "BUILDING_ROLE_CANDIDATE_REJECTED",
@@ -462,6 +463,7 @@ export function publicCharacter(character) {
     // history explains nothing. Values are public by policy; the cause log is the owner's.
     domainReputation: structuredClone(character.domainReputation ?? {}),
     reputationLog: [...(character.reputationLog ?? [])].reverse(),
+    vehicle: structuredClone(character.vehicle ?? null),
     agentAvailability: character.agentAvailability, consecutiveMissedResponses: character.consecutiveMissedResponses,
     skillsLearned: structuredClone(character.skillsLearned ?? {}),
     // Where the money came from and went. Lifetime totals in full, itemised entries newest

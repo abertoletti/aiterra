@@ -45,6 +45,7 @@ const visibleTypes = new Set([
   "SECONDARY_GOAL_ABANDONED",
   "SECONDARY_GOAL_EXPIRED",
   "DECISION_RECORDED",
+  "VEHICLE_PURCHASED",
   "COURSE_OFFERED",
   "COURSE_ENROLLED",
   "COURSE_STARTED",
@@ -181,6 +182,8 @@ function describe(event, name, location) {
       return `${name(data.characterId)}'s secondary goal ${data.goalId} expired.`;
     case "DECISION_RECORDED":
       return `${name(data.characterId)} decided: ${data.summary}`;
+    case "VEHICLE_PURCHASED":
+      return `${name(data.characterId)} bought a ${data.vehicleId} from the city for ${data.price} credits${data.replacedVehicleId ? `, replacing the ${data.replacedVehicleId}` : ""}.`;
     case "COURSE_OFFERED":
       return `“${data.title}” went up on the ${location(data.boardLocationId)} board for ${data.price} credits.`;
     case "COURSE_ENROLLED":

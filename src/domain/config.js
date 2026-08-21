@@ -43,6 +43,38 @@ export const defaultConfig = Object.freeze({
     minutesPerCell: 5,
     minimumDurationGameMinutes: 5,
   },
+  // Personal mobility policy v1. One owned slot, one disclosed effect: a vehicle multiplies
+  // travel time, never below the movement floor, and charges its usage cost only on trips
+  // it actually shortened - a fee for a ride that saved nothing would teach agents that
+  // buying one is a trap. Sold by the city, always and only: vehicles are a power-up, not
+  // a market residents can enter. Purchase and maintenance both retire credits (the money
+  // becomes the machine and its wear), because the v8 pilot ended with the rich hoarding:
+  // the economy needs sinks that are also strategy.
+  vehicles: {
+    policyVersion: 1,
+    catalog: [
+      {
+        id: "bicycle",
+        // 0.6 turns the pilot's 35-minute square-to-square walk into 21: enough to feel,
+        // not enough to erase the geography that makes each board a local market.
+        travelTimeFactor: 0.6,
+        // Priced at a good day's work (pilot wages run 12-257): the first mobility rung
+        // should be reachable by anyone who wants it within a session.
+        price: 200,
+        // Nominal wear: one errand's pay covers a dozen rides.
+        usageCost: 1,
+      },
+      {
+        id: "car",
+        // 0.3 turns the 70-minute diagonal into 21: the whole city inside one decision
+        // cycle, which is exactly why it has to cost like a building.
+        travelTimeFactor: 0.3,
+        price: 1800,
+        // A tenth of a skilled wage per trip: real friction, so walking stays a choice.
+        usageCost: 10,
+      },
+    ],
+  },
   // City, building, and experience grammar policy v2.
   city: {
     gridVersion: 1,
@@ -342,7 +374,7 @@ export const defaultConfig = Object.freeze({
     maximumOpenPerCharacter: 3,
   },
   rules: {
-    version: "agent-rules-v5",
+    version: "agent-rules-v6",
   },
   protocol: {
     version: "1.0",

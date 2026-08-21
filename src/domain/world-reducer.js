@@ -76,6 +76,8 @@ export function applyEvent(state, event) {
         // AIT-1202: a track record starts empty. Nothing at creation may assign one -
         // contextual fame emerges from history rather than from an operator's pen.
         domainReputation: {}, reputationLog: [],
+        // Everyone arrives on foot; mobility is bought, never granted.
+        vehicle: null,
         agentAvailability: "available", consecutiveMissedResponses: 0,
         skillsLearned: {},
         // A ledger that starts at the first transaction cannot explain the balance, so the
@@ -127,11 +129,28 @@ export function applyEvent(state, event) {
       state.characters.get(data.characterId).energy = data.value;
       break;
     case "MOVEMENT_STARTED":
+      // Maintenance is owed only when the vehicle actually shortened this trip, and like
+      // construction and upkeep it pays nobody: the credits become wear on the machine.
+      if (data.vehicleUsageCost > 0) {
+        moveCredits(state, event, data.characterId, -data.vehicleUsageCost, "vehicle_maintenance", { vehicleId: data.vehicleId });
+        state.creditsRetired += data.vehicleUsageCost;
+      }
       state.characters.get(data.characterId).activity = {
         type: "moving", destinationId: data.destinationId, startedAt: data.startedAt,
         expectedEndAt: data.expectedEndAt, startedByEventId: event.id,
       };
       break;
+    case "VEHICLE_PURCHASED": {
+      // The purchase price leaves the world the way construction does: the money becomes
+      // the machine. Replacing what you own is disclosed as refundless before the buy.
+      moveCredits(state, event, data.characterId, -data.price, "vehicle_bought", { vehicleId: data.vehicleId });
+      state.creditsRetired += data.price;
+      state.characters.get(data.characterId).vehicle = {
+        id: data.vehicleId, travelTimeFactor: data.travelTimeFactor,
+        usageCost: data.usageCost, purchasedAt: event.worldTime,
+      };
+      break;
+    }
     case "CHARACTER_ARRIVED": {
       const character = state.characters.get(data.characterId);
       character.locationId = data.locationId;
