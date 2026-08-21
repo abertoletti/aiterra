@@ -598,6 +598,29 @@ select { width: 100%; padding: 13px 36px 13px 14px; border: 1px solid var(--line
   word-break: break-word;
 }
 
+/* One entry per action: the command's name, what it does, then its parameters. */
+.action-entry { padding: 8px 0 2px; border-top: 1px solid var(--line); }
+.action-entry:first-of-type { border-top: none; padding-top: 2px; }
+.action-entry h4 { margin: 0 0 3px; }
+.action-entry h4 code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  color: var(--green);
+}
+.action-entry > p { margin: 0 0 6px; font-size: 11.5px; line-height: 1.5; color: var(--ink); }
+
+.param-required {
+  margin-left: 7px;
+  font-style: normal;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.param-required.yes { color: var(--coral); }
+.param-required.cond { color: var(--amber); }
+
 /* The health page still reads as a table: rows of the same measurement. */
 .residents-table { overflow-x: auto; margin-top: 4px; }
 .residents-table table { border-collapse: collapse; width: 100%; font-size: 12px; }

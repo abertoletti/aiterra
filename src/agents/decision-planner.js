@@ -228,7 +228,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- abandon one explicitly when it is achieved or no longer makes sense",
         "",
         "## Also available",
-        "- buy_vehicle: the city sells mobility. One owned slot, buying replaces it with no refund. It rides automatically when it shortens a trip: move durations you see already include it, and its usageCost in credits is charged only on trips it actually shortened.",
+        "- buy_vehicle: the city sells mobility into your garage - you may own one of each. Every move is on foot unless you put a vehicleId on it; each move's travelOptions state minutes and usageCost for every way you could go, and the wear is charged whenever you ride. Pick per trip: credits against time is your arithmetic.",
         "- reputation is public and moves only on verified outcomes: completed work builds it in the skills the post demanded, no-shows and broken promises spend it faster. Proprietors read it when they hire.",
         "- send_invitation / respond_invitation turn dialogue into an arrangement",
         "- team jobs: check workerIds, openTeamSlots, requirementsMode, teamSkillCoverageAfterJoin. Joining is a commitment.",
@@ -318,7 +318,10 @@ function actionShapes(availableActions) {
   const shapes = {};
   for (const type of types) {
     switch (type) {
-      case "move": shapes.move = { type: "move", destinationId: "<an offered destinationId>" }; break;
+      case "move": shapes.move = {
+        type: "move", destinationId: "<an offered destinationId>",
+        vehicleId: "<optional: a vehicleId from that destination's travelOptions; omit to walk>",
+      }; break;
       case "construct_building": shapes.construct_building = {
         type,
         x: "<x, 1..gridWidth, a cell not in takenCells>", y: "<y, 1..gridHeight>",
@@ -455,8 +458,18 @@ export function validateAction(candidate, observation, history = []) {
   if (templates.length === 0) throw new DecisionValidationError(`Action ${type} is not currently available`);
 
   switch (type) {
-    case "move":
-      return matchedIdentifierAction(type, "destinationId", candidate, templates);
+    case "move": {
+      const action = matchedIdentifierAction(type, "destinationId", candidate, templates);
+      if (candidate.vehicleId === undefined || candidate.vehicleId === null) return action;
+      // A named ride must be one the destination's own options offered: the garage is the
+      // server's record, not the model's claim.
+      const vehicleId = text(candidate.vehicleId, "vehicleId", 40);
+      const template = templates.find((item) => item.destinationId === action.destinationId);
+      if (!(template.travelOptions ?? []).some((option) => option.vehicleId === vehicleId)) {
+        throw new DecisionValidationError("vehicleId is not one of that destination's travelOptions");
+      }
+      return { ...action, vehicleId };
+    }
     case "start_conversation": {
       const action = matchedIdentifierAction(type, "targetCharacterId", candidate, templates);
       return { ...action, openingMessage: text(candidate.openingMessage, "openingMessage", MAX_MESSAGE_CHARACTERS) };

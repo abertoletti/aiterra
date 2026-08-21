@@ -33,10 +33,12 @@ const healthSummary = document.querySelector("#health-summary");
 const healthBadge = document.querySelector("#health-badge");
 const parameterGroups = document.querySelector("#parameter-groups");
 const parametersMeta = document.querySelector("#parameters-meta");
+const actionGroups = document.querySelector("#action-groups");
+const actionsMeta = document.querySelector("#actions-meta");
 
 // Pages rather than one long scroll. The hash carries the page so a reload, or a link
 // sent to someone else, lands where it was.
-const pages = ["overview", "residents", "city", "economy", "parameters", "health"];
+const pages = ["overview", "residents", "city", "economy", "parameters", "actions", "health"];
 
 function showPage(name) {
   const page = pages.includes(name) ? name : "overview";
@@ -147,7 +149,36 @@ function renderWorldOverview() {
   renderResidents();
   renderCity();
   renderParameters();
+  renderActions();
   renderHealth();
+}
+
+// Everything an agent can submit, with its parameters, grouped as the server declares it.
+// Rendered generically from the shipped catalog - the same one a test pins against the
+// real dispatch - so a new action appears here without anyone remembering the observer.
+function renderActions() {
+  const groups = state.world.agentActions;
+  if (!groups) {
+    actionsMeta.textContent = "not shipped by this server";
+    actionGroups.innerHTML = `<p class="empty-note">This server predates the action catalog; restart it to see what agents can do.</p>`;
+    return;
+  }
+  const total = groups.reduce((count, group) => count + group.actions.length, 0);
+  actionsMeta.textContent = `${total} actions in ${groups.length} groups · read-only`;
+  actionGroups.innerHTML = groups.map((group) => `
+    <article class="parameter-group">
+      <h3>${escapeHtml(group.group)}</h3>
+      ${group.actions.map((action) => `
+        <div class="action-entry">
+          <h4><code>${escapeHtml(action.name)}</code></h4>
+          <p>${escapeHtml(action.summary)}</p>
+          ${action.parameters.length ? `<dl class="parameter-list">${action.parameters.map((parameter) => `
+            <div class="parameter-row">
+              <dt>${escapeHtml(parameter.name)}<i class="param-required ${parameter.required === true ? "yes" : parameter.required === "conditional" ? "cond" : ""}">${parameter.required === true ? "required" : parameter.required === "conditional" ? "conditional" : "optional"}</i></dt>
+              <dd>${escapeHtml(parameter.description)}</dd>
+            </div>`).join("")}</dl>` : `<p class="empty-note">No parameters.</p>`}
+        </div>`).join("")}
+    </article>`).join("");
 }
 
 // The whole tuning surface, read-only, grouped by domain exactly as the server declares
@@ -385,7 +416,7 @@ function renderResidents() {
           <small>${resident.energy}</small>
         </div>
         <div class="resident-card-tags">
-          ${resident.vehicle ? `<span class="built">${escapeHtml(resident.vehicle.id)}</span>` : ""}
+          ${(resident.garage ?? []).map((vehicle) => `<span class="built">${escapeHtml(vehicle.id)}</span>`).join("")}
           ${topSkills.map(([skill, value]) => `<span>${escapeHtml(skill)} ${value}</span>`).join("")}
           ${bestDomain && bestDomain[1] > 0 ? `<span class="proven">${escapeHtml(bestDomain[0])} reputation ${round1(bestDomain[1])}</span>` : ""}
           ${owned ? `<span class="built">${plural(owned, "building")}</span>` : ""}
@@ -868,7 +899,7 @@ function renderCharacter() {
     </div>
     <div class="stats secondary">
       ${stat("Reputation", round1(character.reputation))}
-      ${stat("Vehicle", character.vehicle?.id ?? "—")}
+      ${stat("Garage", (character.garage ?? []).map((vehicle) => vehicle.id).join(", ") || "—")}
       ${stat("Buildings", owned.length)}
     </div>
     <div class="goal-block"><span>Goal</span><p>${escapeHtml(character.goal)}</p></div>

@@ -26,6 +26,7 @@
       <button class="tab" role="tab" data-page="city" aria-selected="false">City</button>
       <button class="tab" role="tab" data-page="economy" aria-selected="false">Economy</button>
       <button class="tab" role="tab" data-page="parameters" aria-selected="false">Parameters</button>
+      <button class="tab" role="tab" data-page="actions" aria-selected="false">Actions</button>
       <button class="tab" role="tab" data-page="health" aria-selected="false">Health<span class="tab-badge" id="health-badge"></span></button>
     </nav>
 
@@ -175,6 +176,19 @@
             <span class="section-meta" id="parameters-meta"></span>
           </div>
           <div class="parameter-groups" id="parameter-groups"></div>
+        </section>
+      </section>
+
+      <!-- ACTIONS: everything an agent can submit, with its parameters — the same catalog
+           a test pins against the server's real dispatch. -->
+      <section class="page" id="page-actions" aria-label="Agent actions" hidden>
+        <section class="overview-panel">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">What an agent can do</p><h2>Actions</h2></div>
+            <span class="section-meta" id="actions-meta"></span>
+          </div>
+          <p class="standings-note">Every submission also carries the protocol envelope: an expectedStateVersion (refused as stale when the character's world has moved) and an Idempotency-Key (a retry returns the original result instead of acting twice). The per-moment menu of what a character can do right now lives in its own observation, never here.</p>
+          <div class="parameter-groups" id="action-groups"></div>
         </section>
       </section>
 

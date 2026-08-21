@@ -25,11 +25,11 @@ test("the observer is paged, and every tab has a page to show", () => {
   // One long scroll made the map, the job board and one resident's life compete for the
   // same attention. Each page now answers a single question.
   const tabs = [...html.matchAll(/data-page="([a-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(tabs, ["overview", "residents", "city", "economy", "parameters", "health"]);
+  assert.deepEqual(tabs, ["overview", "residents", "city", "economy", "parameters", "actions", "health"]);
   for (const page of tabs) {
     assert.match(html, new RegExp(`id="page-${page}"`), `missing the ${page} page`);
   }
-  assert.match(script, /const pages = \["overview", "residents", "city", "economy", "parameters", "health"\]/,
+  assert.match(script, /const pages = \["overview", "residents", "city", "economy", "parameters", "actions", "health"\]/,
     "the router and the tab bar must agree on the page list");
   // The parameters page renders whatever config the server declares, so a new knob shows
   // up without anyone remembering to add it to the observer.
@@ -44,6 +44,39 @@ test("the observer is paged, and every tab has a page to show", () => {
   assert.ok(residentSection > worldSection);
   assert.ok(residentTitle > residentSection);
   assert.ok(picker > residentTitle, "the resident picker should sit beside the selected-resident heading");
+});
+
+test("the action catalog describes exactly the world that is running", async () => {
+  // The Actions page renders this catalog, so if it drifts from the real dispatch the
+  // observer documents a world that does not exist. The dispatch is the switch in
+  // executeAgentAction; its case labels are the truth the catalog must match.
+  const { AGENT_ACTIONS } = await import("../src/domain/agent-actions.js");
+  const worldSource = readFileSync(new URL("../src/domain/world.js", import.meta.url), "utf8");
+  const dispatch = worldSource.slice(
+    worldSource.indexOf("executeAgentAction(characterId"),
+    worldSource.indexOf("advanceTo(targetTime"),
+  );
+  const dispatched = [...dispatch.matchAll(/case "([a-z_]+)":/g)].map((match) => match[1]).sort();
+  assert.ok(dispatched.length > 20, "the dispatch slice must actually contain the action switch");
+
+  const catalogued = AGENT_ACTIONS.flatMap((group) => group.actions.map((action) => action.name)).sort();
+  assert.deepEqual(catalogued, dispatched,
+    "every dispatched action is catalogued and every catalogued action is dispatched");
+
+  for (const group of AGENT_ACTIONS) {
+    for (const action of group.actions) {
+      assert.ok(action.summary.length > 0, `${action.name} says what it does`);
+      for (const parameter of action.parameters) {
+        assert.ok([true, false, "conditional"].includes(parameter.required),
+          `${action.name}.${parameter.name} states whether it is required`);
+        assert.ok(parameter.description.length > 0, `${action.name}.${parameter.name} is described`);
+      }
+    }
+  }
+
+  // And the observer renders the shipped catalog, never a copy of its own.
+  const script = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(script, /state\.world\.agentActions/, "the page reads the server's catalog");
 });
 
 test("the health page exists, because a run once stalled in silence", () => {

@@ -183,7 +183,7 @@ function describe(event, name, location) {
     case "DECISION_RECORDED":
       return `${name(data.characterId)} decided: ${data.summary}`;
     case "VEHICLE_PURCHASED":
-      return `${name(data.characterId)} bought a ${data.vehicleId} from the city for ${data.price} credits${data.replacedVehicleId ? `, replacing the ${data.replacedVehicleId}` : ""}.`;
+      return `${name(data.characterId)} bought a ${data.vehicleId} from the city for ${data.price} credits.`;
     case "COURSE_OFFERED":
       return `“${data.title}” went up on the ${location(data.boardLocationId)} board for ${data.price} credits.`;
     case "COURSE_ENROLLED":

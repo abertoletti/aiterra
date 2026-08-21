@@ -46,13 +46,14 @@ export const defaultConfig = Object.freeze({
     minutesPerCell: 5,
     minimumDurationGameMinutes: 5,
   },
-  // Personal mobility policy v1. One owned slot, one disclosed effect: a vehicle multiplies
-  // travel time, never below the movement floor, and charges its usage cost only on trips
-  // it actually shortened - a fee for a ride that saved nothing would teach agents that
-  // buying one is a trap. Sold by the city, always and only: vehicles are a power-up, not
-  // a market residents can enter. Purchase and maintenance both retire credits (the money
-  // becomes the machine and its wear), because the v8 pilot ended with the rich hoarding:
-  // the economy needs sinks that are also strategy.
+  // Personal mobility policy v1. A garage, not a slot: a resident may own every catalog
+  // entry and chooses per trip how to travel - the move action takes a vehicleId, omitted
+  // means on foot. One disclosed effect per vehicle: it multiplies travel time, never below
+  // the movement floor, and its usage cost is charged whenever it is ridden - the choice is
+  // the rider's, made against options whose minutes and wear are both stated up front.
+  // Sold by the city, always and only: vehicles are a power-up, not a market residents can
+  // enter. Purchase and wear both retire credits (the money becomes the machine), because
+  // the v8 pilot ended with the rich hoarding: the economy needs sinks that are strategy.
   vehicles: {
     policyVersion: 1,
     catalog: [

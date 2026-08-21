@@ -466,7 +466,7 @@ export function publicCharacter(character) {
     // history explains nothing. Values are public by policy; the cause log is the owner's.
     domainReputation: structuredClone(character.domainReputation ?? {}),
     reputationLog: [...(character.reputationLog ?? [])].reverse(),
-    vehicle: structuredClone(character.vehicle ?? null),
+    garage: structuredClone(character.garage ?? []),
     agentAvailability: character.agentAvailability, consecutiveMissedResponses: character.consecutiveMissedResponses,
     skillsLearned: structuredClone(character.skillsLearned ?? {}),
     // Where the money came from and went. Lifetime totals in full, itemised entries newest

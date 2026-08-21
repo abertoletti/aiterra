@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { addGameMinutes } from "./clock.js";
 import { buildTimeline } from "./timeline.js";
 import { applyEvent } from "./world-reducer.js";
+import { AGENT_ACTIONS } from "./agent-actions.js";
 import * as ownerProjection from "./world-owner.js";
 import {
   CONTEXT_CONTRACT_VERSION, CONTEXT_MODES, CONTEXT_RESOURCES, contextSummaries, inspectCatalog,
@@ -874,7 +875,7 @@ export class World {
     return arrived;
   }
 
-  startMove(characterId, destinationId) {
+  startMove(characterId, destinationId, { vehicleId = null } = {}) {
     const character = this.requireCharacter(characterId);
     // You cannot walk somewhere from nowhere. A resident who has not chosen a square has to
     // enter the world before it can cross it.
@@ -890,10 +891,18 @@ export class World {
     }
     this.requireEnergy(character, this.config.energy.movementCost);
 
-    const plan = this.travelPlanBetween(character, character.locationId, destinationId);
-    if (plan === null) throw invalid("UNREACHABLE_DESTINATION", "Destination is not reachable from the current location");
+    const options = this.travelOptionsBetween(character, character.locationId, destinationId);
+    if (options === null) throw invalid("UNREACHABLE_DESTINATION", "Destination is not reachable from the current location");
+    // How to travel is the rider's call, per trip: on foot unless a garage vehicle is
+    // named. A named ride must be owned and its wear payable - both were stated on the
+    // affordance, so this refusal can only confirm what was already disclosed.
+    const chosen = vehicleId === null || vehicleId === undefined
+      ? options[0]
+      : options.find((option) => option.vehicleId === vehicleId);
+    if (!chosen) throw invalid("VEHICLE_NOT_OWNED", `${vehicleId} is not in this character's garage`);
+    if (!chosen.affordable) throw invalid("INSUFFICIENT_CREDITS", `Riding the ${vehicleId} costs ${chosen.usageCost} credits of wear`);
     const energyEvent = this.changeEnergy(characterId, -this.config.energy.movementCost, "movement");
-    const expectedEndAt = addGameMinutes(this.clock.now(), plan.minutes).toISOString();
+    const expectedEndAt = addGameMinutes(this.clock.now(), chosen.minutes).toISOString();
     const movement = this.record("MOVEMENT_STARTED", {
       actorCharacterId: characterId,
       causedByEventIds: [energyEvent.id],
@@ -901,10 +910,10 @@ export class World {
         characterId,
         fromLocationId: character.locationId,
         destinationId,
-        durationGameMinutes: plan.minutes,
-        // The ride and its wear, when the vehicle actually carried this trip.
-        ...(plan.vehicleId ? {
-          vehicleId: plan.vehicleId, vehicleUsageCost: plan.usageCost, walkMinutes: plan.walkMinutes,
+        durationGameMinutes: chosen.minutes,
+        // The chosen ride and its wear.
+        ...(chosen.vehicleId ? {
+          vehicleId: chosen.vehicleId, vehicleUsageCost: chosen.usageCost, walkMinutes: options[0].minutes,
         } : {}),
         startedAt: this.clock.now().toISOString(),
         expectedEndAt,
@@ -2989,8 +2998,11 @@ export class World {
     let result;
     switch (action.type) {
       case "move": {
-        const event = this.startMove(characterId, action.destinationId);
-        result = this.actionResult(characterId, event, { expectedEndAt: event.data.expectedEndAt });
+        const event = this.startMove(characterId, action.destinationId, { vehicleId: action.vehicleId ?? null });
+        result = this.actionResult(characterId, event, {
+          expectedEndAt: event.data.expectedEndAt,
+          ...(event.data.vehicleId ? { vehicleId: event.data.vehicleId, vehicleUsageCost: event.data.vehicleUsageCost } : {}),
+        });
         break;
       }
       case "start_conversation": {
@@ -3660,7 +3672,7 @@ export class World {
         openCourses: [...this.state.courses.values()].filter((course) => course.status === "open"
           && course.boardLocationId === location.id).length,
         travelMinutes: location.id === character.locationId
-          ? 0 : this.travelPlanBetween(character, character.locationId, location.id)?.minutes ?? null,
+          ? 0 : this.fastestTravelMinutes(character, character.locationId, location.id),
         here: location.id === character.locationId,
       }))
       .sort((left, right) => left.travelMinutes - right.travelMinutes);
@@ -3843,7 +3855,7 @@ export class World {
           vehicleId: vehicle.id, price: vehicle.price,
           travelTimeFactor: vehicle.travelTimeFactor, usageCost: vehicle.usageCost,
         })),
-        instruction: "Vehicles are sold by the city only. You own at most one; buying replaces it with no refund. It rides automatically whenever it would shorten a trip: move durations you see already include it, and its disclosed usageCost in credits is charged only on trips it shortened. Below the minimum travel time you simply walk, free.",
+        instruction: "Vehicles are sold by the city only, into your garage: you may own one of each. Every move is on foot unless you name a vehicleId on the action; each move's travelOptions state the minutes and the usageCost of every way you could travel, and the wear is charged in credits whenever you ride. Which trip deserves which vehicle is your call.",
       },
       reputation: {
         policyVersion: this.config.reputation.policyVersion,
@@ -4238,6 +4250,10 @@ export class World {
       // The whole tuning surface, verbatim: finding the balance is a matter of playing
       // with parameters, and an operator cannot play with numbers it cannot see.
       parameters: structuredClone(this.config),
+      // Every action an agent can submit, with its parameters - the catalog a test pins
+      // against the real dispatch, so the observer can never describe a world that is not
+      // the one running.
+      agentActions: structuredClone(AGENT_ACTIONS),
       worldConfigurationVersion: this.state.activeWorldConfigurationVersion,
     };
   }
@@ -4383,15 +4399,15 @@ export class World {
         // shut door, and an affordance that said otherwise would strand exactly the people
         // the venue is waiting for.
         const shut = doors.isVenue && !doors.open && !this.mayEnterClosedVenue(character.id, location.id, doors);
-        const plan = this.travelPlanBetween(character, character.locationId, location.id);
+        const travelOptions = this.travelOptionsBetween(character, character.locationId, location.id);
         actions.push({
           type: "move", destinationId: location.id, name: location.name,
           energyCost: this.config.energy.movementCost,
-          // The duration this traveller will actually pay: the ride is already in it, and
-          // its wear is stated beside it rather than discovered on the wallet.
-          durationGameMinutes: plan.minutes,
-          ...(plan.vehicleId ? { rides: plan.vehicleId, vehicleUsageCost: plan.usageCost, walkMinutes: plan.walkMinutes } : {}),
-          ...(plan.vehicleBlockedBy ? { vehicleBlockedBy: plan.vehicleBlockedBy } : {}),
+          // On foot unless the action names a vehicleId; every way this traveller could
+          // make the trip is priced here, minutes and wear both, so the choice between
+          // credits and time is made on stated numbers.
+          durationGameMinutes: travelOptions[0].minutes,
+          ...(travelOptions.length > 1 ? { travelOptions } : {}),
           // A shut venue stays on the list with its next opening, because knowing when a
           // place opens is exactly what a resident needs in order to plan to be there.
           ...(doors.isVenue ? { opensAt: doors.opensAt, nextEventId: doors.eventId, nextEventTitle: doors.title } : {}),
@@ -4450,22 +4466,24 @@ export class World {
       {
         // The city's vehicle counter: the whole catalog with every term - price, factor,
         // wear - because a power-up chosen blind is a refusal waiting to happen. Sold by
-        // the city only; owning one replaces the last, refundless, and that is said here.
+        // the city only. The garage holds one of each; a full garage closes the counter.
+        const owned = new Set((character.garage ?? []).map((vehicle) => vehicle.id));
         const buyable = this.config.vehicles.catalog
-          .filter((vehicle) => vehicle.id !== character.vehicle?.id);
-        actions.push({
-          type: "buy_vehicle",
-          owned: character.vehicle ? structuredClone(character.vehicle) : null,
-          replacesOwnedWithoutRefund: true,
-          catalog: buyable.map((vehicle) => ({
-            vehicleId: vehicle.id, price: vehicle.price,
-            travelTimeFactor: vehicle.travelTimeFactor, usageCost: vehicle.usageCost,
-          })),
-          credits: character.credits,
-          feasibility: buyable.some((vehicle) => vehicle.price <= character.credits)
-            ? { status: "eligible", eligible: true, blockingCode: null, blockingCodes: [] }
-            : { status: "blocked", eligible: false, blockingCode: "INSUFFICIENT_CREDITS", blockingCodes: ["INSUFFICIENT_CREDITS"] },
-        });
+          .filter((vehicle) => !owned.has(vehicle.id));
+        if (buyable.length > 0) {
+          actions.push({
+            type: "buy_vehicle",
+            garage: structuredClone(character.garage ?? []),
+            catalog: buyable.map((vehicle) => ({
+              vehicleId: vehicle.id, price: vehicle.price,
+              travelTimeFactor: vehicle.travelTimeFactor, usageCost: vehicle.usageCost,
+            })),
+            credits: character.credits,
+            feasibility: buyable.some((vehicle) => vehicle.price <= character.credits)
+              ? { status: "eligible", eligible: true, blockingCode: null, blockingCodes: [] }
+              : { status: "blocked", eligible: false, blockingCode: "INSUFFICIENT_CREDITS", blockingCodes: ["INSUFFICIENT_CREDITS"] },
+          });
+        }
       }
       const myBuildings = [...this.state.buildings.values()]
         .filter((building) => building.proprietorId === character.id);
@@ -4955,43 +4973,51 @@ export class World {
     };
   }
 
-  // What this trip costs THIS traveller, resolved in one place so the affordance, the
-  // boards, and the move command cannot disagree. A vehicle rides automatically when it
-  // would actually shorten the trip and its owner can pay the wear; otherwise the trip is
-  // a walk - riding to no effect, or into debt, is not a choice worth offering.
-  travelPlanBetween(character, fromLocationId, toLocationId) {
+  // Every way THIS traveller can make this trip, priced in one place so the affordance,
+  // the boards, and the move command cannot disagree. Walking always comes first; each
+  // vehicle in the garage follows with its floored minutes and the wear its ride would
+  // charge. The choice is the rider's, per trip: the server states options, never picks.
+  travelOptionsBetween(character, fromLocationId, toLocationId) {
     const walkMinutes = this.travelDurationBetween(fromLocationId, toLocationId);
     if (walkMinutes === null) return null;
-    const vehicle = character.vehicle ?? null;
-    if (!vehicle) return { minutes: walkMinutes, walkMinutes, vehicleId: null, usageCost: 0 };
-    const rideMinutes = Math.max(this.config.movement.minimumDurationGameMinutes,
-      Math.round(walkMinutes * vehicle.travelTimeFactor));
-    if (rideMinutes >= walkMinutes) return { minutes: walkMinutes, walkMinutes, vehicleId: null, usageCost: 0 };
-    if (character.credits < vehicle.usageCost) {
-      return {
-        minutes: walkMinutes, walkMinutes, vehicleId: null, usageCost: 0,
-        // Stated, not silent: the ride exists and only the wear money is missing.
-        vehicleBlockedBy: "INSUFFICIENT_CREDITS",
-      };
+    const options = [{ vehicleId: null, minutes: walkMinutes, usageCost: 0, affordable: true }];
+    for (const vehicle of character.garage ?? []) {
+      options.push({
+        vehicleId: vehicle.id,
+        minutes: Math.max(this.config.movement.minimumDurationGameMinutes,
+          Math.round(walkMinutes * vehicle.travelTimeFactor)),
+        usageCost: vehicle.usageCost,
+        affordable: character.credits >= vehicle.usageCost,
+      });
     }
-    return { minutes: rideMinutes, walkMinutes, vehicleId: vehicle.id, usageCost: vehicle.usageCost };
+    return options;
+  }
+
+  // The single planning number the boards carry: the fastest trip this traveller could
+  // actually afford right now. A fact, not a recommendation - the full option list sits
+  // on the move affordance, where the choice is made.
+  fastestTravelMinutes(character, fromLocationId, toLocationId) {
+    const options = this.travelOptionsBetween(character, fromLocationId, toLocationId);
+    if (options === null) return null;
+    return Math.min(...options.filter((option) => option.affordable).map((option) => option.minutes));
   }
 
   // Vehicles are sold by the city, always and only: a power-up from a versioned catalog,
-  // never a market residents can enter. One owned slot - buying replaces what you own,
-  // with no refund, and that is disclosed on the affordance before a credit moves.
+  // never a market residents can enter. The garage holds one of each at most; owning a
+  // bicycle and a car is the point, because which one a trip deserves is a decision.
   buyVehicle(characterId, vehicleId) {
     const character = this.requireCharacter(characterId);
     const vehicle = this.config.vehicles.catalog.find((entry) => entry.id === vehicleId);
     if (!vehicle) throw invalid("UNKNOWN_VEHICLE", `${vehicleId} is not in the version-${this.config.vehicles.policyVersion} vehicle catalog`);
-    if (character.vehicle?.id === vehicleId) throw conflict("VEHICLE_ALREADY_OWNED", `Character already owns a ${vehicleId}`);
+    if ((character.garage ?? []).some((owned) => owned.id === vehicleId)) {
+      throw conflict("VEHICLE_ALREADY_OWNED", `Character already owns a ${vehicleId}`);
+    }
     if (character.credits < vehicle.price) throw invalid("INSUFFICIENT_CREDITS", `A ${vehicleId} costs ${vehicle.price} credits`);
     return this.record("VEHICLE_PURCHASED", {
       actorCharacterId: characterId,
       data: {
         characterId, vehicleId, price: vehicle.price,
         travelTimeFactor: vehicle.travelTimeFactor, usageCost: vehicle.usageCost,
-        replacedVehicleId: character.vehicle?.id ?? null,
         vehiclePolicyVersion: this.config.vehicles.policyVersion,
       },
     });
@@ -5024,7 +5050,7 @@ export class World {
       .map((gathering) => {
         const travelMinutes = gathering.locationId === character.locationId
           ? 0
-          : this.travelPlanBetween(character, character.locationId, gathering.locationId)?.minutes ?? null;
+          : this.fastestTravelMinutes(character, character.locationId, gathering.locationId);
         const building = gathering.buildingId ? this.state.buildings.get(gathering.buildingId) : null;
         return {
           repetition: this.repetitionOutlook(character.id, gathering),

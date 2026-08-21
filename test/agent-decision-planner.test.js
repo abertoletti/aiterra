@@ -319,6 +319,13 @@ test("hiring and course actions validate against their offered envelopes, never 
       },
       { type: "enroll_course", courseId: "course-1" },
       { type: "apply_for_role", jobId: "role-2" },
+      {
+        type: "move", destinationId: "workshop", durationGameMinutes: 35,
+        travelOptions: [
+          { vehicleId: null, minutes: 35, usageCost: 0, affordable: true },
+          { vehicleId: "bicycle", minutes: 21, usageCost: 1, affordable: true },
+        ],
+      },
     ],
   });
 
@@ -333,6 +340,18 @@ test("hiring and course actions validate against their offered envelopes, never 
     validateAction({ type: "apply_for_role", jobId: "role-2" }, current),
     { type: "apply_for_role", jobId: "role-2" },
   );
+  // How to travel is a parameter of the move: omitted walks, a named ride must be one of
+  // that destination's own travelOptions.
+  assert.deepEqual(
+    validateAction({ type: "move", destinationId: "workshop" }, current),
+    { type: "move", destinationId: "workshop" },
+  );
+  assert.deepEqual(
+    validateAction({ type: "move", destinationId: "workshop", vehicleId: "bicycle" }, current),
+    { type: "move", destinationId: "workshop", vehicleId: "bicycle" },
+  );
+  assert.throws(() => validateAction({ type: "move", destinationId: "workshop", vehicleId: "car" }, current),
+    (error) => error instanceof DecisionValidationError, "a ride the garage does not offer is refused");
   assert.deepEqual(
     validateAction({ type: "enroll_course", courseId: "course-1" }, current),
     { type: "enroll_course", courseId: "course-1" },
