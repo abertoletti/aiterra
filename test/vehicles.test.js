@@ -124,17 +124,22 @@ test("a ride must be owned and its wear payable, and both facts were stated firs
   assert.equal(world.startMove("bo", "east").data.vehicleId, undefined, "walking remains open");
 });
 
-test("the boards plan on the fastest affordable trip, a fact rather than a recommendation", () => {
-  const { world, config } = vehicleWorld();
+test("the boards state on-foot distances, unchanged by what the garage holds", () => {
+  // "Fastest affordable" was tried and dropped: it hid the wear inside the number, it
+  // disagreed with what a vehicle-less move actually does, and it moved whenever a wallet
+  // did. The board states the one complete, default-matching fact; what a garage does to
+  // it is the rider's own arithmetic, and the exact options sit on the move affordance.
+  const { world } = vehicleWorld();
   const onFoot = world.getObservation("ada").jobBoards
     .find((board) => board.locationId === "east").travelMinutes;
   world.buyVehicle("ada", "car");
   const withCar = world.getObservation("ada").jobBoards
     .find((board) => board.locationId === "east").travelMinutes;
-  assert.equal(withCar,
-    Math.max(config.movement.minimumDurationGameMinutes,
-      Math.round(onFoot * catalogEntry(config, "car").travelTimeFactor)),
-    "distance on the boards is what this traveller could actually achieve");
+  assert.equal(withCar, onFoot, "the board's distance embeds no vehicle and no judgement");
+  assert.ok(world.getObservation("ada").availableActions
+    .find((action) => action.type === "move" && action.destinationId === "east")
+    .travelOptions.some((option) => option.vehicleId === "car"),
+  "while the move itself prices every way to go");
 });
 
 test("purchases and wear leave the world as retired credits, and the books still balance", () => {

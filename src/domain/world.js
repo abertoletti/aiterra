@@ -3672,7 +3672,11 @@ export class World {
         openCourses: [...this.state.courses.values()].filter((course) => course.status === "open"
           && course.boardLocationId === location.id).length,
         travelMinutes: location.id === character.locationId
-          ? 0 : this.fastestTravelMinutes(character, character.locationId, location.id),
+          // On foot: the one distance that is complete (no undisclosed wear inside it),
+          // matches what a vehicle-less move does, and holds still while a wallet moves.
+          // What a garage does to it is the rider's own arithmetic, and the exact options
+          // sit on the move affordance where the choice is made.
+          ? 0 : this.travelDurationBetween(character.locationId, location.id),
         here: location.id === character.locationId,
       }))
       .sort((left, right) => left.travelMinutes - right.travelMinutes);
@@ -3855,7 +3859,7 @@ export class World {
           vehicleId: vehicle.id, price: vehicle.price,
           travelTimeFactor: vehicle.travelTimeFactor, usageCost: vehicle.usageCost,
         })),
-        instruction: "Vehicles are sold by the city only, into your garage: you may own one of each. Every move is on foot unless you name a vehicleId on the action; each move's travelOptions state the minutes and the usageCost of every way you could travel, and the wear is charged in credits whenever you ride. Which trip deserves which vehicle is your call.",
+        instruction: "Vehicles are sold by the city only, into your garage: you may own one of each. Every move is on foot unless you name a vehicleId on the action; each move's travelOptions state the minutes and the usageCost of every way you could travel, and the wear is charged in credits whenever you ride. Boards and cityTonight state on-foot distances; what your garage does to them is your own arithmetic. Which trip deserves which vehicle is your call.",
       },
       reputation: {
         policyVersion: this.config.reputation.policyVersion,
@@ -4993,15 +4997,6 @@ export class World {
     return options;
   }
 
-  // The single planning number the boards carry: the fastest trip this traveller could
-  // actually afford right now. A fact, not a recommendation - the full option list sits
-  // on the move affordance, where the choice is made.
-  fastestTravelMinutes(character, fromLocationId, toLocationId) {
-    const options = this.travelOptionsBetween(character, fromLocationId, toLocationId);
-    if (options === null) return null;
-    return Math.min(...options.filter((option) => option.affordable).map((option) => option.minutes));
-  }
-
   // Vehicles are sold by the city, always and only: a power-up from a versioned catalog,
   // never a market residents can enter. The garage holds one of each at most; owning a
   // bicycle and a car is the point, because which one a trip deserves is a decision.
@@ -5050,7 +5045,8 @@ export class World {
       .map((gathering) => {
         const travelMinutes = gathering.locationId === character.locationId
           ? 0
-          : this.fastestTravelMinutes(character, character.locationId, gathering.locationId);
+          // On foot, for the same reasons jobBoards states it on foot.
+          : this.travelDurationBetween(character.locationId, gathering.locationId);
         const building = gathering.buildingId ? this.state.buildings.get(gathering.buildingId) : null;
         return {
           repetition: this.repetitionOutlook(character.id, gathering),
