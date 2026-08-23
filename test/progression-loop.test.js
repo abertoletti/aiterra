@@ -74,7 +74,7 @@ test("the whole loop: a resident teaches, a student pays the building, the build
   const conserved = (what) => {
     const { overview } = world.getPublicState();
     const supply = overview.moneySupply + overview.systemBudgetBalance;
-    const held = overview.characterCredits + overview.buildingCredits
+    const held = overview.characterCredits
       + overview.reservedCredits + overview.systemBudgetBalance;
     assert.equal(held, supply, `credits went missing or appeared ${what}`);
   };
@@ -96,8 +96,11 @@ test("the whole loop: a resident teaches, a student pays the building, the build
     buildingId, boardLocationId: "square", catalogEntryId: "foundations",
     skill: "social", price: entry.priceMinimum, title: "Working a room",
   });
+  const kaiBeforeTuition = world.getObservation("kai").character.credits;
   world.enrollInCourse("ana", offered.data.id);
-  assert.equal(building().balance, entry.priceMinimum, "tuition landed in the till");
+  assert.equal(world.getObservation("kai").character.credits, kaiBeforeTuition + entry.priceMinimum,
+    "tuition is paid straight to the proprietor");
+  assert.equal(building().revenue, entry.priceMinimum, "and recorded as the venue's revenue");
   conserved("after tuition");
   world.startMove("ana", building().locationId);
   clock.advanceGameMinutes(15);
@@ -117,10 +120,8 @@ test("the whole loop: a resident teaches, a student pays the building, the build
   world.advanceTo(clock.now());
   conserved("after the reputation-building job");
 
-  // The till pays a wage - tuition plus a top-up from the proprietor's own pocket; the
-  // notice hangs in the square; both residents apply.
-  world.fundBuilding("kai", buildingId, 100);
-  conserved("after the proprietor tops up the till");
+  // The proprietor pays a wage out of his own wallet - the takings from teaching and
+  // hosting are already in it; the notice hangs in the square; both residents apply.
   const role = world.publishRole("kai", {
     buildingId, boardLocationId: "square", title: "Front of house",
     description: "Welcome the guests.", requirements: { social: 40 },

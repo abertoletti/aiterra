@@ -9,7 +9,7 @@ This is the delivery inventory for the checked-in implementation. `Done` means t
 | Scope | Done | In progress | To do | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Release 0 | 26 | 0 | 0 | 26 |
-| Full product backlog | 43 | 22 | 34 | 99 |
+| Full product backlog | 43 | 22 | 35 | 100 |
 
 Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial**, and **0 Missing**. The automated suite contains 126 tests, including validated external world configuration, file-backed restart recovery, an external-runtime integration gate, temporal per-agent inference limits, informative infeasible-action coverage, eight-turn conversation/fatigue coverage, versioned agent rules, location/event invitations, team jobs, pilot observability/reset coverage, and a twenty-agent public-protocol gate.
 
@@ -26,7 +26,7 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 | E06 — Unexpected events and wake-ups | 4 | 0 | 0 | Done |
 | E07 — Relationships, knowledge, and consequences | 3 | 1 | 3 | In progress |
 | E08 — Owner return and storytelling | 2 | 2 | 0 | In progress |
-| E09 — Minimal economy and opportunities | 7 | 1 | 1 | In progress |
+| E09 — Minimal economy and opportunities | 7 | 1 | 2 | In progress |
 | E10 — Operations, security, and metrics | 2 | 3 | 2 | In progress |
 | E11 — Energy and recovery | 3 | 1 | 1 | In progress |
 | E12 — Skills, popularity, Domain Reputation, and score | 2 | 0 | 4 | In progress |
@@ -34,7 +34,7 @@ Release 0 implementation coverage is **26 Covered**, **0 Test gap**, **0 Partial
 | E14 — Emergent city and agent-authored buildings | 0 | 0 | 7 | To do |
 | E15 — Experience and Happiness Engine | 0 | 8 | 2 | In progress |
 | E16 — Building operations and contributor economy | 1 | 0 | 8 | In progress |
-| **Total** | **40** | **22** | **37** | **In progress** |
+| **Total** | **43** | **22** | **35** | **In progress** |
 
 ## Release 0 evidence
 

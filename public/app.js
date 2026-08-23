@@ -482,7 +482,7 @@ function renderCity() {
         const here = residentsByLocation.get(building.locationId) ?? 0;
         title = `${building.name} — ${building.status.toLowerCase()}\n`
           + `${characterName(building.proprietorId)} · ${building.tags.join(", ") || "no tags"}\n`
-          + `balance ${building.balance} · earned ${building.revenue} · upkeep ${building.dailyUpkeep}/day\n`
+          + `earned ${building.revenue} · upkeep ${building.dailyUpkeep}/day\n`
           + `${here} here now`;
       }
       cells.push(`<i class="${className}" title="${escapeHtml(title)}">${escapeHtml(label)}</i>`);
@@ -527,7 +527,6 @@ function renderCity() {
           <span>earned ${number(building.revenue)}</span>
           <span>upkeep paid ${number(building.upkeepPaid)}</span>
           <span class="${net < 0 ? "negative" : "positive"}">net ${signed(net)}</span>
-          <span>balance ${number(building.balance)}</span>
           <span>${number(building.dailyUpkeep)}/day upkeep</span>
         </div>
         ${(() => {
@@ -739,7 +738,7 @@ function renderEconomy() {
   // identity is the difference between three numbers and a balance sheet.
   // With an unlimited treasury a remaining balance is not a fact about anything: what the
   // city has PUT IN is the figure that says whether the economy is running.
-  const held = overview.characterCredits + overview.buildingCredits + overview.reservedCredits
+  const held = overview.characterCredits + overview.reservedCredits
     + (overview.cityUnlimited ? 0 : overview.systemBudgetBalance);
   economyOverview.innerHTML = `
     <div class="supply-line ${held === overview.moneySupply ? "balanced" : "broken"}">
@@ -750,8 +749,7 @@ function renderEconomy() {
 }${held === overview.moneySupply ? "" : ` · only ${number(held)} accounted for`}</small>
     </div>
     <div class="economy-numbers">
-      ${economyMetric("Resident wallets", overview.characterCredits, "in their purses")}
-      ${economyMetric("Building takings", overview.buildingCredits, "earned by venues")}
+      ${economyMetric("Resident wallets", overview.characterCredits, "in their purses, venue takings included")}
       ${economyMetric("Reserved escrow", overview.reservedCredits, "securing open posts")}
       ${overview.cityUnlimited
     ? economyMetric("City injected", overview.cityInjected, "paid for work · unlimited")
@@ -862,7 +860,7 @@ function renderCharacter() {
     ? owned.map((building) => `
       <li class="owned-row ${escapeHtml(building.status.toLowerCase())}">
         <span>${escapeHtml(building.name)}</span>
-        <span class="owned-meta">${escapeHtml(building.status.toLowerCase())} · balance ${number(building.balance)} · earned ${number(building.revenue)}</span>
+        <span class="owned-meta">${escapeHtml(building.status.toLowerCase())} · earned ${number(building.revenue)} · upkeep ${number(building.upkeepPaid)}</span>
       </li>`).join("")
     : "";
 

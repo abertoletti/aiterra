@@ -314,18 +314,6 @@ export class World {
     });
   }
 
-  fundBuilding(characterId, buildingId, credits) {
-    const character = this.requireCharacter(characterId);
-    const building = this.requireBuilding(buildingId);
-    if (building.proprietorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the proprietor can fund the building");
-    if (!Number.isInteger(credits) || credits < 1) throw invalid("INVALID_AMOUNT", "Funding must be a positive whole number of credits");
-    if (character.credits < credits) throw invalid("INSUFFICIENT_CREDITS", `Character holds ${character.credits} credits`);
-    return this.record("BUILDING_FUNDED", {
-      actorCharacterId: characterId,
-      data: { buildingId, characterId, credits, balance: building.balance + credits },
-    });
-  }
-
   requireBuilding(buildingId) {
     const building = this.state.buildings.get(buildingId);
     if (!building) throw invalid("UNKNOWN_BUILDING", `Building ${buildingId} does not exist`);
@@ -402,9 +390,9 @@ export class World {
       accessPrice,
       capacity: seats,
       buildingId,
-      // Admission funds the building, not the proprietor's pocket, so upkeep can be paid
-      // out of what the place actually earned. Distribution to the proprietor is a
-      // separate later decision.
+      // Admission is the proprietor's own income: it is credited straight to the owner's
+      // wallet, tagged with the building so a per-venue revenue ledger survives. The
+      // building itself holds no separate purse.
       accessDestinationType: "building",
       accessDestinationId: buildingId,
     });
@@ -947,11 +935,16 @@ export class World {
       if (!budget) return 0;
       return budget.unlimited ? Number.POSITIVE_INFINITY : budget.balance;
     }
-    if (type === "building") return this.state.buildings.get(id)?.balance ?? 0;
+    // A building's purse is its proprietor's wallet: wages are funded from, and refunded
+    // to, the owner's own credits.
+    if (type === "building") {
+      const proprietorId = this.state.buildings.get(id)?.proprietorId;
+      return this.state.characters.get(proprietorId)?.credits ?? 0;
+    }
     return this.state.characters.get(id)?.credits ?? 0;
   }
 
-  // AIT-1602. A proprietor employs people out of the building's own takings, and pins the
+  // AIT-1602. A proprietor employs people out of their own wallet, and pins the
   // notice in a square rather than inside the premises - because a board is read by whoever
   // is standing at it, and nobody is standing inside a venue that is shut. The work happens
   // at the building; only the advertisement lives in the square.
@@ -959,7 +952,7 @@ export class World {
     buildingId, boardLocationId, title, description = "", requirements = {},
     reputationRequirements = {}, durationGameMinutes, wage, teamSize = 1, id = this.idGenerator(),
   }) {
-    this.requireCharacter(characterId);
+    const proprietor = this.requireCharacter(characterId);
     const building = this.requireBuilding(buildingId);
     if (building.proprietorId !== characterId) throw forbidden("NOT_PROPRIETOR", "Only the proprietor can employ here");
     if (building.status !== "ACTIVE") throw conflict("BUILDING_NOT_ACTIVE", `Building is ${building.status}`);
@@ -971,9 +964,9 @@ export class World {
     // nothing is on, so nobody could ever be standing there to read it.
     if (board.buildingId) throw invalid("BOARD_NOT_PUBLIC", "A role must be advertised on a public square, not inside a building");
     if (!Number.isFinite(wage) || wage <= 0) throw invalid("INVALID_COMPENSATION", "A wage must be positive");
-    if (building.balance < wage) {
-      throw conflict("INSUFFICIENT_BUILDING_BALANCE",
-        `${building.name} holds ${building.balance} and the wage is ${wage}`);
+    if (proprietor.credits < wage) {
+      throw conflict("INSUFFICIENT_CREDITS",
+        `${proprietor.name} holds ${proprietor.credits} and the wage is ${wage}`);
     }
     return this.publishJob({
       id, creatorId: characterId,
@@ -988,7 +981,7 @@ export class World {
       // A resident-created role is filled by application and selection, never taken off
       // the board: employment must stay a two-sided choice (AIT-1603).
       hiring: "application",
-      availableCredits: building.balance, visibility: "public",
+      availableCredits: proprietor.credits, visibility: "public",
     });
   }
 
@@ -3136,13 +3129,6 @@ export class World {
         });
         break;
       }
-      case "fund_building": {
-        const event = this.fundBuilding(characterId, action.buildingId, action.credits);
-        result = this.actionResult(characterId, event, {
-          buildingId: event.data.buildingId, balance: event.data.balance,
-        });
-        break;
-      }
       case "enter_world": {
         const event = this.enterWorld(characterId, action.locationId);
         result = this.actionResult(characterId, event, { locationId: action.locationId });
@@ -3477,9 +3463,9 @@ export class World {
     }
   }
 
-  // Upkeep is what stops a building being a free permanent asset. It is charged from the
-  // building's own balance, which admission has been feeding, so an unused place bleeds
-  // and a busy one pays for itself.
+  // Upkeep is what stops a building being a free permanent asset. It is charged straight
+  // to the proprietor's wallet - the same wallet admission has been feeding - so a place
+  // that draws a paying crowd pays for itself and an idle one bleeds its owner.
   chargeBuildingUpkeep(targetWorldTime) {
     const target = new Date(targetWorldTime);
     const intervalMs = this.config.city.upkeepIntervalWorldMinutes * 60_000;
@@ -3492,23 +3478,20 @@ export class World {
         const chargedAt = new Date(since.getTime() + charge * intervalMs).toISOString();
         const current = this.state.buildings.get(building.buildingId);
         const amount = current.upkeepPerInterval;
-        // The balance pays first, because a busy place should cover itself. When it
-        // cannot, the proprietor's own pocket does: a resident holding a thousand
-        // credits should not lose a building over an unpaid two, and delinquency is
-        // meant to mean insolvent rather than inattentive.
+        // The proprietor's own pocket pays: a resident holding a thousand credits should
+        // not lose a building over an unpaid two, and delinquency is meant to mean
+        // insolvent rather than inattentive.
         const proprietor = this.state.characters.get(current.proprietorId);
-        const fromBalance = Math.min(current.balance, amount);
-        const fromProprietor = Math.min(Math.max(0, amount - fromBalance), proprietor?.credits ?? 0);
-        const covered = fromBalance + fromProprietor >= amount;
+        const fromProprietor = Math.min(amount, proprietor?.credits ?? 0);
+        const covered = fromProprietor >= amount;
         this.record(covered ? "BUILDING_UPKEEP_PAID" : "BUILDING_UPKEEP_FAILED", {
           actorCharacterId: current.proprietorId,
           worldTime: chargedAt,
           data: {
             buildingId: current.buildingId, proprietorId: current.proprietorId,
-            amount, balance: current.balance, chargedAt,
-            fromBalance: covered ? fromBalance : 0,
+            amount, chargedAt,
             fromProprietor: covered ? fromProprietor : 0,
-            ...(covered ? {} : { shortfall: amount - fromBalance - fromProprietor }),
+            ...(covered ? {} : { shortfall: amount - fromProprietor }),
           },
         });
       }
@@ -3851,7 +3834,7 @@ export class World {
         instruction: "A course is the paid way INTO a skill no reachable work teaches. Its notice discloses provider, price, duration, Energy, prerequisites and the exact effects for you before you pay; effects apply exactly once, at completion, up to the course's ceiling.",
         tuition: "Tuition is paid in full at enrolment and never refunded: cancelling, abandoning, or missing the disclosed start window forfeits it and applies no effect. Energy is charged when the class starts.",
         oneCommitment: "One commitment at a time: an open enrolment blocks accepting work and an accepted job blocks enrolling.",
-        providing: "A building with sell_service may offer courses from the approved catalog, choosing only the skill, a price inside the entry's band, and a public square for the notice. Tuition funds the building balance like admission.",
+        providing: "A building with sell_service may offer courses from the approved catalog, choosing only the skill, a price inside the entry's band, and a public square for the notice. Tuition is paid to you, the proprietor, like admission.",
       },
       vehicles: {
         policyVersion: this.config.vehicles.policyVersion,
@@ -3913,7 +3896,7 @@ export class World {
         instruction: "The city is a grid and you may build on it. There is no land to buy: construct_building on any free cell claims the ground and raises the place in one action. You name it, describe it, and choose what it delivers using the same profile dimensions your own preferences use. The world never decides what kind of place it is.",
         cost: `Construction costs cells x (${this.config.city.structuralCostPerCell} + ${this.config.city.profileCostPerCell} x ambition^${this.config.city.ambitionExponent}), where ambition is the sum of your ten profile values divided by 100. The cost rises with the square of the total you promise, so a place that delivers everything is unaffordable and a focused one is cheap. Deciding what your place is for is the whole choice.`,
         ceiling: "A building's profile is the ceiling on every experience you can host there. A venue with music 40 can never host the city's great music night; paying for music 90 is how you earn the right to.",
-        earning: "Admission to an experience you host funds the building, not your pocket. Upkeep is charged from that balance, so an unused building bleeds and a busy one pays for itself. You can also fund it from your own credits.",
+        earning: "Admission to an experience you host is paid straight to you, the proprietor. Upkeep is charged to your wallet too, so an unused building bleeds you and a busy one pays for itself.",
         capacityRule: `Capacity is ${this.config.city.capacityPerCell} per cell of footprint, so a bigger footprint holds more people and costs proportionally more to build.`,
       },
       // The context discipline is a stable rule, so it lives in the manifest rather
@@ -4123,7 +4106,9 @@ export class World {
         tags: derivedTags(building.profile, this.config.grammar),
         constructionCost: building.constructionCost, dailyUpkeep: building.dailyUpkeep,
         upkeepPerInterval: building.upkeepPerInterval,
-        balance: building.balance, revenue: building.revenue, upkeepPaid: building.upkeepPaid,
+        // The venue keeps a revenue/upkeep ledger, not a purse: takings land in the
+        // proprietor's wallet, so there is no separate balance to report.
+        revenue: building.revenue, upkeepPaid: building.upkeepPaid,
         completesAt: building.completesAt ?? null,
         // Whether the doors are actually open, so the observer can see an idle venue for
         // what it is rather than inferring it from who happens to be standing inside.
@@ -4168,14 +4153,9 @@ export class World {
       .reduce((total, job) => total + Number(job.reservation?.amount ?? 0), 0);
     const systemBudgetBalance = [...this.state.systemBudgets.values()]
       .reduce((total, budget) => total + Number(budget.balance ?? 0), 0);
-    // Money sits in four places, and the panel showed three of them next to each other with
-    // no total - so a reader added them, got more than the bootstrap budget, and reasonably
-    // concluded something was wrong. Nothing was: escrow is held OUT of the budget, and the
-    // residents' opening purses are a second issuance that never touched it. Buildings were
-    // the genuinely missing pot: takings live there, so the supply was under-reported the
-    // moment anyone built anything.
-    const buildingCredits = [...this.state.buildings.values()]
-      .reduce((total, building) => total + Number(building.balance ?? 0), 0);
+    // Money sits in three places now: residents' wallets, escrow held out of the budget,
+    // and the system budget itself. Venue takings used to be a fourth pot, but a venue's
+    // purse is its proprietor's wallet now, so there is nothing separate to count.
     const issuedToCharacters = [...this.state.characters.values()]
       .reduce((total, character) => total + Number(character.wallet?.opening ?? 0), 0);
     // What the city has actually put into the world, net of what came back unspent. For an
@@ -4204,7 +4184,6 @@ export class World {
         characterCredits: characters.reduce((total, character) => total + Number(character.credits ?? 0), 0),
         reservedCredits,
         systemBudgetBalance,
-        buildingCredits,
         issuedToCharacters,
         cityInjected,
         cityUnlimited,
@@ -4500,7 +4479,7 @@ export class World {
             maximumCapacity: building.capacity,
             canChargeAdmission: building.capabilities.includes("sell_access"),
             maximumAccessPrice: this.config.experience.maximumAccessPrice,
-            balance: building.balance, upkeepPerInterval: building.upkeepPerInterval,
+            revenue: building.revenue, upkeepPerInterval: building.upkeepPerInterval,
             nextUpkeepAt: this.nextUpkeepAt(building),
             liveExperienceCount: this.liveExperienceCount(building),
             // Hosting costs Energy on the ambition of what is promised, so the affordance
@@ -4517,12 +4496,12 @@ export class World {
       }
       for (const building of myBuildings.filter((item) => item.status === "ACTIVE"
         && item.capabilities.includes("create_job"))) {
-        // Employ out of the building's own takings, advertised on a public square. The
-        // affordance names the purse and the boards, because a proprietor cannot guess
-        // either and being refused is a poor way to learn them.
+        // Employ out of your own wallet, advertised on a public square. The affordance
+        // names the purse and the boards, because a proprietor cannot guess either and
+        // being refused is a poor way to learn them.
         actions.push({
           type: "publish_role", buildingId: building.buildingId, name: building.name,
-          fundedFrom: "building_balance", balance: building.balance,
+          fundedFrom: "proprietor_wallet", availableCredits: character.credits,
           boardChoices: [...this.state.locations.values()]
             .filter((location) => !location.buildingId)
             .map((location) => ({ locationId: location.id, name: location.name })),
@@ -4539,7 +4518,7 @@ export class World {
           course.buildingId === building.buildingId && course.status === "open").length;
         actions.push({
           type: "offer_course", buildingId: building.buildingId, name: building.name,
-          tuitionFundsBuildingBalance: true, balance: building.balance,
+          tuitionFundsProprietor: true,
           courseCatalog: this.config.courses.catalog.map((entry) => ({
             catalogEntryId: entry.id, gain: entry.gain, teachesTo: entry.teachesTo,
             prerequisite: entry.prerequisite, tradeoffLoss: entry.tradeoffLoss,
@@ -4556,15 +4535,6 @@ export class World {
           feasibility: openCoursesHere < this.config.courses.maximumOpenCoursesPerBuilding
             ? { status: "eligible", eligible: true, blockingCode: null, blockingCodes: [] }
             : { status: "blocked", eligible: false, blockingCode: "COURSE_LIMIT_REACHED", blockingCodes: ["COURSE_LIMIT_REACHED"] },
-        });
-      }
-      for (const building of myBuildings) {
-        actions.push({
-          type: "fund_building", buildingId: building.buildingId, name: building.name,
-          status: building.status, balance: building.balance,
-          upkeepPerInterval: building.upkeepPerInterval, credits: character.credits,
-          nextUpkeepAt: this.nextUpkeepAt(building),
-          liveExperienceCount: this.liveExperienceCount(building),
         });
       }
       for (const gathering of upcomingEvents) {

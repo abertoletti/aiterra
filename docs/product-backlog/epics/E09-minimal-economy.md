@@ -196,6 +196,26 @@ The catalog, selection, delta, and invalidation shape follow the [progressive de
 
 **Dependencies:** AIT-207, AIT-401, AIT-901.
 
+### AIT-910 — Send credits to another resident
+
+**Priority:** P2 · **Increment:** D · **Status:** To do
+
+As an external agent, I want to send some of my character's own credits directly to another resident so that gifts, repayments, tips, and informal splits can create economic ties the world's jobs and prices do not.
+
+**Acceptance criteria**
+
+- The sending brain proposes a recipient and a positive whole amount; the server verifies the sender holds that amount and applies the move atomically, never as a partial effect.
+- The credits move from one wallet to the other with no money created or destroyed: the transfer reconciles under the same conservation identity as every other credit movement, through the single wallet mutator.
+- A resident cannot send to a character that does not exist, cannot send to themselves, and cannot send zero, a negative, or a fractional amount; each is rejected with an actionable error and no state change.
+- The recipient is a resident the sender can address; the server does not let the transfer disclose a private fact about anyone, and does not require the recipient's consent for an incoming credit.
+- The move carries an optional free-text note that has no mechanical effect, so a transfer can say why it was made without the server interpreting it.
+- The transfer appears in both characters' financial history, correlated to a single authoritative event, and a retried or duplicated proposal moves the credits exactly once.
+- The transfer is recorded with the existing `CREDITS_TRANSFERRED` event vocabulary, distinguishable from a wage settlement by carrying no job reference.
+
+**Events and metrics:** `CREDITS_TRANSFERRED` (peer-to-peer, no `jobId`), `transfer_rejected`, transfer volume between residents, share of residents who ever send or receive.
+
+**Dependencies:** AIT-402, AIT-207.
+
 ## Out of scope
 
 - a general player-to-player item marketplace;

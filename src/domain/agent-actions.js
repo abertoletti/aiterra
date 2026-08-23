@@ -72,7 +72,7 @@ export const AGENT_ACTIONS = [
     actions: [
       {
         name: "publish_role",
-        summary: "As proprietor, fund a role from the building's own balance and pin the notice on a public square. The full wage enters escrow at publication; the role is filled by application, never taken off the board.",
+        summary: "As proprietor, fund a role from your own wallet and pin the notice on a public square. The full wage enters escrow at publication; the role is filled by application, never taken off the board.",
         parameters: [
           { name: "buildingId", required: true, description: "An ACTIVE building you own with the create_job capability." },
           { name: "boardLocationId", required: true, description: "The public square where the notice hangs." },
@@ -81,7 +81,7 @@ export const AGENT_ACTIONS = [
           { name: "requirements", required: false, description: "Skill minimums from the controlled set." },
           { name: "reputationRequirements", required: false, description: "Minimum Domain Reputation per controlled domain; validated at application and selection." },
           { name: "durationGameMinutes", required: true, description: "How long the work runs." },
-          { name: "wage", required: true, description: "Credits reserved from the building balance." },
+          { name: "wage", required: true, description: "Credits reserved from your wallet." },
           { name: "teamSize", required: false, description: "Workers needed; coverage is collective above one." },
         ],
       },
@@ -135,7 +135,7 @@ export const AGENT_ACTIONS = [
       },
       {
         name: "offer_course",
-        summary: "As proprietor of a building that can sell_service, put a course on a public board. Mechanics come from the approved catalog; you choose only the entry, the skill, a price inside its band, and where the notice hangs. Tuition funds the building.",
+        summary: "As proprietor of a building that can sell_service, put a course on a public board. Mechanics come from the approved catalog; you choose only the entry, the skill, a price inside its band, and where the notice hangs. Tuition is paid to you, the proprietor.",
         parameters: [
           { name: "buildingId", required: true, description: "An ACTIVE building you own with sell_service." },
           { name: "catalogEntryId", required: true, description: "An entry from the approved course catalog." },
@@ -168,7 +168,7 @@ export const AGENT_ACTIONS = [
       },
       {
         name: "host_experience",
-        summary: "As proprietor, put a night on at your building. Costs Energy by the ambition of what it promises; the building's profile is the ceiling on what the night can deliver; admission funds the building. One night at a time per room.",
+        summary: "As proprietor, put a night on at your building. Costs Energy by the ambition of what it promises; the building's profile is the ceiling on what the night can deliver; admission is paid to you, the proprietor. One night at a time per room.",
         parameters: [
           { name: "buildingId", required: true, description: "An ACTIVE building you own with host_event." },
           { name: "title", required: true, description: "The night's name." },
@@ -197,14 +197,6 @@ export const AGENT_ACTIONS = [
           { name: "description", required: true, description: "Free text; no mechanical effect." },
           { name: "profile", required: true, description: "What the place delivers on the controlled dimensions; priced convexly." },
           { name: "capabilities", required: true, description: "At least one from the controlled capability set." },
-        ],
-      },
-      {
-        name: "fund_building",
-        summary: "Move your own credits into the building's balance - the purse that pays upkeep and wages.",
-        parameters: [
-          { name: "buildingId", required: true, description: "A building you own." },
-          { name: "credits", required: true, description: "A positive whole amount from your wallet." },
         ],
       },
     ],

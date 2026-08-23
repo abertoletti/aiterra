@@ -21,7 +21,7 @@ export const ownerFeedTypes = new Set([
   "BUILDING_ROLE_FILLED", "BUILDING_ROLE_CANDIDATE_REJECTED",
   "EVENT_CREATED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED",
   "HAPPINESS_CHANGED", "HAPPINESS_DECAYED", "EXPERIENCE_HAPPINESS_RESOLVED", "EXPERIENCE_ACCESS_PAID",
-  "PLOT_ACQUIRED", "BUILDING_CONSTRUCTION_STARTED", "BUILDING_ACTIVATED", "BUILDING_FUNDED",
+  "PLOT_ACQUIRED", "BUILDING_CONSTRUCTION_STARTED", "BUILDING_ACTIVATED",
   "BUILDING_UPKEEP_PAID", "BUILDING_UPKEEP_FAILED",
   "INVITATION_SENT", "INVITATION_ACCEPTED", "INVITATION_DECLINED", "INVITATION_EXPIRED",
   "COMMITMENT_CREATED", "COMMITMENT_REMINDER_SENT", "COMMITMENT_WINDOW_OPENED", "COMMITMENT_KEPT", "COMMITMENT_MISSED",
@@ -595,8 +595,8 @@ export function ownerFeedDetails(event) {
   };
   if (event.type.startsWith("BUILDING_") || event.type === "PLOT_ACQUIRED") return {
     buildingId: data.buildingId, plotId: data.plotId, name: data.name,
-    constructionCost: data.constructionCost, amount: data.amount, credits: data.credits,
-    balance: data.balance, shortfall: data.shortfall, capacity: data.capacity,
+    constructionCost: data.constructionCost, amount: data.amount,
+    shortfall: data.shortfall, capacity: data.capacity,
     capabilities: data.capabilities, price: data.price,
   };
   if (event.type === "EXPERIENCE_ACCESS_PAID") return {

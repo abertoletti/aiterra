@@ -152,7 +152,7 @@ test("money is conserved: every credit is in a purse, a till, an escrow, or the 
     const { overview } = world.getPublicState();
     return {
       supply: overview.moneySupply + overview.systemBudgetBalance,
-      held: overview.characterCredits + overview.buildingCredits
+      held: overview.characterCredits
         + overview.reservedCredits + overview.systemBudgetBalance,
     };
   };
@@ -192,7 +192,9 @@ test("money is conserved: every credit is in a purse, a till, an escrow, or the 
     "construction spends credits out of existence, and the supply says so");
   conserved("after building");
 
-  // Admission moves a purse into a building's till, which is the pot that used to be absent.
+  // Admission moves a purse into the proprietor's own wallet: one resident's credits become
+  // another's, and the venue keeps a revenue ledger of what came through the door.
+  const veraBeforeDoor = world.getObservation("vera").character.credits;
   const gathering = world.hostExperience("vera", {
     buildingId: built.data.buildingId, title: "A night", profile: { music: 40 },
     durationGameMinutes: 120, accessPrice: 25,
@@ -201,11 +203,14 @@ test("money is conserved: every credit is in a purse, a till, an escrow, or the 
   clock.advanceGameMinutes(10);
   world.advanceTo(clock.now());
   world.joinExperience("nia", gathering.data.id);
-  assert.equal(world.getPublicState().overview.buildingCredits, 25);
+  assert.equal(world.getObservation("vera").character.credits, veraBeforeDoor + 25,
+    "the door money lands in the proprietor's wallet");
+  assert.equal(world.state.buildings.get(built.data.buildingId).revenue, 25,
+    "and is recorded as the venue's revenue");
   conserved("when a venue takes money at the door");
 
-  // Tuition is the newest movement: into a building's till like admission, or back to the
-  // treasury when the city itself taught the course. Both are reducer-moved, so both must
+  // Tuition is the newest movement: into the proprietor's wallet like admission, or back to
+  // the treasury when the city itself taught the course. Both are reducer-moved, so both must
   // reconcile like every other credit.
   const foundations = world.config.courses.catalog.find((entry) => entry.id === "foundations");
   const taught = world.offerResidentCourse("vera", {

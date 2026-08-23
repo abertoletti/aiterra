@@ -14,7 +14,13 @@ function moveFunding(state, event, type, id, amount, reason) {
     else budget.returned += amount;
     if (!budget.unlimited) budget.balance += amount;
   }
-  else if (type === "building") state.buildings.get(id).balance += amount;
+  // A venue's purse is the proprietor's own wallet: admission and tuition credit the
+  // owner, wages and upkeep debit the owner, all tagged with the building so a per-venue
+  // ledger survives as a flow. The building holds no spendable balance of its own.
+  else if (type === "building") {
+    const building = state.buildings.get(id);
+    moveCredits(state, event, building.proprietorId, amount, reason, { buildingId: id });
+  }
   else moveCredits(state, event, id, amount, reason);
 }
 
@@ -368,7 +374,7 @@ export function applyEvent(state, event) {
       state.creditsRetired += data.constructionCost;
       state.buildings.set(data.buildingId, {
         ...structuredClone(data),
-        locationId: null, balance: 0, lastUpkeepAt: null, revenue: 0, upkeepPaid: 0,
+        locationId: null, lastUpkeepAt: null, revenue: 0, upkeepPaid: 0,
       });
       // Claiming the cells at the start is what stops a second building being started on
       // the same ground while the first is still going up.
@@ -388,14 +394,10 @@ export function applyEvent(state, event) {
       building.lastUpkeepAt = data.activatedAt;
       break;
     }
-    case "BUILDING_FUNDED": {
-      moveCredits(state, event, data.characterId, -data.credits, "building_funded", { buildingId: data.buildingId });
-      state.buildings.get(data.buildingId).balance += data.credits;
-      break;
-    }
     case "BUILDING_UPKEEP_PAID": {
       const building = state.buildings.get(data.buildingId);
-      building.balance -= data.fromBalance ?? data.amount;
+      // Upkeep is paid straight out of the proprietor's wallet - the venue keeps no
+      // balance to draw on - and then leaves the world for good.
       if (data.fromProprietor) {
         const proprietor = state.characters.get(data.proprietorId);
         if (proprietor) moveCredits(state, event, data.proprietorId, -data.fromProprietor, "building_upkeep", { buildingId: data.buildingId });
@@ -416,7 +418,7 @@ export function applyEvent(state, event) {
     }
     case "BUILDING_REVENUE_RECORDED": {
       const building = state.buildings.get(data.buildingId);
-      if (building) { building.balance += data.amount; building.revenue += data.amount; }
+      if (building) building.revenue += data.amount;
       break;
     }
     case "COURSE_OFFERED":
@@ -428,7 +430,10 @@ export function applyEvent(state, event) {
       moveCredits(state, event, data.characterId, -data.price, "course_tuition", { courseId: data.courseId });
       if (data.feeDestinationType === "building") {
         const building = state.buildings.get(data.feeDestinationId);
-        if (building) { building.balance += data.price; building.revenue += data.price; }
+        if (building) {
+          moveCredits(state, event, building.proprietorId, data.price, "course_tuition_received", { buildingId: data.feeDestinationId, courseId: data.courseId });
+          building.revenue += data.price;
+        }
       } else {
         moveFunding(state, event, data.feeDestinationType, data.feeDestinationId, data.price, "course_tuition");
       }
@@ -540,7 +545,10 @@ export function applyEvent(state, event) {
         if (budget) budget.balance += data.price;
       } else if (data.destinationType === "building") {
         const building = state.buildings.get(data.destinationId);
-        if (building) { building.balance += data.price; building.revenue += data.price; }
+        if (building) {
+          moveCredits(state, event, building.proprietorId, data.price, "admission_received", { eventId: data.eventId, buildingId: data.destinationId });
+          building.revenue += data.price;
+        }
       } else {
         const proprietor = state.characters.get(data.destinationId);
         if (proprietor) moveCredits(state, event, data.destinationId, data.price, "admission_received", { eventId: data.eventId });

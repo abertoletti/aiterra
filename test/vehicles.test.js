@@ -153,7 +153,7 @@ test("purchases and wear leave the world as retired credits, and the books still
     "the machine and its wear are money spent out of existence");
   const { overview } = world.getPublicState();
   assert.equal(
-    overview.characterCredits + overview.buildingCredits + overview.reservedCredits + overview.systemBudgetBalance,
+    overview.characterCredits + overview.reservedCredits + overview.systemBudgetBalance,
     overview.moneySupply + overview.systemBudgetBalance,
     "no credit went missing or appeared");
 });

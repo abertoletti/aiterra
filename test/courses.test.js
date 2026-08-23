@@ -198,7 +198,7 @@ test("study and work are one commitment: each blocks the other, and both say so"
     (error) => error instanceof DomainError && error.code === "COURSE_COMMITMENT_CONFLICT");
 });
 
-test("a resident teaches from the approved catalog only, and the tuition funds the building", () => {
+test("a resident teaches from the approved catalog only, and the tuition is paid to the proprietor", () => {
   const { world, clock } = courseWorld();
   world.createCharacter({
     id: "kai", name: "Kai", locationId: "square", credits: 3_000,
@@ -229,14 +229,17 @@ test("a resident teaches from the approved catalog only, and the tuition funds t
     skill: "creativity", price: entry.priceMaximum, title: "Craft foundations",
   });
   const building = () => world.state.buildings.get(buildingId);
-  const tillBefore = building().balance;
+  const kaiBefore = world.getObservation("kai").character.credits;
+  const revenueBefore = building().revenue;
   world.createCharacter({
     id: "ana", name: "Ana", locationId: "square", credits: 400,
     personality: [], goal: "Learn a craft.", skills: { creativity: 10 },
   });
   world.enrollInCourse("ana", offered.data.id);
-  assert.equal(building().balance, tillBefore + offered.data.price,
-    "tuition funds the building the way admission does");
+  assert.equal(world.getObservation("kai").character.credits, kaiBefore + offered.data.price,
+    "tuition is paid straight to the proprietor, the way admission is");
+  assert.equal(building().revenue, revenueBefore + offered.data.price,
+    "and the venue records it as revenue");
 
   // The building is shut - nothing is on - and the enrolled student still gets in, in the
   // command and in the affordance, because a course nobody can reach sells nothing.

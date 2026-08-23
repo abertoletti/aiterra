@@ -190,8 +190,8 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "{\"type\":\"rest\"} recovers restRecovery Energy over restDurationGameMinutes world minutes. It is available whenever you are idle and it is not on the list below, because when to spend Energy and when to get it back is yours to judge.",
         "Work through this list in order and take the first one that applies. An entry that costs more Energy than you hold will be refused, so read energyCost before choosing it.",
         "1a. APPLICANTS ARE WAITING ON A ROLE YOU PUBLISHED -> {\"type\":\"select_applicant\",...}. Each application carries the candidate's verified reputation, general and per domain; the wage is already reserved. Pick before offerExpiresAt or the escrow returns and nobody works.",
-        "1b. YOU OWN A BUILDING WITH TAKINGS IN IT -> {\"type\":\"publish_role\",...}. The city's wages never change; a role you publish may pay anything up to the building balance.",
-        "    Employ a resident out of the building balance and pin the notice on a public square from boardChoices, because nobody can stand inside a venue that is shut. Staff are admitted even when the doors are.",
+        "1b. YOU OWN A BUILDING AND CAN AFFORD A WAGE -> {\"type\":\"publish_role\",...}. The city's wages never change; a role you publish may pay anything up to what you hold.",
+        "    Employ a resident out of your own wallet and pin the notice on a public square from boardChoices, because nobody can stand inside a venue that is shut. Staff are admitted even when the doors are.",
         "    Your role is filled by application: candidates apply at the board and you choose with select_applicant. You may also demand a minimum Domain Reputation in reputationRequirements.",
         "1. YOU OWN A BUILDING WITH NO EVENT RUNNING -> {\"type\":\"host_experience\",...}. A building admits nobody while it has nothing on, and upkeep is charged whether or not anyone comes.",
         "   Hosting is work and costs Energy on what the night promises: hostingBaseEnergyCost + hostingEnergyPerAmbition x (sum of your chosen profile / 100). A lavish night can cost more than a shift.",
@@ -215,8 +215,8 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- profile = what your place delivers, on the ten dimensions. Cost = cells x (structural + profileCost x ambition^2), ambition = sum of your profile values / 100. Squared, so broad profiles are unaffordable: pick 2-3 dimensions.",
         "- capacity comes from footprint alone; your building's profile is the CEILING on every experience you host there",
         "- to host: pick a title and description, a profile at or under your ceiling (omit `profile` and it uses your building's own), a duration, and an accessPrice from 0 to maximumAccessPrice.",
-        "- what each attendee pays goes to the BUILDING balance; upkeep is charged from that balance, and from your own credits when it cannot cover it",
-        "- a building with sell_service can offer_course: pick a catalog entry, a skill, a price in the entry's band and a square for the notice. Tuition goes to the building balance, like admission.",
+        "- what each attendee pays goes straight to YOU, the proprietor; upkeep is charged to your wallet too, so an unused building bleeds you and a busy one pays for itself",
+        "- a building with sell_service can offer_course: pick a catalog entry, a skill, a price in the entry's band and a square for the notice. Tuition is paid to you, like admission.",
         "- residents come only if the night suits them and they can reach it. You cannot make them come; you can only put on something worth coming to.",
         "- `plots` lists free cells, `buildings` shows what others built and where the crowds are; rules.city has the exact numbers",
         "",
@@ -342,7 +342,7 @@ function actionShapes(availableActions) {
         boardLocationId: "<a square from boardChoices: the notice goes there>",
         title: "<the role>", description: "<the duties>",
         requirements: "<object of skill -> 0..100, only skills in skillSet>",
-        durationGameMinutes: "<integer>", wage: "<integer, paid from the building balance>",
+        durationGameMinutes: "<integer>", wage: "<integer, paid from your wallet>",
       }; break;
       case "host_experience": shapes.host_experience = {
         type,
@@ -354,9 +354,6 @@ function actionShapes(availableActions) {
         durationGameMinutes: "<integer, at least 1>",
         accessPrice: "<integer credits, 0 for free>",
         capacity: "<optional integer up to maximumCapacity>",
-      }; break;
-      case "fund_building": shapes.fund_building = {
-        type, buildingId: "<one of your buildings>", credits: "<positive integer>",
       }; break;
       case "start_conversation": shapes.start_conversation = {
         type: "start_conversation",
@@ -664,15 +661,6 @@ export function validateAction(candidate, observation, history = []) {
         ...(candidate.capacity === undefined || candidate.capacity === null
           ? {}
           : { capacity: boundedInteger(candidate.capacity, "capacity", 1, envelope.maximumCapacity ?? 10) }),
-      };
-    }
-    case "fund_building": {
-      const buildingId = text(candidate.buildingId, "buildingId", 100);
-      const envelope = templates.find((item) => item.buildingId === buildingId);
-      if (!envelope) throw new DecisionValidationError("That building is not one of yours to fund");
-      return {
-        type, buildingId,
-        credits: boundedInteger(candidate.credits, "credits", 1, Math.max(1, envelope.credits ?? 1)),
       };
     }
     case "abandon_secondary_goal":

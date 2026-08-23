@@ -259,10 +259,11 @@ function knownBuildings(world, characterId) {
           travelMinutes: distance === null ? null : Math.max(
             world.config.movement.minimumDurationGameMinutes,
             distance * world.config.movement.minutesPerCell),
-          // The ledger is the proprietor's business, and nobody else's.
+          // The ledger is the proprietor's business, and nobody else's. Takings land in
+          // the owner's own wallet now, so the venue reports flows, not a balance.
           ...(building.proprietorId === characterId
             ? {
-              balance: building.balance, revenue: building.revenue,
+              revenue: building.revenue,
               upkeepPerInterval: building.upkeepPerInterval,
               dailyUpkeep: building.dailyUpkeep,
               constructionCost: building.constructionCost,

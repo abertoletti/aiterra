@@ -403,7 +403,7 @@ export const defaultConfig = Object.freeze({
     maximumOpenPerCharacter: 3,
   },
   rules: {
-    version: "agent-rules-v6",
+    version: "agent-rules-v7",
   },
   protocol: {
     version: "1.0",

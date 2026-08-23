@@ -20,7 +20,7 @@ function hiringWorld() {
   world.defineLocation({ id: "square", name: "The Square", x: 5, y: 5 });
   world.bootstrapEconomy({ budgetId: "budget", credits: 1_000_000 });
   world.createCharacter({
-    id: "luca", name: "Luca", locationId: "square", credits: 3_000,
+    id: "luca", name: "Luca", locationId: "square", credits: 3_500,
     personality: [], goal: "Run a venue.", skills: {},
   });
   const built = world.constructBuilding("luca", {
@@ -29,7 +29,6 @@ function hiringWorld() {
   });
   clock.advanceGameMinutes(30);
   world.advanceTo(clock.now());
-  world.fundBuilding("luca", built.data.buildingId, 500);
   for (const [id, skills] of [["ana", { social: 40 }], ["bo", { social: 40 }], ["cyn", { social: 5 }]]) {
     world.createCharacter({
       id, name: id, locationId: "square", credits: 100,
@@ -105,17 +104,18 @@ test("selection commits exactly one applicant, answers the rest, and pays throug
   assert.ok(selectedNotice, "the selected candidate is told to turn up");
 
   // The commitment behaves like any accepted job: walk in through the shut door, start,
-  // complete, and the reserved wage settles from the building's purse exactly once.
+  // complete, and the reserved wage settles out of the one reservation exactly once.
   const building = () => world.state.buildings.get(buildingId);
-  const reservedBalance = building().balance;
+  const lucaAfterReserve = world.getObservation("luca").character.credits;
   world.startMove("bo", building().locationId);
   clock.advanceGameMinutes(15);
   world.advanceTo(clock.now());
   world.startJob("bo", role.data.id);
   clock.advanceGameMinutes(20);
   world.advanceTo(clock.now());
-  assert.equal(world.getObservation("bo").character.credits, 100 + 40, "the building paid the wage");
-  assert.equal(building().balance, reservedBalance, "and only the reservation moved");
+  assert.equal(world.getObservation("bo").character.credits, 100 + 40, "the reserved wage paid Bo");
+  assert.equal(world.getObservation("luca").character.credits, lucaAfterReserve,
+    "and the proprietor is not charged a second time; only the reservation moved");
 });
 
 test("a stale selection fails loudly, loses no escrow, and leaves the choice open", () => {

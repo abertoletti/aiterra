@@ -234,7 +234,7 @@ test("capabilities are enforced, not narrated", () => {
 
 });
 
-test("a resident-built night earns its building the admission", () => {
+test("a resident-built night earns its proprietor the admission", () => {
   const { world, clock } = cityWorld();
   const started = buildTheHole(world);
   clock.advanceGameMinutes(20);
@@ -257,11 +257,15 @@ test("a resident-built night earns its building the admission", () => {
   world.advanceTo(clock.now());
 
   const annaBefore = world.getObservation("anna").character.credits;
+  const lucaBefore = world.getObservation("luca").character.credits;
   world.joinExperience("anna", hosted.data.id);
   assert.equal(world.getObservation("anna").character.credits, annaBefore - 30);
-  assert.equal(world.state.buildings.get(buildingId).balance, 30,
-    "admission funds the building, so upkeep can be paid from what the place earned");
-  assert.equal(world.state.buildings.get(buildingId).revenue, 30);
+  assert.equal(world.getObservation("luca").character.credits, lucaBefore + 30,
+    "admission is paid straight into the proprietor's wallet");
+  assert.equal(world.state.buildings.get(buildingId).revenue, 30,
+    "and the venue keeps a revenue ledger of what came through the door");
+  assert.equal(world.state.buildings.get(buildingId).balance, undefined,
+    "the building itself holds no separate balance");
 
   clock.advanceGameMinutes(100);
   world.leaveExperience("anna", hosted.data.id);
@@ -270,7 +274,7 @@ test("a resident-built night earns its building the admission", () => {
   assert.ok(resolved[0].data.factors.affinity > 0, "and it was worth something to her");
 });
 
-test("upkeep is charged from the building's balance, and failure is explicit", () => {
+test("upkeep is charged to the proprietor's wallet, and failure is explicit", () => {
   const { world, clock } = cityWorld({ upkeepIntervalWorldMinutes: 60 });
   const started = buildTheHole(world);
   clock.advanceGameMinutes(20);
@@ -279,27 +283,27 @@ test("upkeep is charged from the building's balance, and failure is explicit", (
   const perInterval = world.state.buildings.get(buildingId).upkeepPerInterval;
   assert.ok(perInterval >= 1);
 
-  world.fundBuilding("luca", buildingId, 50);
-  assert.equal(world.state.buildings.get(buildingId).balance, 50);
-
+  // A venue keeps no purse of its own: upkeep comes straight out of the owner's wallet.
+  const before = world.getObservation("luca").character.credits;
   clock.advanceGameMinutes(60);
   world.advanceTo(clock.now());
   const paid = world.history.filter((event) => event.type === "BUILDING_UPKEEP_PAID");
   assert.equal(paid.length, 1, "charged exactly once per due interval");
-  assert.equal(world.state.buildings.get(buildingId).balance, 50 - perInterval);
+  assert.equal(world.getObservation("luca").character.credits, before - perInterval,
+    "the charge comes straight out of the proprietor's wallet");
+  assert.equal(world.state.buildings.get(buildingId).upkeepPaid, perInterval,
+    "and the venue's upkeep ledger records what it cost to keep standing");
 
-  // With the balance empty the proprietor's own pocket covers it: delinquency should
+  // A solvent proprietor keeps the building however many intervals pass: delinquency should
   // mean insolvent, not inattentive, and a resident holding thousands should not lose a
   // building over an unpaid two.
   clock.advanceGameMinutes(60 * 40);
   world.advanceTo(clock.now());
-  assert.equal(world.state.buildings.get(buildingId).balance, 0);
   assert.equal(world.state.buildings.get(buildingId).status, "ACTIVE",
     "a solvent proprietor keeps the building");
   const paidFromPocket = world.history.filter((event) => event.type === "BUILDING_UPKEEP_PAID"
     && event.data.fromProprietor > 0);
-  assert.ok(paidFromPocket.length > 0, "and the charge comes out of their credits instead");
-
+  assert.ok(paidFromPocket.length > 0, "and every charge comes out of their credits");
 });
 
 test("a building whose proprietor is also broke fails explicitly", () => {
@@ -316,7 +320,6 @@ test("a building whose proprietor is also broke fails explicitly", () => {
   const failed = world.history.filter((event) => event.type === "BUILDING_UPKEEP_FAILED");
   assert.ok(failed.length > 0, "an unfundable building fails explicitly rather than going into hidden debt");
   assert.equal(world.state.buildings.get(buildingId).status, "DELINQUENT");
-  assert.ok(world.state.buildings.get(buildingId).balance >= 0, "and never holds a negative balance");
   assert.ok(failed[0].data.shortfall > 0, "with the shortfall recorded");
 });
 
@@ -372,18 +375,23 @@ test("an agent can actually reach the authoring actions through the runner", () 
   "the runner refuses to send a night the building cannot deliver");
 });
 
-test("only the proprietor funds the building, and the ledger survives a replay", () => {
-  const { world, clock } = cityWorld();
+test("the venue's revenue and upkeep ledger, and the takings in the owner's wallet, survive a replay", () => {
+  const { world, clock } = cityWorld({ upkeepIntervalWorldMinutes: 60 });
   const started = buildTheHole(world);
   clock.advanceGameMinutes(20);
   world.advanceTo(clock.now());
   const buildingId = started.data.buildingId;
 
-  assert.throws(() => world.fundBuilding("anna", buildingId, 10),
-    (error) => error instanceof DomainError && error.code === "NOT_PROPRIETOR");
-  assert.throws(() => world.fundBuilding("luca", buildingId, 0),
-    (error) => error instanceof DomainError && error.code === "INVALID_AMOUNT");
-  world.fundBuilding("luca", buildingId, 120);
+  const hosted = world.hostExperience("luca", {
+    buildingId, title: "Friday Night", profile: { music: 90, socializing: 70 },
+    durationGameMinutes: 120, accessPrice: 30,
+  });
+  world.startMove("anna", buildingId);
+  clock.advanceGameMinutes(25);
+  world.advanceTo(clock.now());
+  world.joinExperience("anna", hosted.data.id);
+  clock.advanceGameMinutes(60);
+  world.advanceTo(clock.now());
 
   const replayed = new World({
     store: new InMemoryEventStore(world.history), config: makeConfig(),
@@ -391,10 +399,14 @@ test("only the proprietor funds the building, and the ledger survives a replay",
   });
   const original = world.state.buildings.get(buildingId);
   const rebuilt = replayed.state.buildings.get(buildingId);
-  assert.equal(rebuilt.balance, original.balance);
+  assert.equal(rebuilt.revenue, original.revenue, "the admission ledger replays identically");
+  assert.ok(original.revenue > 0, "and there was admission to record");
+  assert.equal(rebuilt.upkeepPaid, original.upkeepPaid, "so does the upkeep ledger");
   assert.equal(rebuilt.status, original.status);
   assert.equal(rebuilt.locationId, original.locationId);
   assert.deepEqual(rebuilt.profile, original.profile);
+  assert.equal(replayed.state.characters.get("luca").credits, world.state.characters.get("luca").credits,
+    "and the proprietor's wallet - where the takings live now - rebuilds exactly");
   assert.equal(replayed.state.plots.get("plot-12-10").buildingId, buildingId);
 });
 
@@ -443,7 +455,7 @@ test("a proprietor can see the upkeep coming and whether the place is idle", () 
   world.advanceTo(clock.now());
 
   const offerFor = () => world.getObservation("luca").availableActions
-    .find((action) => action.type === "fund_building");
+    .find((action) => action.type === "host_experience");
   const idle = offerFor();
   assert.equal(idle.liveExperienceCount, 0, "an idle building is the thing upkeep punishes");
   assert.ok(idle.nextUpkeepAt, "so the charge has to be visible before it lands");
@@ -600,7 +612,7 @@ test("a proprietor employs out of the takings, and pins the notice in a square",
   const buildingId = started.data.buildingId;
   const building = () => world.state.buildings.get(buildingId);
 
-  // Takings first: the wage comes out of the building's own purse, not the proprietor's.
+  // Door money first: it lands in the proprietor's wallet, and the wage is paid from there.
   world.hostExperience("luca", {
     buildingId, title: "Opening Night", profile: { music: 30 },
     durationGameMinutes: 120, accessPrice: 40,
@@ -611,13 +623,14 @@ test("a proprietor employs out of the takings, and pins the notice in a square",
   clock.advanceGameMinutes(25);
   world.advanceTo(clock.now());
   world.joinExperience("anna", eventId);
-  assert.equal(building().balance, 40, "the door money is the building's");
+  const lucaAfterDoor = world.getObservation("luca").character.credits;
+  assert.equal(building().revenue, 40, "the door money is recorded as the venue's revenue");
 
   const offer = world.getObservation("luca").availableActions
     .find((action) => action.type === "publish_role");
   assert.ok(offer, "an active building that can create jobs offers the role");
-  assert.equal(offer.fundedFrom, "building_balance");
-  assert.equal(offer.balance, 40);
+  assert.equal(offer.fundedFrom, "proprietor_wallet");
+  assert.equal(offer.availableCredits, lucaAfterDoor, "and the purse it names is the proprietor's own wallet");
   assert.ok(offer.boardChoices.every((choice) => choice.locationId !== buildingId),
     "and the boards on offer are public squares, never the premises");
 
@@ -628,8 +641,8 @@ test("a proprietor employs out of the takings, and pins the notice in a square",
 
   assert.throws(() => world.publishRole("luca", {
     buildingId, boardLocationId: "commons", title: "Door staff",
-    durationGameMinutes: 30, wage: 500,
-  }), (error) => error instanceof DomainError && error.code === "INSUFFICIENT_BUILDING_BALANCE");
+    durationGameMinutes: 30, wage: lucaAfterDoor + 1000,
+  }), (error) => error instanceof DomainError && error.code === "INSUFFICIENT_CREDITS");
 
   const role = world.publishRole("luca", {
     buildingId, boardLocationId: "commons", title: "Work the door",
@@ -639,7 +652,8 @@ test("a proprietor employs out of the takings, and pins the notice in a square",
   assert.equal(role.data.fundingSourceType, "building");
   assert.equal(role.data.boardLocationId, "commons", "read in the square");
   assert.equal(role.data.locationId, buildingId, "worked at the building");
-  assert.equal(building().balance, 15, "and the wage is reserved from the takings");
+  assert.equal(world.getObservation("luca").character.credits, lucaAfterDoor - 25,
+    "and the wage is reserved out of the proprietor's own wallet");
 });
 
 test("the contributor loop closes: takings become a wage, a square becomes a hire", () => {
@@ -661,14 +675,14 @@ test("the contributor loop closes: takings become a wage, a square becomes a hir
   });
   const tomas = () => world.getObservation("tomas").character;
 
-  world.fundBuilding("luca", buildingId, 100);
-
+  const lucaBeforeRole = world.getObservation("luca").character.credits;
   const role = world.publishRole("luca", {
     buildingId, boardLocationId: "commons", title: "Work the door",
     description: "Check the list, keep the room right.",
     requirements: { social: 20 }, durationGameMinutes: 20, wage: 40,
   });
-  assert.equal(building().balance, 60, "the wage is reserved out of the takings");
+  assert.equal(world.getObservation("luca").character.credits, lucaBeforeRole - 40,
+    "the wage is reserved out of the proprietor's wallet");
 
   // Tomas is in the square where the notice hangs, so he can read it and answer it - even
   // though the venue itself is shut, which is exactly why the notice is not inside it. A
@@ -712,7 +726,8 @@ test("the contributor loop closes: takings become a wage, a square becomes a hir
   clock.advanceGameMinutes(20);
   world.advanceTo(clock.now());
 
-  assert.equal(tomas().credits - before, 40, "the building paid him, not the proprietor");
+  assert.equal(tomas().credits - before, 40, "the reserved wage paid him in full");
   assert.equal(tomas().skills.social, socialBefore + 2, "and the work taught him something");
-  assert.equal(building().balance, 60, "the escrow settled out of the reservation");
+  assert.equal(world.getObservation("luca").character.credits, lucaBeforeRole - 40,
+    "and the settled wage came out of that one reservation, never a second charge");
 });
