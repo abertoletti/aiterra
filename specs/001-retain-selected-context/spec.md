@@ -47,8 +47,9 @@ opportunity and its relevant terms without resending the complete opportunity ca
    catalog entries remain omitted.
 3. **Given** a known item that is not explicitly selected, **When** an authoritative action engages
    it, **Then** its context becomes pinned implicitly and remains available until its lifecycle ends.
-4. **Given** a pinned item that reaches a terminal state, **When** the next baseline is produced,
-   **Then** the selection is released and is no longer repeated as active context.
+4. **Given** an engaged item that reaches its expected successful terminal state, **When** the next
+   baseline is produced, **Then** the selection is released and is no longer repeated. A terminal
+   outcome that breaks an outstanding plan instead follows the material-invalidation behavior.
 
 ---
 
@@ -66,8 +67,9 @@ produce a partial consequence by submitting the stale action.
 
 **Acceptance Scenarios**:
 
-1. **Given** a pinned item, **When** it is withdrawn, filled, expired, or materially rescheduled,
-   **Then** the external agent receives the corresponding compact invalidation signal.
+1. **Given** a pinned item, **When** it is withdrawn, filled, expires before the expected successful
+   completion, or is materially rescheduled, **Then** the external agent receives the corresponding
+   compact invalidation signal.
 2. **Given** a pinned item, **When** the character's eligibility, applicable rules, or world
    configuration changes materially, **Then** the external agent receives the corresponding stable
    invalidation signal.
@@ -149,8 +151,10 @@ then create another and allow an unengaged selection to reach its world-time exp
 - **FR-004**: Retained context MUST contain the relevant published terms, feasibility information,
   blockers, identifiers, and version attribution needed to understand dependent decisions, subject
   to the character's existing visibility boundary.
-- **FR-005**: A selection MUST be released after an explicit release request or when its selected
-  item reaches a terminal state.
+- **FR-005**: A selection MUST be released after an explicit release request or the selected item's
+  expected successful terminal outcome. A withdrawal, cancellation, failure, premature expiry, or
+  other terminal outcome that breaks an outstanding plan MUST instead enter the one-cycle stale
+  invalidation lifecycle before release.
 - **FR-006**: A selected item not engaged by an authoritative action MUST expire six world hours
   after selection and MUST produce `CONTEXT_TTL_EXPIRED`.
 - **FR-007**: An engaged selection MUST NOT expire solely because the unengaged selection time-to-
@@ -159,9 +163,10 @@ then create another and allow an unengaged selection to reach its world-time exp
   `CONTEXT_ITEM_WITHDRAWN`, `CONTEXT_ITEM_FILLED`, `CONTEXT_ITEM_EXPIRED`,
   `CONTEXT_ITEM_RESCHEDULED`, `CONTEXT_ELIGIBILITY_CHANGED`,
   `CONTEXT_RULES_VERSION_CHANGED`, `CONTEXT_WORLD_CONFIGURATION_CHANGED`,
-  `CONTEXT_SELECTION_SUPERSEDED`, `CONTEXT_TTL_EXPIRED`, or `SUMMARY_OVERFLOW`. If multiple causes
-  become true before the next decision, the first cause in immutable event order MUST supply the
-  canonical code; later causes MUST remain auditable and MUST NOT replace that code.
+  `CONTEXT_SELECTION_SUPERSEDED`, or `CONTEXT_TTL_EXPIRED`. If multiple causes become true before
+  the next decision, the first cause in immutable event order MUST supply the canonical code; later
+  causes MUST remain auditable and MUST NOT replace that code. `SUMMARY_OVERFLOW` MUST remain a
+  catalog-summary refresh signal and MUST NOT become a selected item's canonical invalidation.
 - **FR-009**: An invalidated selection MUST remain readable and marked `stale: true` for exactly one
   complete decision cycle. Permitted context requests within that cycle MUST NOT consume the stale
   window. The selection MUST be absent from the next baseline after a final action or explicit
@@ -204,8 +209,9 @@ then create another and allow an unengaged selection to reach its world-time exp
   travel, compatible work, and conversation until an explicit lifecycle event ends them.
 - **SC-002**: A pinned selection is delivered without automatically resending the full catalog in
   100% of steady-state dependent decisions.
-- **SC-003**: Every defined invalidation cause produces its matching stable code, exposes stale
-  context for exactly one decision, and prevents partial effects from stale submissions.
+- **SC-003**: Every defined selected-context invalidation cause produces its matching stable code,
+  exposes stale context for exactly one decision, and prevents partial effects from stale
+  submissions; summary overflow remains a separate refresh signal.
 - **SC-004**: No character can retain more than three pinned selections, and every unengaged
   selection expires after exactly six world hours.
 - **SC-005**: Steady-state baseline observations remain at or below the 20 KB soft budget, cold
@@ -221,8 +227,10 @@ then create another and allow an unengaged selection to reach its world-time exp
 
 ## Assumptions
 
-- Progressive decision-context contract version 2 is approved and supplies the lifecycle, codes,
-  budgets, compatibility rules, and telemetry definitions for this feature.
+- Progressive decision-context policy version 2 is the approved source of the lifecycle intent,
+  codes, budgets, compatibility rules, and telemetry definitions. Runtime observations already
+  report contract version 3 for later visibility behavior; this feature records that history and
+  publishes its additive selected-context shape as contract version 4.
 - Existing baseline summaries, decision-scoped catalogs, deterministic ordering, filtering,
   pagination, cached rule manifests, and authoritative action validation remain in place.
 - The lifecycle applies uniformly to resources already declared selectable by the approved

@@ -10,10 +10,11 @@ Complete AIT-207 and AIT-909 by adding a character-scoped, event-sourced selecte
 projection to the existing progressive context contract. Agents will select or release any item
 they are already authorized to know through the existing action endpoint, while authoritative
 engagement actions pin their target implicitly. Up to three sanitized disclosure snapshots are
-redelivered in both full and progressive observations. Material changes, terminal states, explicit
-replacement, and a six-world-hour unengaged TTL are represented by immutable lifecycle
+redelivered in both full and progressive observations. Material changes, plan-breaking terminal
+outcomes, explicit replacement, and a six-world-hour unengaged TTL are represented by immutable lifecycle
 transitions. Invalidated context remains stale for one correlated decision cycle, including its
 bounded catalog reads, and is closed by the cycle's final action or explicit no-action response.
+Expected successful terminal outcomes release their engaged selection directly.
 
 The change remains within the established Node.js event-sourced single-process architecture. A
 context lifecycle transition is carried by the same immutable append as the mechanical event that
@@ -105,10 +106,22 @@ maps each current resource to snapshot production, engagement actions, terminal 
 material-change rules. An implicit engagement at full capacity is rejected before the mechanical
 event unless it engages one of the existing selections; it never replaces a plan implicitly.
 
+The registry classifies expected successful completion separately from plan-breaking termination.
+Completion releases an engaged selection directly; withdrawal, cancellation, failure, premature
+expiry, fill, or material reschedule invalidates an outstanding plan and opens its stale cycle.
+`SUMMARY_OVERFLOW` stays a catalog-summary refresh signal and never becomes a selected item's
+canonical lifecycle cause.
+
 Unengaged selections enter `nextDueItem()` as deterministic scheduler entries ordered by world
 time, lifecycle priority, and selection ID. At six world hours the scheduler appends one TTL
 invalidation. Engaged selections have no selection TTL. Restart and overdue processing use the
 same scheduler path.
+
+Rules-manifest and world-configuration changes use an explicit event-first version-transition
+entry point invoked after replay and before the first observation/action, and by any future live
+activation path. When current versions differ from the projection, it appends the transition before
+invalidating unengaged selections; engaged selections retain their governing versions. This slice
+does not add a public hot-configuration API.
 
 ### Protocol and runtime
 
@@ -140,6 +153,10 @@ acceptance walkthrough is in [quickstart.md](./quickstart.md).
   continue to observe and submit existing actions.
 - Bump the metrics schema only if new aggregates are added to the public metrics response; keep
   lifecycle event evidence versioned regardless.
+
+Lifecycle telemetry correlates context requests, selections, releases, refresh signals,
+invalidations, stale-action rejections, final actions, and engagement outcomes. Aggregate views use
+the denominators fixed in `research.md` and never include snapshot bodies.
 
 ## Project Structure
 

@@ -120,16 +120,20 @@ maps only semantically engaging actions to engagement/terminal transitions. In t
 
 | Resource | Authoritative engagement | Terminal/release examples |
 |---|---|---|
-| `opportunities` | accept a job, apply for a role, or join/be selected for its team | withdrawn application; job completed, cancelled, failed, or expired |
-| `experiences` | attend the selected event | leave or event end |
-| `courses` | enroll in the selected course | complete, abandon, cancel, or expire |
-| `plots` | commit construction on the selected plot | construction creates the building or the plot becomes unavailable |
-| `buildings` | commit a building-targeted owner operation or an event/course/job hosted there | operation completion, building terminal state, or explicit release |
-| `people` | start a conversation with the selected person | conversation end or explicit release |
+| `opportunities` | accept a job, apply for a role, or join/be selected for its team | successful completion releases; withdrawal, cancellation, failure, premature expiry, or fill invalidates |
+| `experiences` | attend the selected event | planned end or voluntary leave releases; cancellation or material reschedule invalidates |
+| `courses` | enroll in the selected course | completion or voluntary abandon releases; cancellation or premature expiry invalidates |
+| `plots` | commit construction on the selected plot | successful construction releases; the plot becoming unavailable invalidates |
+| `buildings` | commit a building-targeted owner operation or an event/course/job hosted there | successful operation completion releases; loss of availability invalidates |
+| `people` | start a conversation with the selected person | normal conversation end releases; material eligibility loss invalidates |
 
 Travel near a person/building/plot and ordinary catalog inspection are not engagement. An adapter
 may keep a selection explicit-only until the domain has a real authoritative commitment action;
 it must not invent one merely to defeat TTL.
+
+Across every resource, an expected successful terminal outcome releases directly. A terminal event
+that makes an outstanding plan fail enters the stale invalidation lifecycle first. This distinction
+preserves both normal cleanup and the requirement to explain unexpected loss of feasibility.
 
 **Rationale**: One resolver prevents catalog/selection privacy drift while the explicit matrix
 prevents every action containing an ID from becoming a permanent plan accidentally.
@@ -177,10 +181,10 @@ details were disclosed in the correlated cycle.
 - The policy describes cursor behavior and resource families not implemented by the current six
   catalogs; this feature does not add them.
 - Live world-configuration activation currently occurs only on an empty store, and rules changes
-  lack a runtime transition. The lifecycle accepts explicit version-transition events and tests
-  their invalidation mapping; enabling hot configuration/rules rollout is separate work.
+  lack a runtime transition. This feature adds an internal event-first version-transition producer,
+  invoked after replay before serving observations/actions and reusable by future activation paths.
+  Enabling a public hot configuration/rules rollout remains separate work.
 - Existing context-request telemetry lacks some policy fields. This feature adds the correlation
   required for its own success measures without turning into a general telemetry rewrite.
 - Current item summary versions do not include every character-feasibility input. Selected-context
   invalidation therefore follows immutable material events/adapters, not summary-version inference.
-

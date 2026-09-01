@@ -90,9 +90,10 @@ stale --final action / explicit no-action / stale rejection--> released
 | Replace | Select with `replacesSelectionId` | `CONTEXT_SELECTION_REPLACED` | Old record becomes stale with `CONTEXT_SELECTION_SUPERSEDED`; new record occupies slot atomically. |
 | Implicit pin | Engagement action on unselected known item | `contextLifecycle` on the mechanical event | Create engaged record atomically. |
 | Engage | Engagement action on selected item | `contextLifecycle` on the mechanical event | Mark engaged and clear TTL atomically. |
-| Release | Explicit release or terminal event | `CONTEXT_RELEASED` or transition on terminal event | Mark released; absent from future public view. |
-| Invalidate | First material causal event | Transition on causal event or `CONTEXT_INVALIDATED` | Mark stale, preserve snapshot, assign cycle ID. |
+| Release | Explicit release or expected successful terminal event | `CONTEXT_RELEASED` or transition on terminal event | Mark released; absent from future public view. |
+| Invalidate | First plan-breaking material or adverse terminal event | Transition on causal event or `CONTEXT_INVALIDATED` | Mark stale, preserve snapshot, assign cycle ID. |
 | TTL invalidate | Six world hours, still unengaged | `CONTEXT_INVALIDATED` | Stale with `CONTEXT_TTL_EXPIRED`. |
+| Version transition | Current rules/config version differs after replay or activation | `CONTEXT_POLICY_VERSION_TRANSITIONED` | Invalidate affected unengaged selections before serving the next decision. |
 | Reject stale | Final action targets stale selection | `CONTEXT_STALE_ACTION_REJECTED` | Persist rejection/no effects; close cycle. |
 | Close stale cycle | Accepted final action or no-action | `CONTEXT_STALE_CYCLE_CLOSED` or transition on final event | Release stale records named by the cycle. |
 
@@ -101,8 +102,8 @@ stale --final action / explicit no-action / stale rejection--> released
 For final action commands, perform checks in this order before recording mechanical effects:
 
 1. Authenticate character and normalize the action envelope.
-2. Resolve any supplied `decisionCycleId` against the character's open stale cycle.
-3. Return a persisted receipt for an already processed idempotency key.
+2. Return a persisted accepted or rejected receipt for an already processed idempotency key.
+3. Resolve any supplied `decisionCycleId` against the character's open stale cycle.
 4. Verify `expectedStateVersion` under the existing optimistic-concurrency rules.
 5. Reject a target that resolves to stale selected context, persisting the rejection receipt.
 6. Resolve live authorization and authoritative feasibility.
@@ -127,4 +128,3 @@ The public selected-context view is ordered by `selectionId` after lifecycle pri
 - `decisionCycleId` only for the owning character's open stale cycle.
 
 Released records remain in replay state/history evidence but are omitted from baseline context.
-

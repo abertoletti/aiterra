@@ -93,7 +93,23 @@ npm run test:20
 ```
 
 Before implementation, run `$speckit-analyze` after `tasks.md` exists. After all tasks are
-implemented, run `$speckit-converge` and complete every appended gap. A managed pilot report must
-include context bytes, avoided repeated bytes, explicit selection-to-engagement conversion,
-invalidation counts by canonical cause, and post-disclosure rejection rate.
+implemented, run `$speckit-converge` and complete every appended gap.
 
+For reproducible pilot evidence, use two new run directories, the same checked-in ten-agent world
+configuration, the same model/deployment settings from `.env`, and the full 30-minute managed
+duration:
+
+```powershell
+$env:PILOT_CONTEXT_MODE = "full"
+node --env-file=.env src/run-managed-pilot.js .data/selected-context-v4-full 30
+$env:PILOT_CONTEXT_MODE = "progressive"
+node --env-file=.env src/run-managed-pilot.js .data/selected-context-v4-progressive 30
+Remove-Item Env:PILOT_CONTEXT_MODE
+```
+
+Both output directories must be absent before the run. Preserve their manifests and reports. The
+comparison must state the context mode, config/model identity, decision count, p50/p90 and maximum
+baseline/catalog bytes, avoided repeated bytes, explicit selection-to-first-engagement conversion,
+canonical invalidations by cause, refreshes, releases, and post-disclosure rejection numerator and
+denominator. If no selection or invalidation occurs, report a zero denominator rather than infer a
+rate; the deterministic acceptance suites remain the correctness gate.

@@ -175,7 +175,7 @@ closes the stale window, and is returned identically on retry.
 |---|---|
 | `CONTEXT_ITEM_WITHDRAWN` | The item was explicitly withdrawn or cancelled before engagement. |
 | `CONTEXT_ITEM_FILLED` | Required capacity/slot was filled by another accepted outcome. |
-| `CONTEXT_ITEM_EXPIRED` | The underlying item reached its own deadline/end. |
+| `CONTEXT_ITEM_EXPIRED` | The item expired before the expected successful outcome and broke the outstanding plan. |
 | `CONTEXT_ITEM_RESCHEDULED` | A timing change materially affects the dependent plan. |
 | `CONTEXT_ELIGIBILITY_CHANGED` | The character's current eligibility changed materially. |
 | `CONTEXT_RULES_VERSION_CHANGED` | An unengaged selection's governing rules changed. |
@@ -186,6 +186,19 @@ closes the stale window, and is returned identically on retry.
 
 The first applicable cause in immutable event sequence is canonical. Later causal events remain
 auditable but cannot replace the public invalidation code.
+
+An expected successful completion is not an invalidation: it releases the engaged selection
+directly. Withdrawal, cancellation, failure, premature expiry, fill, and material reschedule are
+plan-breaking outcomes and therefore preserve the stale explanation for the correlated cycle.
+
+## Rules and world-configuration transitions
+
+After replay and before serving the first observation or action, the world compares the current
+rules-manifest and world-configuration versions with the replayed governing versions. A difference
+is recorded through `CONTEXT_POLICY_VERSION_TRANSITIONED` before affected unengaged selections are
+invalidated. The same internal entry point is available to a future live activation path. Engaged
+selections keep the versions under which engagement occurred. No public hot-configuration endpoint
+is introduced by this contract.
 
 ## Lifecycle event evidence
 
@@ -209,4 +222,3 @@ Snapshot bodies are character-private history and are excluded from logs and agg
 - Full/progressive modes expose identical known item IDs and identical selected-context entries.
 - The new rules manifest documents selection limits, TTL, replacement, stale response, and final
   no-action behavior under a new manifest version/digest.
-
