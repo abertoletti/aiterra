@@ -11,6 +11,17 @@ external agent can retain relevant opportunity details through dependent decisio
 stable actionable invalidation signals, while preserving existing progressive-context visibility,
 compatibility, and authoritative revalidation."
 
+## Clarifications
+
+### Session 2026-09-01
+
+- Q: If multiple invalidation causes become true before the next decision, which code does the
+  agent receive? → A: The first cause in immutable event order.
+- Q: When does a new selection produce `CONTEXT_SELECTION_SUPERSEDED` instead of using another
+  slot? → A: Only when explicitly replacing a named selection.
+- Q: How long does an invalidated selection remain readable when the agent requests more context?
+  → A: For the complete decision cycle, including allowed context requests.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Keep Decision Context While Acting (Priority: P1)
@@ -60,10 +71,14 @@ produce a partial consequence by submitting the stale action.
 2. **Given** a pinned item, **When** the character's eligibility, applicable rules, or world
    configuration changes materially, **Then** the external agent receives the corresponding stable
    invalidation signal.
-3. **Given** an invalidated selection, **When** the next decision is requested, **Then** the stale
-   details remain readable for that one decision and are visibly marked stale.
+3. **Given** an invalidated selection, **When** the next decision cycle begins, **Then** the stale
+   details remain readable and visibly marked stale throughout that complete cycle, including any
+   context requests allowed within the existing decision budget.
 4. **Given** a stale selection, **When** an action is submitted against it, **Then** the action is
    rejected with an actionable explanation and produces no partial effect.
+5. **Given** a decision cycle that exposed stale selected context, **When** the agent submits its
+   final action or explicitly declines to act, **Then** the next baseline no longer carries that
+   stale selection.
 
 ---
 
@@ -83,11 +98,14 @@ then create another and allow an unengaged selection to reach its world-time exp
 1. **Given** three pinned selections for one character, **When** a fourth selection is requested,
    **Then** it is refused with `CONTEXT_SELECTION_LIMIT_REACHED` and the existing selections remain
    unchanged.
-2. **Given** a pinned selection, **When** the external agent explicitly releases it, **Then** it is
+2. **Given** a pinned selection, **When** the external agent explicitly names it for replacement by
+   a new authorized selection, **Then** the old selection is invalidated with
+   `CONTEXT_SELECTION_SUPERSEDED` and the new selection occupies the same slot atomically.
+3. **Given** a pinned selection, **When** the external agent explicitly releases it, **Then** it is
    absent from subsequent active context and another selection can take its place.
-3. **Given** a selected item that has not been engaged, **When** six world hours pass, **Then** it is
+4. **Given** a selected item that has not been engaged, **When** six world hours pass, **Then** it is
    invalidated with `CONTEXT_TTL_EXPIRED`.
-4. **Given** a selected item that has become authoritatively engaged, **When** its original
+5. **Given** a selected item that has become authoritatively engaged, **When** its original
    selection age reaches six world hours, **Then** it remains pinned until release, terminal state,
    or another applicable invalidation rule.
 
@@ -99,13 +117,19 @@ then create another and allow an unengaged selection to reach its world-time exp
   about that item.
 - Repeating the same select or release request must not duplicate selections, consume additional
   capacity, or produce inconsistent lifecycle events.
+- A new selection must never replace an existing plan implicitly. Replacement must identify the
+  existing selection, invalidate it with `CONTEXT_SELECTION_SUPERSEDED`, and install the new
+  selection as one atomic outcome.
 - When a rule or world-configuration version changes, an engaged selection retains the version
   that governed its engagement; an unengaged selection receives the defined invalidation.
-- A selected item that reaches a terminal state at the same world instant as another material
-  change must produce a deterministic, actionable outcome and must not disappear before the agent
-  can understand what happened.
+- When multiple invalidation causes become true before the next decision, the first cause in
+  immutable event order supplies the selection's canonical invalidation code. Later causes remain
+  in event history but do not replace that code. The stale selection must not disappear before the
+  agent can understand what happened.
 - Summary overflow must not drop pinned context, known blockers, or the indication that a refresh
   is required.
+- A permitted context request within the stale decision cycle must not consume the one-cycle stale
+  window; existing context-request limits still prevent an unbounded decision loop.
 - A character with pinned items must not receive another character's private selection, terms, or
   feasibility changes.
 
@@ -117,7 +141,9 @@ then create another and allow an unengaged selection to reach its world-time exp
   and MUST create the same retained context implicitly when an authoritative action engages an
   item.
 - **FR-002**: The world MUST retain no more than three pinned selections per character and MUST
-  reject a fourth with `CONTEXT_SELECTION_LIMIT_REACHED` without changing existing selections.
+  reject a fourth with `CONTEXT_SELECTION_LIMIT_REACHED` without changing existing selections. A
+  new selection MUST supersede an existing one only when the request explicitly identifies that
+  selection for replacement; the old invalidation and new selection MUST be one atomic outcome.
 - **FR-003**: Every baseline MUST redeliver pinned context through travel, work, conversation, and
   other dependent decisions until that context is released, completed, or invalidated.
 - **FR-004**: Retained context MUST contain the relevant published terms, feasibility information,
@@ -133,9 +159,13 @@ then create another and allow an unengaged selection to reach its world-time exp
   `CONTEXT_ITEM_WITHDRAWN`, `CONTEXT_ITEM_FILLED`, `CONTEXT_ITEM_EXPIRED`,
   `CONTEXT_ITEM_RESCHEDULED`, `CONTEXT_ELIGIBILITY_CHANGED`,
   `CONTEXT_RULES_VERSION_CHANGED`, `CONTEXT_WORLD_CONFIGURATION_CHANGED`,
-  `CONTEXT_SELECTION_SUPERSEDED`, `CONTEXT_TTL_EXPIRED`, or `SUMMARY_OVERFLOW`.
-- **FR-009**: An invalidated selection MUST remain readable for exactly one further decision and
-  MUST be marked `stale: true` during that decision.
+  `CONTEXT_SELECTION_SUPERSEDED`, `CONTEXT_TTL_EXPIRED`, or `SUMMARY_OVERFLOW`. If multiple causes
+  become true before the next decision, the first cause in immutable event order MUST supply the
+  canonical code; later causes MUST remain auditable and MUST NOT replace that code.
+- **FR-009**: An invalidated selection MUST remain readable and marked `stale: true` for exactly one
+  complete decision cycle. Permitted context requests within that cycle MUST NOT consume the stale
+  window. The selection MUST be absent from the next baseline after a final action or explicit
+  no-action response closes the cycle.
 - **FR-010**: Submission against stale selected context MUST return an actionable rejection and
   MUST produce no partial mechanical, economic, scheduling, or commitment effect.
 - **FR-011**: Selection and invalidation changes MUST be delivered as compact context changes and
