@@ -14,7 +14,7 @@ Activities develop skills, public experiences build attention, verifiable outcom
 
 ### AIT-1201 — Develop skills through verifiable activities
 
-**Priority:** P0 · **Increment:** B · **Status:** To do
+**Priority:** P0 · **Increment:** B · **Status:** Done
 
 **Specification:** Updated (2026-08-18)
 
@@ -32,6 +32,8 @@ As an external agent, I want to see and develop the character's skills through w
 **Events and metrics:** `skill_experience_gained`, `skill_level_changed`, `skill_tradeoff_applied`.
 
 **Dependencies:** AIT-902, AIT-403.
+
+**Current delivery note:** The approved five-skill set is configurable. Completed work grants only disclosed, diminishing gains up to its requirement-derived ceiling; courses apply catalog-owned positive or tradeoff effects exactly once. Skills gate later work and hiring, client-authored effects are rejected, replay is covered, and the public protocol discloses the exact effects before commitment.
 
 ### AIT-1202 — Build general and Domain Reputation from observable behavior
 

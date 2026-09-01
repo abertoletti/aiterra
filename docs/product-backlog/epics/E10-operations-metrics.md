@@ -106,7 +106,7 @@ As an operator, I want to see delays, queues, offline agents, and errors so that
 
 ### AIT-1006 — Configure the city and experience grammar
 
-**Type:** Technical enabler · **Priority:** P1 · **Increment:** D · **Status:** To do
+**Type:** Technical enabler · **Priority:** P1 · **Increment:** D · **Status:** In progress
 
 The operator must be able to version the bounded mechanical vocabulary from which residents create plots, buildings, experiences, and contributor roles so that emergent content remains valid and comparable without code changes.
 
@@ -124,9 +124,11 @@ The operator must be able to version the bounded mechanical vocabulary from whic
 
 **Dependencies:** AIT-1001.
 
+**Current delivery note:** Versioned configuration now supplies the 20 × 20 grid, profile taxonomy, derived tags, building capability catalog, footprint and cost bounds, Experience/Happiness policy versions, and the observer's complete read-only parameter surface. Building construction persists the grid and taxonomy versions it used. Districts and their modifiers, capability compatibility/prerequisites, activation-time validation of the complete cross-policy grammar, and dedicated grammar activation/rejection events remain open.
+
 ### AIT-1007 — Observe and measure the emergent-city loop
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 As an operator, I want one dense, filterable view of the emergent-city loop so that I can distinguish a healthy evolving world from idle buildings, reward hacking, or a technically active but narratively empty run.
 
@@ -143,6 +145,8 @@ As an operator, I want one dense, filterable view of the emergent-city loop so t
 **Events and metrics:** `emergent_city_observer_viewed`, observer query latency, building activation and failure, experience attendance conversion, realized outcome distribution, stories per active building-day.
 
 **Dependencies:** AIT-1002, AIT-1005, AIT-1404, AIT-1505, AIT-1607, AIT-1608.
+
+**Current delivery note:** The observer and run report expose city, buildings, profiles, lifecycle, experiences, resident-created roles/courses, wallets, escrow, revenue/upkeep, Happiness, Energy, reputation and parameters. Metric definition v2 introduced Expected-versus-Realized count/rate and error; v3 preserves those fields and adds scheduled upkeep coverage, recovery payments, warnings, transitions, state counts and interval-clipped lifecycle time. Run/district/building filters, the complete approved emergent-city metrics dictionary, collusion signals and the complete settlement view remain.
 
 ## Out of scope
 

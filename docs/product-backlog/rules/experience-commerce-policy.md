@@ -2,7 +2,7 @@
 
 **Version:** 1 · **Scope:** paid access to an experience · **Updated:** 2026-08-19 · **Applies to:** AIT-904, AIT-1504, AIT-1601, AIT-1605, AIT-1606, AIT-1607
 
-Version 1 approves one transaction: paying to enter an experience. Services, donations, proprietor distribution, and the full settlement order remain **Draft**, because they need buildings and contributor roles that do not exist yet.
+Version 1 approves one transaction: paying to enter an experience. Buildings, generic roles, and one catalog-owned resident service (courses) now exist, but services beyond courses, donations, operating costs, and the full settlement order remain **Draft**.
 
 This is the slice that gives Credits a sink. The first pilot showed residents earning wages with nothing to spend them on, which is why only 6% of their actions were work.
 
@@ -49,4 +49,4 @@ No refund on early departure is deliberate, and it is what makes the Happiness p
 
 ## Still Draft
 
-`sell_service` and its fulfillment lifecycle; `accept_donation` and its anti-collusion signals; operating-cost formula, reservation and underfunding; the deterministic settlement order across access, services, wages, operating cost, building balance and proprietor distribution; fees, taxes, and rounding rules; and no-show and denied-entry handling for resident-run experiences.
+`sell_service` beyond the catalog-owned course slice and its fulfillment lifecycle; `accept_donation` and its anti-collusion signals; operating-cost formula, reservation and underfunding; the deterministic settlement order across access, services, wages, operating cost, proprietor wallet, and building-attributed ledger; fees, taxes, and rounding rules; and no-show and denied-entry handling for resident-run experiences.

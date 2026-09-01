@@ -64,7 +64,7 @@ Finding out which experiences exist is AIT-1510. This story is the detail view o
 
 ### AIT-1503 — Estimate an experience's value from disclosed facts
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** Done
 
 **Specification:** Updated (2026-08-19)
 
@@ -88,6 +88,8 @@ The server computes no Expected Happiness. This story replaces a server-side est
 **Events and metrics:** `experience_facts_requested`, `expectation_declared`, declaration rate, expected-versus-realized error and its trend per runtime.
 
 **Dependencies:** AIT-1006, AIT-206, AIT-701, AIT-1501, AIT-1502, AIT-1504, AIT-1507.
+
+**Delivery evidence:** The city catalog and decision-scoped experience view disclose the controlled profile, the character's own affinity and repetition outlook, price, capacity, attendance, schedule, Energy costs, blockers, and the versioned Realized Happiness rules without ranking or predicting an outcome. The public `attend_event` command accepts an optional integer `expectedHappiness` on the disclosed raw range, validates it before payment or Energy, persists one immutable declaration correlated with the attendance, and never reads it as a resolution input. Resolution records realized-minus-expected and metric definition version 2 reports declaration rate, comparison count, signed mean error, and mean absolute error. Omission remains valid and unpenalized; idempotent retries and event-log replay preserve the original correlation.
 
 ### AIT-1504 — Attend and leave an experience for a chosen duration
 

@@ -26,16 +26,26 @@ const CHANGE_KINDS = new Set([
   "eligibility_changed", "rescheduled", "repriced", "terminal",
 ]);
 
-const FILTERS = {
-  opportunities: ["locationId", "minimumCompensation", "feasibleOnly"],
-  experiences: [
-    "locationId", "startsAfter", "startsBefore",
-    "tag", "minimumAffinity", "maximumPrice", "feasibleOnly",
-  ],
-  plots: ["availableOnly", "maximumDistance", "feasibleOnly"],
-  buildings: ["locationId", "tag", "minimumAffinity", "maximumDistance", "feasibleOnly"],
-  people: ["locationId", "subjectCharacterId", "feasibleOnly"],
-  courses: ["locationId", "feasibleOnly"],
+export const CONTEXT_FILTER_SCHEMAS = {
+  opportunities: {
+    locationId: "string", minimumCompensation: "number >= 0", feasibleOnly: "boolean",
+  },
+  experiences: {
+    locationId: "string", startsAfter: "ISO timestamp", startsBefore: "ISO timestamp",
+    tag: "profile dimension", minimumAffinity: "number 0..100",
+    maximumPrice: "number >= 0", feasibleOnly: "boolean",
+  },
+  plots: {
+    availableOnly: "boolean", maximumDistance: "number >= 0", feasibleOnly: "boolean",
+  },
+  buildings: {
+    locationId: "string", tag: "profile dimension", minimumAffinity: "number 0..100",
+    maximumDistance: "number >= 0", feasibleOnly: "boolean",
+  },
+  people: {
+    locationId: "string", subjectCharacterId: "string", feasibleOnly: "boolean",
+  },
+  courses: { locationId: "string", feasibleOnly: "boolean" },
 };
 
 export function contextSummaries(world, characterId, since = 0) {
@@ -59,9 +69,9 @@ export function inspectCatalog(world, characterId, {
     throw new DomainError("INVALID_CATALOG_OFFSET", "Catalog offset must be a non-negative integer", 400);
   }
   for (const key of Object.keys(filters)) {
-    if (!FILTERS[resource].includes(key)) {
+    if (!Object.hasOwn(CONTEXT_FILTER_SCHEMAS[resource], key)) {
       throw new DomainError("UNKNOWN_CONTEXT_FILTER",
-        `${resource} accepts only ${FILTERS[resource].join(", ")}`, 400);
+        `${resource} accepts only ${Object.keys(CONTEXT_FILTER_SCHEMAS[resource]).join(", ")}`, 400);
     }
   }
   validateFilterValues(world, filters);
@@ -81,6 +91,7 @@ export function inspectCatalog(world, characterId, {
   return {
     resource,
     contextContractVersion: CONTEXT_CONTRACT_VERSION,
+    allowedFilters: structuredClone(CONTEXT_FILTER_SCHEMAS[resource]),
     catalogVersion: catalogVersion(world, known),
     knownCount: known.length,
     count: matching.length,
@@ -141,6 +152,7 @@ function summarize(world, characterId, resource, since) {
   return {
     resource,
     contextContractVersion: CONTEXT_CONTRACT_VERSION,
+    allowedFilters: structuredClone(CONTEXT_FILTER_SCHEMAS[resource]),
     catalogVersion: catalogVersion(world, known),
     count: known.length,
     feasibleCount: known.filter((entry) => entry.feasible).length,
@@ -203,7 +215,7 @@ function knownPlots(world, characterId) {
   const items = [];
   for (let y = 1; y <= city.height; y += 1) {
     for (let x = 1; x <= city.width; x += 1) {
-      const view = world.plotView(x, y);
+      const view = world.plotView(x, y, characterId);
       const distance = gridDistance(here, { x, y });
       items.push({
         id: view.id,
@@ -264,6 +276,9 @@ function knownBuildings(world, characterId) {
           ...(building.proprietorId === characterId
             ? {
               revenue: building.revenue,
+              upkeepPaid: building.upkeepPaid,
+              ...world.buildingLifecycleView(building),
+              availableCredits: character.credits,
               upkeepPerInterval: building.upkeepPerInterval,
               dailyUpkeep: building.dailyUpkeep,
               constructionCost: building.constructionCost,
@@ -306,6 +321,8 @@ function knownOpportunities(world, characterId) {
           ...publicJob(job, world.config.energy.workCost),
           engaged,
           feasibility,
+          ...(job.status === "accepted" && job.workerIds.includes(characterId)
+            ? { startFeasibility: world.jobStartFeasibility(character, job) } : {}),
           ...(view
             ? {
               unmetRequirements: view.unmetRequirements,

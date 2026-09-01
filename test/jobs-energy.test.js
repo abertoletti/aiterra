@@ -140,10 +140,12 @@ test("rest recovers once at completion, caps energy, and does not hide perceptib
   const world = new World({ store: new InMemoryEventStore(), config, clock, idGenerator: sequentialIds() });
   world.defineLocation({ id: "home", name: "Home" });
   world.defineLocation({ id: "square", name: "Square" });
-  world.createCharacter({ id: "resting", name: "Resting", locationId: "home", energy: 90 });
+  world.createCharacter({ id: "resting", name: "Resting", locationId: "home", energy: 40 });
   world.createCharacter({ id: "visitor", name: "Visitor", locationId: "square" });
 
-  world.startRest("resting");
+  const started = world.startRest("resting");
+  assert.equal(started.data.expectedRecovery, 50);
+  config.energy.restRecovery = 5;
   assert.throws(
     () => world.startConversation("resting", "visitor", "Can we talk?"),
     (error) => error instanceof DomainError && error.code === "NOT_COLOCATED",
@@ -164,7 +166,8 @@ test("rest recovers once at completion, caps energy, and does not hide perceptib
   clock.advanceGameMinutes(45);
   world.advanceTo(clock.now());
   world.advanceTo(clock.now());
-  assert.equal(world.getObservation("resting").character.energy, 100);
+  assert.equal(world.getObservation("resting").character.energy, 90,
+    "completion keeps the recovery announced at start even if a later policy changes");
   assert.equal(world.history.filter((event) => event.type === "REST_COMPLETED").length, 1);
 });
 

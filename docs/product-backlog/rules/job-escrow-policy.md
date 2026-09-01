@@ -4,6 +4,12 @@
 
 ## Reservation and states
 
+### Default city slots (agent-rules-v10, 2026-08-26)
+
+Only system-budget-funded jobs close an unfilled slot immediately after its disclosed start grace window. `unfilled_system_slot` expires it, refunds the original reservation once, and releases partial teams without no-show reputation penalties. A repeatable slot reopens after its cooldown only with sufficient funding; both expiry and renewal run chronologically, including after a large time advance. Fully accepted jobs keep their existing no-show rules. This change does not expire or automatically renew resident-created roles; their published deadlines and existing contracts are unchanged.
+
+`start_job` uses the same readiness check in the command, menu and engaged worker's catalog: the whole team must be available, idle, co-located, inside the window and sufficiently energized.
+
 Compensation is reserved atomically when a paid job is published, before it becomes `OPEN`. An unfunded job is rejected and never becomes visible as an acceptable offer.
 
 Job states:

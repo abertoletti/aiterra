@@ -218,6 +218,14 @@ export function createHttpServer({
         return json(response, 200, { events: world.getCharacterHistory(characterId, limit) });
       }
 
+      match = url.pathname.match(/^\/api\/characters\/([^/]+)\/building-quotes$/);
+      if (request.method === "POST" && match) {
+        const characterId = decodeURIComponent(match[1]);
+        authorizeAndLimit(request, characterId, "observe", agentTokens, rateLimits, world);
+        const proposal = await readJson(request, world.config.protocol.requestBodyLimitBytes);
+        return json(response, 200, world.quoteBuildingProposal(characterId, proposal));
+      }
+
       match = url.pathname.match(/^\/api\/characters\/([^/]+)\/actions$/);
       if (request.method === "POST" && match) {
         const characterId = decodeURIComponent(match[1]);

@@ -28,6 +28,8 @@ const visibleTypes = new Set([
   "EVENT_CREATED",
   "EVENT_ATTENDANCE_STARTED",
   "EVENT_ATTENDANCE_ENDED",
+  "EXPERIENCE_EXPECTATION_DECLARED",
+  "EXPERIENCE_HAPPINESS_RESOLVED",
   "INVITATION_SENT",
   "INVITATION_ACCEPTED",
   "INVITATION_DECLINED",
@@ -57,6 +59,8 @@ const visibleTypes = new Set([
   "BUILDING_ROLE_APPLICATION_WITHDRAWN",
   "BUILDING_ROLE_FILLED",
   "BUILDING_ROLE_CANDIDATE_REJECTED",
+  "BUILDING_DELINQUENT", "BUILDING_INACTIVATED", "BUILDING_REACTIVATED",
+  "BUILDING_LIFECYCLE_WARNING", "BUILDING_CLOSED", "BUILDING_ABANDONED",
 ]);
 
 export function buildTimeline(events, options = {}) {
@@ -148,6 +152,12 @@ function describe(event, name, location) {
       return `${name(data.characterId)} started attending “${data.title}” at ${location(data.locationId)}.`;
     case "EVENT_ATTENDANCE_ENDED":
       return `${name(data.characterId)} finished attending “${data.title}”.`;
+    case "EXPERIENCE_EXPECTATION_DECLARED":
+      return `${name(data.characterId)} expected experience ${data.eventId} to be worth ${signed(data.expectedHappiness)} raw Happiness.`;
+    case "EXPERIENCE_HAPPINESS_RESOLVED":
+      return data.expectedHappiness === null || data.expectedHappiness === undefined
+        ? `${name(data.characterId)} realized ${signed(data.rawDelta)} raw Happiness from experience ${data.eventId}.`
+        : `${name(data.characterId)} realized ${signed(data.rawDelta)} raw Happiness from experience ${data.eventId}, ${signed(data.realizedMinusExpected)} versus the recorded expectation.`;
     case "INVITATION_SENT":
       return `${name(data.senderId)} invited ${name(data.targetId)} to ${data.destinationType === "event" ? `event ${data.eventId}` : location(data.locationId)}.`;
     case "INVITATION_ACCEPTED":
@@ -206,6 +216,14 @@ function describe(event, name, location) {
       return `${name(data.characterId)} was selected for “${data.title}”.`;
     case "BUILDING_ROLE_CANDIDATE_REJECTED":
       return `${name(data.characterId)} was not selected for “${data.title}” (${humanize(data.cause)}).`;
+    case "BUILDING_LIFECYCLE_WARNING":
+      return `${data.name} risks becoming ${data.nextStatus} at ${data.transitionAt}; recovery costs ${data.recoveryCost} credits.`;
+    case "BUILDING_DELINQUENT":
+    case "BUILDING_INACTIVATED":
+    case "BUILDING_REACTIVATED":
+    case "BUILDING_CLOSED":
+    case "BUILDING_ABANDONED":
+      return `${data.name} changed from ${data.previousStatus} to ${data.status}; its history and existing obligations are preserved.`;
     default:
       return humanize(event.type);
   }

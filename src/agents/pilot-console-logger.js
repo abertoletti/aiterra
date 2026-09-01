@@ -151,6 +151,12 @@ export function formatPilotActivity(record, agentNames = new Map()) {
     case "decision_required":
       description = `${details.trigger ?? "unknown"} · ${details.reason ?? "decision required"}`;
       break;
+    case "decision_context_requested":
+      description = `${details.resource ?? "catalog"} · filters=${JSON.stringify(details.filters ?? {})} · returned=${details.returned ?? "?"}`;
+      break;
+    case "building_quote_requested":
+      description = `${details.proposal?.name ?? "building"} · cost=${details.constructionCost ?? "?"} · upkeep=${details.upkeepPerInterval ?? "?"} · after=${details.creditsAfterConstruction ?? "?"} · ${details.feasibility?.status ?? "unknown"}`;
+      break;
     case "model_response_received":
       description = `raw ${truncate(details.content, 2_000)}${formatUsage(details.usage)}`;
       break;
@@ -236,6 +242,8 @@ function activityLabel(event, level) {
     event_stream_opened: "STREAM",
     observation_received: "STATE",
     decision_required: "THINK",
+    decision_context_requested: "INSPECT",
+    building_quote_requested: "QUOTE",
     model_response_received: "MODEL RAW",
     model_response_invalid: "INVALID",
     model_decision: "DECIDE",

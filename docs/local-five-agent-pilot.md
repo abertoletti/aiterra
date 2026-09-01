@@ -1,6 +1,20 @@
-# Local seven-agent Azure Foundry pilot
+# Local ten-agent Azure Foundry pilot
 
-This guide runs the Aiterra world, JSONL persistence, observer, and seven external character runtimes on one workstation. Only model inference leaves the machine when Azure Foundry is selected.
+This guide runs the Aiterra world, JSONL persistence, observer, and ten external character runtimes on one workstation. Only model inference leaves the machine when Azure Foundry is selected.
+
+## Managed seedless pilot (recommended for a bounded experiment)
+
+After configuring `.env`, use a **new** run directory:
+
+```powershell
+node --env-file=.env src/run-managed-pilot.js .data/pilot-v10-YYYYMMDD-HHMMSS 30
+```
+
+The launcher refuses an existing directory or listener, freezes the validated world config, requires no initial events, and owns both server and runner processes. It stops only its own server when the runner completes or fails; a duration-plus-two-minute watchdog covers a stuck shutdown. Logs, config, process identities and status remain in the run directory. It neither edits `.env` nor resets older runs. Clock/upkeep settings still come from the launch environment.
+
+Rules `agent-rules-v11` add critical rereading of free-form goals, disclose each catalog's neutral filter grammar, and let a resident request a non-binding authoritative quote for a complete building proposal it authored. Action routes are unranked; no plot, profile, or construction decision is suggested. Work economics, Happiness weights, and resident admission-price freedom are unchanged.
+
+Read-only inspection: `node src/inspect-pilot.js .data/<run>`.
 
 ## Requirements
 
@@ -27,12 +41,12 @@ npm run test:20
 npm run pilot:setup
 ```
 
-This creates `.env` only when the file does not already exist. It generates distinct Aiterra agent and owner tokens for `pilot-01` through `pilot-07`. The file is ignored by Git.
+This creates `.env` only when the file does not already exist. It generates distinct Aiterra agent and owner tokens for `pilot-01` through `pilot-10`. The file is ignored by Git.
 
 If `.env` already exists from the earlier five-agent pilot, upgrade it in place without replacing Azure credentials:
 
 ```powershell
-npm run pilot:setup:7
+npm run pilot:setup:10
 ```
 
 Alternatively, generate a separate file with:
@@ -87,7 +101,11 @@ Invoke-RestMethod http://127.0.0.1:3000/health
 
 The configured event log is `.data/local-pilot-7/world-events.jsonl`. World configuration is applied only to an empty or new log. To start another experiment without destroying evidence, change `EVENT_LOG_PATH` to a new directory. To intentionally delete the current local run, stop the agents and server first, then use `npm run pilot:reset`.
 
-The checked-in fast-cycle configuration starts seven residents and twenty jobs across four locations. Two jobs require a two-person team with collective skill coverage. Vera is deliberately charming, deceptive, and self-serving; Rook is deliberately hostile, dominating, and vindictive. These are fictional behavioral test profiles and still cannot override server authority. Job durations range from 20 to 35 world minutes, and one world day lasts four real hours. If the event log was created with an older configuration, reset it before the next run; restarting the server alone deliberately replays the old persistent world.
+The checked-in fast-cycle configuration (`local-ten-agent-pilot-v10-emergent-buildings`) starts ten residents, twenty jobs, and four courses across four locations, with **no initial buildings or experiences**. Residents must construct and activate a building before hosting an experience there. No free system-created experiences bypass that investment. A proprietor may still choose free admission under the existing rules while paying construction, upkeep, and hosting Energy; the experiment does not introduce a minimum ticket price.
+
+Three jobs require a two-person team with collective skill coverage. Vera is deliberately charming, deceptive, and self-serving; Rook is deliberately hostile, dominating, and vindictive. These are fictional behavioral test profiles and still cannot override server authority. Use a **new event-log directory** for the next experiment; restarting a server against an old log deliberately replays its old world, including any seeded experiences. Editing this configuration does not alter an already-running world.
+
+The 2026-08-26 run in `.data/pilot-v9-20260826-104521` uses the prior v9 configuration with four free, two-world-hour events. Its configuration is preserved as `world-config.json` in that run directory. Per the user's decision, retain that run only as an Expected-versus-Realized Happiness recording/comparison test, not evidence for the building economy or incentive balance. Subsequent economic pilots use v10 without seeded events.
 
 ## 5. Test one Azure request
 
@@ -101,10 +119,10 @@ The command makes one paid inference request and prints the response ID, model, 
 
 Do not continue if the endpoint returns an authentication, deployment, quota, or model error. Correct the endpoint contract first.
 
-## 6. Start seven agents
+## 6. Start ten agents
 
 ```powershell
-npm run pilot:agents:7
+npm run pilot:agents:10
 ```
 
 Defaults:
@@ -131,7 +149,7 @@ Configure the window with:
 ```powershell
 $env:PILOT_MAX_MODEL_CALLS = "10"
 $env:PILOT_MODEL_CALL_WINDOW_MS = "60000"
-npm run pilot:agents:7
+npm run pilot:agents:10
 ```
 
 Press `Ctrl+C` for a graceful stop. The runner writes `.data/local-pilot-7/agent-report.json` with per-character actions, reported token usage, model failures, fallback actions, acknowledgements, stale retries, social-energy totals/average/rejections, and world metrics.
@@ -152,20 +170,20 @@ To follow only one character for a run, set its ID in the agent terminal before 
 
 ```powershell
 $env:PILOT_CONSOLE_AGENT = "pilot-01"
-npm run pilot:agents:7
+npm run pilot:agents:10
 ```
 
 Set `PILOT_LOG_LEVEL` to `ERROR`, `WARN`, `INFO`, `VERBOSE`, or `QUIET`. `VERBOSE` includes complete observation summaries, raw provider responses, rejected output, rationales, usage, accepted actions, authoritative action rejections, suppressed unchanged retries, and exchanged dialogue; credentials and authorization headers are never logged. Set `PILOT_OPEN_AGENT_CONSOLES=false` to keep only the combined terminal. Every record is preserved as JSON Lines under `.data/local-pilot-7/agent-activity-<timestamp>.jsonl`, and each agent also receives a readable log under `.data/local-pilot-7/agent-consoles-<timestamp>/`.
 
-If the pilot is already running and you need to reopen its seven windows, run `npm run pilot:consoles`. It attaches read-only viewers to the latest per-agent logs without restarting or duplicating the agents.
+If the pilot is already running and you need to reopen its ten windows, run `npm run pilot:consoles`. It attaches read-only viewers to the latest per-agent logs without restarting or duplicating the agents.
 
 The local world observer is available at `http://127.0.0.1:3000` while the server is running. Use the character selector to inspect current activity, energy, credits, relationships, and that character's authoritative timeline. The browser shows committed world outcomes; the agent terminal additionally shows model rationale and token use.
 
 ## 7. Acceptance checks
 
-For the seven-agent run, verify:
+For the ten-agent run, verify:
 
-- all seven compatibility checks succeed;
+- all ten compatibility checks succeed;
 - every accepted action is present in the authoritative event log;
 - at least one conversation completes;
 - at least one directional relationship changes;
@@ -176,15 +194,17 @@ For the seven-agent run, verify:
 - at least one invitation is accepted or declined and one commitment resolves as kept or missed;
 - at least one two-person team job recruits a complete team or exposes why it failed to form;
 - Vera or Rook creates at least one observable rejection, deception claim, conflict, broken commitment, or negative appraisal without bypassing server authority;
+- verify the causal chain from resident construction and activation to hosting and attendance; if no resident builds or hosts, report that outcome rather than injecting experiences;
+- when experiences occur, at least one resolves, `expectedVsRealized.declarationRate` is non-zero, and every declared prediction has a correlated comparison once its attendance resolves;
 - `unavailableAgents`, `deliveryFailures`, and unacknowledged delivery counts remain zero;
 - the owner summary contains factual, source-linked highlights;
 - model errors and fallback actions are understandable from the report.
 
-The deterministic twenty-agent test remains the mechanical regression gate. The seven-agent Azure pilot evaluates unscripted decision quality, antagonistic behavior, provider compatibility, latency, cost, and emergent stories.
+The deterministic twenty-agent test remains the mechanical regression gate. The ten-agent Azure pilot evaluates unscripted decision quality, antagonistic behavior, provider compatibility, latency, cost, Expected-versus-Realized error, and emergent stories.
 
 ## 8. Reset a local run
 
-Stop both `npm run pilot:agents:7` and `npm run pilot:server` with `Ctrl+C`, then run:
+Stop both `npm run pilot:agents:10` and `npm run pilot:server` with `Ctrl+C`, then run:
 
 ```powershell
 npm run pilot:reset

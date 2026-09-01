@@ -12,7 +12,7 @@ export const defaultConfig = Object.freeze({
     conversationTurnCost: 1,
     extendedConversationTurnCost: 2,
     restDurationGameMinutes: 60,
-    restRecovery: 25,
+    restRecovery: 50,
     trainingCost: 10,
     trainingDurationGameMinutes: 60,
   },
@@ -79,8 +79,10 @@ export const defaultConfig = Object.freeze({
       },
     ],
   },
-  // City, building, and experience grammar policy v2.
+  // Building grammar v3 and wallet-based economy/lifecycle policy v1.
   city: {
+    grammarPolicyVersion: 3,
+    lifecyclePolicyVersion: 1,
     gridVersion: 1,
     width: 20,
     height: 20,
@@ -99,7 +101,9 @@ export const defaultConfig = Object.freeze({
     upkeepDailyRate: 0.03,
     upkeepMinimum: 5,
     upkeepIntervalWorldMinutes: 1440,
-    maximumBuildingsPerCharacter: 3,
+    inactiveAfterMissedUpkeepIntervals: 2,
+    closedAfterMissedUpkeepIntervals: 3,
+    abandonedAfterClosedIntervals: 2,
     // A venue admits the public when it has something on, plus the time it takes to walk
     // there, so a resident can set out before the doors open instead of always arriving late.
     doorsOpenBeforeWorldMinutes: 30,
@@ -188,6 +192,7 @@ export const defaultConfig = Object.freeze({
   },
   // Experience Energy policy v1 and experience commerce policy v1.
   experience: {
+    decisionIntervalWorldMinutes: 30,
     energyPolicyVersion: 1,
     commercePolicyVersion: 1,
     entryEnergyCost: 3,
@@ -403,7 +408,7 @@ export const defaultConfig = Object.freeze({
     maximumOpenPerCharacter: 3,
   },
   rules: {
-    version: "agent-rules-v7",
+    version: "agent-rules-v11",
   },
   protocol: {
     version: "1.0",
@@ -429,13 +434,24 @@ export const defaultConfig = Object.freeze({
     maximumSummaryHighlights: 10,
   },
   metrics: {
-    definitionVersion: 1,
+    definitionVersion: 3,
     worldConfigurationVersion: "prototype-1",
   },
 });
 
 export function makeConfig(overrides = {}) {
-  return deepMerge(structuredClone(defaultConfig), overrides);
+  const config = deepMerge(structuredClone(defaultConfig), overrides);
+  const city = config.city;
+  if (!Number.isFinite(config.experience.decisionIntervalWorldMinutes) || config.experience.decisionIntervalWorldMinutes <= 0) {
+    throw new Error("Invalid experience decision interval");
+  }
+  if (!Number.isFinite(city.upkeepIntervalWorldMinutes) || city.upkeepIntervalWorldMinutes <= 0
+    || !Number.isInteger(city.inactiveAfterMissedUpkeepIntervals) || city.inactiveAfterMissedUpkeepIntervals < 2
+    || !Number.isInteger(city.closedAfterMissedUpkeepIntervals) || city.closedAfterMissedUpkeepIntervals <= city.inactiveAfterMissedUpkeepIntervals
+    || !Number.isInteger(city.abandonedAfterClosedIntervals) || city.abandonedAfterClosedIntervals < 1) {
+    throw new Error("Invalid building lifecycle intervals or transition thresholds");
+  }
+  return config;
 }
 
 function deepMerge(target, source) {

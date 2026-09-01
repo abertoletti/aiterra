@@ -57,6 +57,11 @@ test("a progressive baseline fits the budget while a catalog of blocked items ex
   const opportunities = world.inspectContext(characterIds[0], { resource: "opportunities" });
   assert.equal(opportunities.count, 5, `expected one square's board, got ${opportunities.count} items`);
   assert.ok(opportunities.blockedCount > 0, "the budget claim only means something with blocked items present");
+  const plotSummary = world.getObservation(characterIds[0], { contextMode: "progressive" })
+    .summaries.find((summary) => summary.resource === "plots");
+  assert.deepEqual(plotSummary.allowedFilters, {
+    availableOnly: "boolean", maximumDistance: "number >= 0", feasibleOnly: "boolean",
+  }, "the client can express its own plot criteria without receiving a suggested plot");
 
   let fullTotal = 0;
   let steadyTotal = 0;
@@ -415,7 +420,7 @@ test("the rules manifest states the context discipline under a new version", () 
   const manifest = world.getAgentRules(characterId);
 
   assert.notEqual(manifest.version, "agent-rules-v1", "a manifest body change ships under a new version");
-  assert.equal(manifest.version, "agent-rules-v7");
+  assert.equal(manifest.version, "agent-rules-v11");
   assert.equal(manifest.context.contractVersion, 3);
   assert.deepEqual(manifest.context.requestable,
     ["opportunities", "experiences", "plots", "buildings", "people", "courses"]);

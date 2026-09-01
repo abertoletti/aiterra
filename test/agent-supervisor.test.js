@@ -229,3 +229,60 @@ test("the supervisor fetches the catalog a brain asks for, once, and then makes 
   // projection the agent is holding.
   assert.ok(world.history.some((event) => event.type === "DECISION_CONTEXT_REQUESTED"));
 });
+
+test("the supervisor returns one exact building quote and still requires a final decision", async (t) => {
+  const clock = new ManualClock("2042-06-01T18:00:00.000Z");
+  const world = new World({ store: new InMemoryEventStore(), config: makeConfig(), clock });
+  const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
+  configuration.version = "building-quote-integration-test";
+  configuration.characters = configuration.characters.filter((character) => character.id === "pilot-01");
+  configuration.characters[0].credits = 1_000;
+  activateWorldConfiguration(world, configuration);
+
+  const token = "pilot-01-quote-secret";
+  const server = createHttpServer({
+    world, agentTokens: { "pilot-01": token }, publicDir: resolve("public"),
+  });
+  await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const proposal = {
+    x: 1, y: 1, width: 1, height: 1,
+    name: "Mira's Archive Room", description: "A quiet place to examine records.",
+    profile: { learning: 50 }, capabilities: ["host_event"],
+  };
+  const seen = [];
+  const planner = {
+    async decide({ observation, buildingQuotes, buildingQuoteRequestsRemaining }) {
+      seen.push({ buildingQuotes: structuredClone(buildingQuotes), buildingQuoteRequestsRemaining });
+      if (buildingQuoteRequestsRemaining > 0) return { buildingQuoteRequest: proposal, rationale: "My proposal." };
+      return { action: { type: "record_decision", summary: "I inspected my quote." } };
+    },
+  };
+  const supervisor = new AgentSupervisor({
+    agents: [{
+      characterId: "pilot-01",
+      client: new AiterraAgentClient({ baseUrl, characterId: "pilot-01", token }),
+    }],
+    planner, concurrency: 1, pollIntervalMs: 50, decisionCooldownMs: 1, maximumActionsPerCycle: 1,
+    modelCallsPerWindow: 50, modelCallWindowMs: 1_000, reconnectDelayMs: 10,
+    contextMode: "progressive", contextRequestsPerDecision: 1,
+    logger: { warn() {}, error() {}, log() {} },
+  });
+  t.after(async () => {
+    await supervisor.stop();
+    await new Promise((resolveClose) => server.close(resolveClose));
+  });
+
+  await supervisor.start();
+  await waitFor(() => seen.length >= 2, 5_000);
+  await supervisor.stop();
+
+  assert.equal(seen[0].buildingQuoteRequestsRemaining, 1);
+  assert.deepEqual(seen[0].buildingQuotes, []);
+  assert.equal(seen[1].buildingQuoteRequestsRemaining, 0);
+  assert.equal(seen[1].buildingQuotes[0].constructionCost, 275);
+  assert.equal(seen[1].buildingQuotes[0].feasibility.status, "eligible");
+  assert.equal(supervisor.report().agents["pilot-01"].buildingQuoteRequests, 1);
+  assert.equal(world.state.buildings.size, 0);
+  assert.ok(world.history.some((event) => event.type === "BUILDING_QUOTE_REQUESTED"));
+});

@@ -87,7 +87,7 @@ As an owner, I want talking and greeting to have a low or contextual energy cost
 
 ### AIT-1105 — Spend Energy for actual experience participation
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 As an external agent, I want to see and pay the Energy cost of the time and activities my character actually spends in an experience so that brief attendance is possible but cannot exploit a near-zero entry cost.
 
@@ -104,6 +104,8 @@ As an external agent, I want to see and pay the Energy cost of the time and acti
 **Events and metrics:** `experience_energy_started`, `experience_energy_accrued`, `experience_activity_energy_spent`, Energy by duration and activity, short-stay rate.
 
 **Dependencies:** AIT-301, AIT-304, AIT-1101, AIT-1102.
+
+**Current delivery note:** Entry and marginal presence Energy are configurable, disclosed, charged from authoritative attendance exactly once, capped, replay-safe, and covered for partial attendance and terminal resolution. The re-entry discount is implemented but lacks a dedicated protocol test, while contributor/performance and argument-intensity additions remain outside the approved version-1 scope.
 
 ## Out of scope
 

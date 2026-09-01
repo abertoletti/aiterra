@@ -212,17 +212,20 @@ export class World {
   // command. Free text names the place; only structured fields produce mechanics.
 
   // A cell is free or it is not. There is no purchase step: building claims the ground.
-  plotView(x, y) {
+  plotView(x, y, characterId = null) {
     const id = plotKey(x, y);
     const plot = this.state.plots.get(id);
     const occupant = plot?.buildingId ? this.state.buildings.get(plot.buildingId) : null;
     const standing = this.locationAtCell(x, y);
+    const legacyOwned = !occupant && plot?.ownerId && plot.ownerId !== characterId;
     return {
       id, x, y,
       buildingId: plot?.buildingId ?? null,
-      available: !occupant && !standing,
+      ownerId: plot?.ownerId ?? null,
+      available: !occupant && !standing && !legacyOwned,
       standingLocationId: standing?.id ?? null,
-      blockers: [...(occupant ? ["PLOT_OCCUPIED"] : []), ...(standing ? ["CELL_OCCUPIED"] : [])],
+      blockers: [...(occupant ? ["PLOT_OCCUPIED"] : []), ...(standing ? ["CELL_OCCUPIED"] : []),
+        ...(legacyOwned ? ["PLOT_OWNED"] : [])],
     };
   }
 
@@ -239,7 +242,10 @@ export class World {
     };
   }
 
-  constructBuilding(characterId, {
+  // A proposal-specific, non-binding quote. Every creative and positional choice is
+  // supplied by the resident; the server contributes only authoritative mechanics.
+  // Nothing is reserved or charged, and construction still revalidates from scratch.
+  quoteBuildingProposal(characterId, {
     x, y, width = 1, height = 1, name, description = "", profile, capabilities = [],
   }) {
     const character = this.requireCharacter(characterId);
@@ -250,9 +256,86 @@ export class World {
       throw invalid("INVALID_FOOTPRINT",
         `A footprint must be between 1x1 and ${city.maximumFootprintWidth}x${city.maximumFootprintHeight}`);
     }
-    const owned = [...this.state.buildings.values()].filter((building) => building.proprietorId === characterId);
-    if (owned.length >= city.maximumBuildingsPerCharacter) {
-      throw conflict("BUILDING_LIMIT_REACHED", `A resident may hold at most ${city.maximumBuildingsPerCharacter} buildings`);
+    const normalizedProfile = normalizeExperienceProfile(profile, this.config.grammar);
+    const selected = [...new Set(capabilities)];
+    for (const capability of selected) {
+      if (!city.capabilities.includes(capability)) {
+        throw invalid("UNKNOWN_CAPABILITY", `${capability} is not a version-${city.gridVersion} building capability`);
+      }
+    }
+    if (selected.length === 0) throw invalid("NO_CAPABILITY", "A building must take at least one capability");
+
+    const blockerSet = new Set();
+    const plotIds = [];
+    for (let dx = 0; dx < width; dx += 1) {
+      for (let dy = 0; dy < height; dy += 1) {
+        const cx = x + dx;
+        const cy = y + dy;
+        if (!this.withinGrid(cx, cy)) {
+          blockerSet.add("OFF_GRID");
+          continue;
+        }
+        const id = plotKey(cx, cy);
+        plotIds.push(id);
+        if (this.locationAtCell(cx, cy)) blockerSet.add("CELL_OCCUPIED");
+        if (this.state.plots.get(id)?.buildingId) blockerSet.add("PLOT_OCCUPIED");
+        const legacyOwner = this.state.plots.get(id)?.ownerId;
+        if (legacyOwner && legacyOwner !== characterId) blockerSet.add("PLOT_OWNED");
+      }
+    }
+
+    const quote = this.buildingQuote(normalizedProfile, width, height);
+    if (character.credits < quote.constructionCost) blockerSet.add("INSUFFICIENT_CREDITS");
+    const blockingCodes = [...blockerSet];
+    const result = {
+      proposal: {
+        x, y, width, height,
+        name: String(name).trim(),
+        description: String(description).slice(0, city.descriptionMaximumLength),
+        profile: normalizedProfile,
+        capabilities: selected,
+      },
+      plotIds,
+      ...quote,
+      availableCredits: character.credits,
+      creditsAfterConstruction: character.credits - quote.constructionCost,
+      affordable: character.credits >= quote.constructionCost,
+      feasibility: {
+        status: blockingCodes.length ? "blocked" : "eligible",
+        eligible: blockingCodes.length === 0,
+        blockingCode: blockingCodes[0] ?? null,
+        blockingCodes,
+      },
+      nonBinding: true,
+      reservesNothing: true,
+    };
+    const event = this.record("BUILDING_QUOTE_REQUESTED", {
+      actorCharacterId: characterId,
+      data: {
+        characterId, ...result.proposal, plotIds,
+        constructionCost: quote.constructionCost,
+        dailyUpkeep: quote.dailyUpkeep,
+        upkeepPerInterval: quote.upkeepPerInterval,
+        capacity: quote.capacity,
+        constructionMinutes: quote.constructionMinutes,
+        availableCredits: character.credits,
+        creditsAfterConstruction: result.creditsAfterConstruction,
+        blockingCodes,
+      },
+    });
+    return { quoteEventId: event.id, ...result };
+  }
+
+  constructBuilding(characterId, {
+    x, y, width = 1, height = 1, name, description = "", profile, capabilities = [],
+  }) {
+    const character = this.requireCharacter(characterId);
+    const city = this.config.city;
+    requiredText(name, "building name", city.nameMaximumLength);
+    if (!Number.isInteger(width) || !Number.isInteger(height)
+      || width < 1 || height < 1 || width > city.maximumFootprintWidth || height > city.maximumFootprintHeight) {
+      throw invalid("INVALID_FOOTPRINT",
+        `A footprint must be between 1x1 and ${city.maximumFootprintWidth}x${city.maximumFootprintHeight}`);
     }
     // The profile is what the building delivers, and it is the ceiling on every
     // experience hosted there. That is what makes it worth paying for.
@@ -278,6 +361,10 @@ export class World {
         if (standing) throw conflict("CELL_OCCUPIED", `${standing.name} already stands on ${plotKey(cx, cy)}`);
         if (this.state.plots.get(plotKey(cx, cy))?.buildingId) {
           throw conflict("PLOT_OCCUPIED", `${plotKey(cx, cy)} already carries a building`);
+        }
+        const legacyOwner = this.state.plots.get(plotKey(cx, cy))?.ownerId;
+        if (legacyOwner && legacyOwner !== characterId) {
+          throw conflict("PLOT_OWNED", `${plotKey(cx, cy)} belongs to a legacy landowner`);
         }
         cellIds.push(plotKey(cx, cy));
       }
@@ -309,6 +396,10 @@ export class World {
         completesAt: addGameMinutes(startedAt, quote.constructionMinutes).toISOString(),
         status: "UNDER_CONSTRUCTION",
         cityGridVersion: city.gridVersion,
+        grammarPolicyVersion: city.grammarPolicyVersion,
+        lifecyclePolicyVersion: city.lifecyclePolicyVersion,
+        lifecycleTerms: this.buildingLifecycleTerms(),
+        groundClaimMode: "atomic_with_construction",
         profileTaxonomyVersion: this.config.grammar.profileTaxonomyVersion,
       },
     });
@@ -318,6 +409,88 @@ export class World {
     const building = this.state.buildings.get(buildingId);
     if (!building) throw invalid("UNKNOWN_BUILDING", `Building ${buildingId} does not exist`);
     return building;
+  }
+
+  buildingRecoveryFeasibility(character, building) {
+    const blockingCodes = [];
+    if (building.proprietorId !== character.id) blockingCodes.push("NOT_PROPRIETOR");
+    if (!["DELINQUENT", "INACTIVE"].includes(building.status)) blockingCodes.push("BUILDING_NOT_RECOVERABLE");
+    else if (this.nextUpkeepAt(building) && this.clock.now() >= new Date(this.nextUpkeepAt(building))) {
+      blockingCodes.push("UPKEEP_SETTLEMENT_PENDING");
+    }
+    if (character.credits < building.upkeepPerInterval) blockingCodes.push("INSUFFICIENT_CREDITS");
+    return {
+      status: blockingCodes.length ? "blocked" : "eligible", eligible: blockingCodes.length === 0,
+      blockingCode: blockingCodes[0] ?? null, blockingCodes,
+    };
+  }
+
+  reactivateBuilding(characterId, buildingId) {
+    const character = this.requireCharacter(characterId);
+    const building = this.requireBuilding(buildingId);
+    const feasibility = this.buildingRecoveryFeasibility(character, building);
+    if (!feasibility.eligible) {
+      throw new DomainError(feasibility.blockingCode, "Building recovery refused", 409,
+        { blockingCodes: feasibility.blockingCodes, recoveryCost: building.upkeepPerInterval });
+    }
+    const previousStatus = building.status;
+    const paid = this.record("BUILDING_UPKEEP_PAID", {
+      actorCharacterId: characterId,
+      data: {
+        buildingId, proprietorId: characterId, amount: building.upkeepPerInterval,
+        fromProprietor: building.upkeepPerInterval, chargedAt: this.clock.now().toISOString(),
+        reason: "reactivation", lifecyclePolicyVersion: this.config.city.lifecyclePolicyVersion,
+        lifecycleTerms: this.buildingLifecycleTerms(building),
+      },
+    });
+    return this.transitionBuilding(building, "ACTIVE", paid, paid.worldTime, previousStatus);
+  }
+
+  transitionBuilding(building, status, cause, worldTime, previousStatus = building.status) {
+    const types = {
+      ACTIVE: "BUILDING_REACTIVATED", DELINQUENT: "BUILDING_DELINQUENT",
+      INACTIVE: "BUILDING_INACTIVATED", CLOSED: "BUILDING_CLOSED", ABANDONED: "BUILDING_ABANDONED",
+    };
+    const transition = this.record(types[status], {
+      actorCharacterId: building.proprietorId, causedByEventIds: [cause.id], worldTime,
+      data: {
+        buildingId: building.buildingId, proprietorId: building.proprietorId, name: building.name,
+        previousStatus, status, missedUpkeepIntervals: building.missedUpkeepIntervals ?? 0,
+        lifecyclePolicyVersion: this.config.city.lifecyclePolicyVersion,
+      },
+    });
+    // Superseded warnings must not remain actionable after recovery or closure.
+    for (const [id, notification] of this.state.notifications) {
+      if (notification.buildingId === building.buildingId && !isNotificationTerminal(notification.status)) {
+        this.resolveNotification(id, status === "ACTIVE" ? "resolved" : "cancelled", transition.id, status.toLowerCase(), worldTime);
+      }
+    }
+    if (["DELINQUENT", "INACTIVE"].includes(status)) {
+      const nextStatus = status === "DELINQUENT" ? "INACTIVE" : "CLOSED";
+      const terms = this.buildingLifecycleTerms(building);
+      const threshold = status === "DELINQUENT" ? terms.inactiveAfterMissedUpkeepIntervals : terms.closedAfterMissedUpkeepIntervals;
+      const remaining = threshold - building.missedUpkeepIntervals;
+      const deadline = addGameMinutes(new Date(building.lastUpkeepAt), remaining * terms.upkeepIntervalWorldMinutes).toISOString();
+      const warning = this.record("BUILDING_LIFECYCLE_WARNING", {
+        actorCharacterId: building.proprietorId, causedByEventIds: [transition.id], worldTime,
+        data: {
+          buildingId: building.buildingId, proprietorId: building.proprietorId, name: building.name,
+          status, nextStatus, transitionAt: deadline, recoveryCost: building.upkeepPerInterval,
+          lifecyclePolicyVersion: this.config.city.lifecyclePolicyVersion,
+        },
+      });
+      this.record("AGENT_NOTIFICATION_QUEUED", {
+        subjectCharacterId: building.proprietorId, causedByEventIds: [warning.id], worldTime,
+        data: {
+          characterId: building.proprietorId, sourceEventId: warning.id, buildingId: building.buildingId,
+          level: "HIGH", urgency: "normal", requestKind: "event_reaction",
+          summary: `${building.name} is ${status}. Pay ${building.upkeepPerInterval} Credits with reactivate_building before ${deadline}; ${remaining} more consecutive failed upkeep payment(s) make it ${nextStatus}. Existing commitments are preserved.`,
+          compatibleActions: ["reactivate_building", "ignore_event"],
+          timingPolicyVersion: this.config.timing.policyVersion,
+        },
+      });
+    }
+    return transition;
   }
 
   // AIT-1601. The proprietor authors a night, and the building's profile is the ceiling
@@ -524,15 +697,29 @@ export class World {
 
   // AIT-1504. One authoritative command: it settles the access offer, charges entry
   // Energy, and creates presence. A failure leaves no payment and no presence.
-  joinExperience(characterId, eventId) {
+  joinExperience(characterId, eventId, { expectedHappiness = null } = {}) {
     const character = this.requireCharacter(characterId);
     const gathering = this.requireGathering(eventId);
     const price = gathering.accessPrice ?? 0;
+    if (expectedHappiness !== null
+      && (!Number.isInteger(expectedHappiness)
+        || Math.abs(expectedHappiness) > this.config.happiness.maximumChangePerExperience)) {
+      throw invalid(
+        "INVALID_EXPECTED_HAPPINESS",
+        `Expected Happiness must be an integer between ${-this.config.happiness.maximumChangePerExperience} and ${this.config.happiness.maximumChangePerExperience}`,
+      );
+    }
+    const previous = this.state.experienceAttendance.get(experienceAttendanceKey(eventId, characterId));
+    if (previous && !previous.resolved && expectedHappiness !== null
+      && expectedHappiness !== (previous.expectedHappiness ?? null)) {
+      throw conflict("EXPECTATION_IMMUTABLE", "Expected Happiness cannot be added or revised after entry");
+    }
     // Everything is decided by the one shared computation the affordance and the catalog
     // also read, so this command can only refuse what they already disclosed.
     const feasibility = this.eventAttendanceFeasibility(character, gathering);
     if (!feasibility.eligible) {
       const code = feasibility.blockingCode;
+      if (code === "BUILDING_NOT_ACTIVE") throw conflict(code, "The building cannot admit new attendees while inactive");
       if (code === "ACTIVITY_CONFLICT") throw conflict("ACTIVITY_CONFLICT", `Cannot attend while ${character.activity.type}`);
       if (code === "INSUFFICIENT_ENERGY") throw invalid("INSUFFICIENT_ENERGY", `Attendance requires ${this.config.experience.entryEnergyCost} energy`);
       if (code === "WRONG_LOCATION") throw invalid("WRONG_LOCATION", "Character must be at the experience location");
@@ -541,7 +728,6 @@ export class World {
       throw invalid("EVENT_NOT_ACTIVE", "Experience is not active");
     }
     // Re-entry inside the window does not repeat the initial participation cost.
-    const previous = this.state.experienceAttendance.get(experienceAttendanceKey(eventId, characterId));
     const now = this.clock.now();
     const reEntry = Boolean(previous && !previous.resolved && previous.endedAt
       && (now - new Date(previous.endedAt)) <= this.config.experience.reEntryWindowWorldMinutes * 60_000);
@@ -563,20 +749,47 @@ export class World {
     if (entryEnergyCost > 0) {
       causedByEventIds.push(this.changeEnergy(characterId, -entryEnergyCost, "experience_entry").id);
     }
-    return this.record("EVENT_ATTENDANCE_STARTED", {
+    const attendanceStarted = this.record("EVENT_ATTENDANCE_STARTED", {
       actorCharacterId: characterId,
       causedByEventIds,
       data: {
         eventId, characterId, title: gathering.title, locationId: gathering.locationId,
         startedAt: now.toISOString(), expectedEndAt: gathering.endsAt,
         price, reEntry, entryEnergyCost,
+        expectedHappiness: previous && !previous.resolved
+          ? (previous.expectedHappiness ?? null)
+          : expectedHappiness,
         experienceEnergyPolicyVersion: this.config.experience.energyPolicyVersion,
       },
     });
+    if (expectedHappiness !== null && !(previous && !previous.resolved)) {
+      this.record("EXPERIENCE_EXPECTATION_DECLARED", {
+        actorCharacterId: characterId,
+        causedByEventIds: [attendanceStarted.id],
+        data: {
+          characterId, eventId, expectedHappiness,
+          attendanceStartedByEventId: attendanceStarted.id,
+          happinessPolicyVersion: this.config.happiness.policyVersion,
+        },
+      });
+    }
+    return attendanceStarted;
   }
 
   // AIT-1504. Leaving is authoritative and is what triggers settlement, so a resident
   // cannot avoid the duration charge or the participation factor by walking out.
+  stayExperience(characterId, eventId) {
+    const character = this.requireCharacter(characterId);
+    if (character.activity?.type !== "attend_event" || character.activity.eventId !== eventId) {
+      throw conflict("NOT_ATTENDING", "Character is not currently attending that experience");
+    }
+    const nextDecisionAt = new Date(Math.min(new Date(character.activity.expectedEndAt).getTime(),
+      addGameMinutes(this.clock.now(), this.config.experience.decisionIntervalWorldMinutes).getTime())).toISOString();
+    return this.record("EXPERIENCE_STAYED", {
+      actorCharacterId: characterId, data: { characterId, eventId, nextDecisionAt },
+    });
+  }
+
   leaveExperience(characterId, eventId) {
     const character = this.requireCharacter(characterId);
     this.requireGathering(eventId);
@@ -689,13 +902,24 @@ export class World {
     };
     const raw = affinity + presenceValue + interaction + participation + crowd + repetition + variance;
 
+    const expectedHappiness = Number.isInteger(attendance?.expectedHappiness)
+      ? attendance.expectedHappiness
+      : null;
+    const realizedHappiness = round2(clamp(raw, -policy.maximumChangePerExperience, policy.maximumChangePerExperience));
     const resolved = this.record("EXPERIENCE_HAPPINESS_RESOLVED", {
       actorCharacterId: characterId,
-      causedByEventIds,
+      causedByEventIds: [
+        ...causedByEventIds,
+        attendance?.expectationDeclaredByEventId,
+      ].filter(Boolean),
       worldTime,
       data: {
         characterId, eventId: gathering.id, locationId: gathering.locationId, cause,
-        rawDelta: round2(clamp(raw, -policy.maximumChangePerExperience, policy.maximumChangePerExperience)),
+        rawDelta: realizedHappiness,
+        expectedHappiness,
+        realizedMinusExpected: expectedHappiness === null ? null : round2(realizedHappiness - expectedHappiness),
+        expectationDeclaredByEventId: attendance?.expectationDeclaredByEventId ?? null,
+        attendanceStartedByEventId: attendance?.startedByEventId ?? null,
         factors,
         dominantDimension: dominantDimension(profile, grammar),
         happinessPolicyVersion: policy.policyVersion,
@@ -820,6 +1044,10 @@ export class World {
     const location = this.state.locations.get(locationId);
     const building = location?.buildingId ? this.state.buildings.get(location.buildingId) : null;
     if (!building) return { isVenue: false, open: true, opensAt: null, eventId: null, title: null };
+    if (building.status !== "ACTIVE") return {
+      isVenue: true, open: false, opensAt: null, eventId: null, title: null,
+      proprietorId: building.proprietorId, lifecycleStatus: building.status,
+    };
     const moment = new Date(at);
     const lead = this.config.city.doorsOpenBeforeWorldMinutes;
     let open = false;
@@ -925,6 +1153,10 @@ export class World {
       && job.workerIds?.includes(characterId)
       && !TERMINAL_JOB_STATUSES.has(job.status));
     if (employedHere) return true;
+    const committedHere = [...this.state.commitments.values()].some((commitment) =>
+      commitment.locationId === locationId && commitment.participantIds.includes(characterId)
+      && ["scheduled", "active"].includes(commitment.status));
+    if (committedHere) return true;
     const enrollment = this.activeCourseEnrollmentFor(characterId);
     return Boolean(enrollment && this.state.courses.get(enrollment.courseId)?.locationId === locationId);
   }
@@ -1111,6 +1343,7 @@ export class World {
   courseEnrollmentFeasibility(character, course) {
     const blockingCodes = [];
     if (course.status !== "open") blockingCodes.push("COURSE_CLOSED");
+    if (course.buildingId && this.requireBuilding(course.buildingId).status !== "ACTIVE") blockingCodes.push("BUILDING_NOT_ACTIVE");
     if (character.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
     if (character.activity) blockingCodes.push("ACTIVITY_CONFLICT");
     if (character.locationId !== course.boardLocationId) blockingCodes.push("WRONG_LOCATION");
@@ -1178,6 +1411,7 @@ export class World {
     if (!feasibility.eligible) {
       const code = feasibility.blockingCode;
       if (code === "COURSE_CLOSED") throw conflict("COURSE_CLOSED", "The course is no longer offered");
+      if (code === "BUILDING_NOT_ACTIVE") throw conflict(code, "The building cannot sell new enrolments while inactive");
       if (code === "AGENT_UNAVAILABLE") throw conflict("AGENT_UNAVAILABLE", "Unavailable agents cannot enrol");
       if (code === "ACTIVITY_CONFLICT") throw conflict("ACTIVITY_CONFLICT", `Cannot enrol while ${character.activity.type}`);
       if (code === "WRONG_LOCATION") throw invalid("WRONG_LOCATION", "Character must be at the notice board to enrol");
@@ -1402,6 +1636,9 @@ export class World {
     const worker = this.requireCharacter(workerId);
     const job = this.requireJob(jobId);
     if (job.status !== "open") throw conflict("JOB_UNAVAILABLE", "Job is not open");
+    if (job.fundingSourceType === "building" && this.requireBuilding(job.fundingSourceId).status !== "ACTIVE") {
+      throw conflict("BUILDING_NOT_ACTIVE", "The building cannot take new work commitments");
+    }
     // A resident-created role is a two-sided choice: the candidate applies and the
     // proprietor selects. Taking it off the board would let the fastest reader bypass
     // the one decision reputation exists to inform (AIT-1603).
@@ -1492,6 +1729,7 @@ export class World {
   // so activity and existing commitments block selection, never the application itself.
   applicationFeasibility(character, job) {
     const blockingCodes = [];
+    if (job.fundingSourceType === "building" && this.requireBuilding(job.fundingSourceId).status !== "ACTIVE") blockingCodes.push("BUILDING_NOT_ACTIVE");
     if (job.creatorId === character.id) blockingCodes.push("SELF_EMPLOYMENT");
     if (character.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
     if (character.locationId !== (job.boardLocationId ?? job.locationId)) blockingCodes.push("WRONG_LOCATION");
@@ -1576,6 +1814,7 @@ export class World {
   // where presence, Energy, and the window are enforced.
   selectionFeasibility(candidate, job) {
     const blockingCodes = [];
+    if (job.fundingSourceType === "building" && this.requireBuilding(job.fundingSourceId).status !== "ACTIVE") blockingCodes.push("BUILDING_NOT_ACTIVE");
     if (candidate.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
     if (candidate.activity) blockingCodes.push("ACTIVITY_CONFLICT");
     if (this.activeCommitmentFor(candidate.id)) blockingCodes.push("JOB_COMMITMENT_CONFLICT");
@@ -1709,20 +1948,12 @@ export class World {
 
   startJob(workerId, jobId) {
     const worker = this.requireCharacter(workerId);
-    if (worker.agentAvailability === "unavailable") throw conflict("AGENT_UNAVAILABLE", "Unavailable agents cannot start new jobs");
     const job = this.requireJob(jobId);
-    if (job.status !== "accepted" || !job.workerIds.includes(workerId)) throw conflict("JOB_NOT_ASSIGNED", "Job is not assigned to this character");
+    const feasibility = this.jobStartFeasibility(worker, job);
+    if (!feasibility.eligible) throw new DomainError(feasibility.blockingCode, feasibility.message, feasibility.httpStatus);
     const workers = job.workerIds.map((id) => this.requireCharacter(id));
-    const unavailableWorker = workers.find((candidate) => candidate.agentAvailability === "unavailable");
-    if (unavailableWorker) throw conflict("TEAM_MEMBER_UNAVAILABLE", `${unavailableWorker.name} is unavailable`);
-    const busyWorker = workers.find((candidate) => candidate.activity);
-    if (busyWorker) throw conflict("ACTIVITY_CONFLICT", `${busyWorker.name} cannot start while ${busyWorker.activity.type}`);
-    const absentWorker = workers.find((candidate) => candidate.locationId !== job.locationId);
-    if (absentWorker) throw invalid("TEAM_NOT_COLOCATED", `${absentWorker.name} must be at the job location`);
     const now = this.clock.now();
-    if (now < new Date(job.scheduledStartAt) || now > new Date(job.startGraceUntil)) throw invalid("OUTSIDE_JOB_WINDOW", "Job cannot start outside its disclosed start window");
     const workEnergyCost = job.energyCost ?? this.config.energy.workCost;
-    for (const candidate of workers) this.requireEnergy(candidate, workEnergyCost);
 
     const energyEvents = workers.map((candidate) => this.changeEnergy(candidate.id, -workEnergyCost, "work"));
     const expectedEndAt = addGameMinutes(now, job.durationGameMinutes).toISOString();
@@ -1740,6 +1971,22 @@ export class World {
         reservationId: job.reservation.id,
       },
     });
+  }
+
+  jobStartFeasibility(worker, job) {
+    const blocked = (code, message, httpStatus = 409) => ({
+      status: "blocked", eligible: false, blockingCode: code, blockingCodes: [code], message, httpStatus,
+    });
+    if (worker.agentAvailability === "unavailable") return blocked("AGENT_UNAVAILABLE", "Unavailable agents cannot start new jobs");
+    if (job.status !== "accepted" || !job.workerIds.includes(worker.id)) return blocked("JOB_NOT_ASSIGNED", "Job is not assigned to this character");
+    const workers = job.workerIds.map((id) => this.requireCharacter(id));
+    if (workers.some((candidate) => candidate.agentAvailability === "unavailable")) return blocked("TEAM_MEMBER_UNAVAILABLE", "A team member is unavailable");
+    if (workers.some((candidate) => candidate.activity)) return blocked("ACTIVITY_CONFLICT", "A team member is busy");
+    if (workers.some((candidate) => candidate.locationId !== job.locationId)) return blocked("TEAM_NOT_COLOCATED", "All team members must be at the job location", 422);
+    const now = this.clock.now();
+    if (now < new Date(job.scheduledStartAt) || now > new Date(job.startGraceUntil)) return blocked("OUTSIDE_JOB_WINDOW", "Job cannot start outside its disclosed start window", 422);
+    if (workers.some((candidate) => candidate.energy < (job.energyCost ?? this.config.energy.workCost))) return blocked("INSUFFICIENT_ENERGY", "A team member lacks the required work Energy", 422);
+    return { status: "eligible", eligible: true, blockingCode: null, blockingCodes: [] };
   }
 
   teamRequirementGaps(job, workerIds) {
@@ -1932,8 +2179,8 @@ export class World {
 
   // The protocol keeps the attend_event action name; joinExperience is the single
   // authoritative command behind it, as the commerce policy requires.
-  attendEvent(characterId, eventId) {
-    return this.joinExperience(characterId, eventId);
+  attendEvent(characterId, eventId, options = {}) {
+    return this.joinExperience(characterId, eventId, options);
   }
 
   sendInvitation(senderId, targetId, { destinationType, destinationId, message }) {
@@ -2229,19 +2476,8 @@ export class World {
     const topics = normalizeTopics(options.topics, this.config.grammar);
     const sender = this.requireCharacter(senderId);
     const conversation = this.requireConversation(conversationId);
-    if (!conversation.participantIds.includes(senderId)) throw forbidden("NOT_PARTICIPANT", "Character is not a conversation participant");
-    const responseNotification = this.findConversationNotification(senderId, conversationId, true);
-    if (responseNotification?.[1].status === "expired") throw conflict("REACTION_WINDOW_EXPIRED", "The conversation response window has expired");
-    if (conversation.status !== "active") throw conflict("CONVERSATION_ENDED", "Conversation is no longer active");
-    if (!options.opening && conversation.expectedResponderId && conversation.expectedResponderId !== senderId) {
-      throw conflict("OUT_OF_TURN", "Another participant is expected to respond");
-    }
-    if (conversation.messages.length >= this.config.conversation.maximumTurns) throw conflict("CONVERSATION_TURN_LIMIT", "Conversation turn limit reached");
-    const oneMinuteAgo = addGameMinutes(this.clock.now(), -1);
-    const recentTurns = conversation.messages.filter((message) => new Date(message.sentAt) > oneMinuteAgo).length;
-    if (recentTurns >= this.config.conversation.maximumTurnsPerWorldMinute) {
-      throw new DomainError("CONVERSATION_RATE_LIMITED", "Conversation turn frequency limit reached", 429);
-    }
+    const feasibility = this.conversationTurnFeasibility(sender, conversation, options);
+    if (!feasibility.eligible) throw new DomainError(feasibility.blockingCode, feasibility.message, feasibility.httpStatus);
     requiredText(text, "message", this.config.conversation.maximumMessageCharacters);
     if (!Array.isArray(sharedFacts) || sharedFacts.length > this.config.conversation.maximumSharedFactsPerTurn) {
       throw invalid("INVALID_FACTS", `At most ${this.config.conversation.maximumSharedFactsPerTurn} structured facts may be shared`);
@@ -2678,6 +2914,7 @@ export class World {
       conversationId: notification.conversationId,
       invitationId: notification.invitationId,
       commitmentId: notification.commitmentId,
+      buildingId: notification.buildingId,
       compatibleActions: notification.compatibleActions,
       status: notification.status,
       queuedAt: notification.queuedAt,
@@ -2777,12 +3014,13 @@ export class World {
     }
   }
 
-  resolveNotification(notificationEventId, status, resolutionEventId, outcome) {
+  resolveNotification(notificationEventId, status, resolutionEventId, outcome, worldTime = null) {
     const notification = this.state.notifications.get(notificationEventId);
     if (!notification || isNotificationTerminal(notification.status)) return null;
     return this.record("AGENT_NOTIFICATION_RESOLVED", {
       actorCharacterId: notification.characterId,
       causedByEventIds: [notificationEventId, resolutionEventId],
+      worldTime,
       data: { notificationEventId, characterId: notification.characterId, status, outcome, resolutionEventId },
     });
   }
@@ -3102,11 +3340,19 @@ export class World {
         break;
       }
       case "attend_event": {
-        const event = this.attendEvent(characterId, action.eventId);
+        const event = this.attendEvent(characterId, action.eventId, {
+          expectedHappiness: action.expectedHappiness ?? null,
+        });
         result = this.actionResult(characterId, event, {
           expectedEndAt: event.data.expectedEndAt,
           price: event.data.price, entryEnergyCost: event.data.entryEnergyCost,
+          expectedHappiness: event.data.expectedHappiness,
         });
+        break;
+      }
+      case "stay_experience": {
+        const event = this.stayExperience(characterId, action.eventId);
+        result = this.actionResult(characterId, event, { nextDecisionAt: event.data.nextDecisionAt });
         break;
       }
       case "leave_experience": {
@@ -3126,6 +3372,14 @@ export class World {
           capacity: event.data.capacity,
           dailyUpkeep: event.data.dailyUpkeep,
           completesAt: event.data.completesAt,
+        });
+        break;
+      }
+      case "reactivate_building": {
+        const event = this.reactivateBuilding(characterId, action.buildingId);
+        result = this.actionResult(characterId, event, {
+          buildingId: event.data.buildingId, status: event.data.status,
+          nextUpkeepAt: this.nextUpkeepAt(this.requireBuilding(event.data.buildingId)),
         });
         break;
       }
@@ -3212,6 +3466,14 @@ export class World {
     if (Number.isNaN(realTarget.getTime())) throw invalid("INVALID_TIME", "Cannot advance to invalid real time");
     let due;
     while ((due = this.nextDueItem(target, realTarget))) {
+      if (due.kind === "construction") {
+        this.completeConstruction(due.worldTime);
+        continue;
+      }
+      if (due.kind === "building_upkeep" || due.kind === "building_abandonment") {
+        this.chargeBuildingUpkeep(due.worldTime);
+        continue;
+      }
       if (due.kind === "notification") {
         this.expireNotification(due.notificationEventId, due.worldTime);
         continue;
@@ -3226,6 +3488,17 @@ export class World {
       }
       if (due.kind === "job_offer_expiry") {
         this.expireJobOffer(due.jobId, due.worldTime);
+        continue;
+      }
+      if (due.kind === "system_job_slot_expiry") {
+        this.finalizeJob(this.requireJob(due.jobId), {
+          terminalStatus: "expired", terminalCause: "unfilled_system_slot",
+          workerShare: 0, actorCharacterId: null, worldTime: due.worldTime,
+        });
+        continue;
+      }
+      if (due.kind === "system_job_reopen") {
+        this.reopenRepeatableJobs(due.worldTime, due.jobId);
         continue;
       }
       if (due.kind === "job_no_show") {
@@ -3343,7 +3616,12 @@ export class World {
           });
         }
       } else if (activity.type === "rest") {
-        const recovered = this.restRecoveryFor(character);
+        // Freeze the advertised recovery when rest starts. A server restart under a
+        // newer policy must not rewrite the outcome of an activity already accepted.
+        const recovered = Math.min(
+          activity.expectedRecovery ?? this.config.energy.restRecovery,
+          this.config.energy.maximum - character.energy,
+        );
         this.record("REST_COMPLETED", {
           actorCharacterId: character.id,
           causedByEventIds: [activity.startedByEventId],
@@ -3396,8 +3674,6 @@ export class World {
       }
     }
     this.reopenRepeatableJobs(target);
-    this.completeConstruction(target);
-    this.chargeBuildingUpkeep(target);
     this.applyHappinessDecay(target);
   }
 
@@ -3405,10 +3681,12 @@ export class World {
   // empties, so a resident can work its way up to a building rather than racing the
   // clock, and a run does not quietly run out of things to do. Every terminal outcome
   // counts, not just a completion - a post nobody turned up for is still a post.
-  reopenRepeatableJobs(targetWorldTime) {
+  reopenRepeatableJobs(targetWorldTime, onlyJobId = null) {
     const target = new Date(targetWorldTime);
     for (const job of [...this.state.jobs.values()]) {
+      if (onlyJobId && job.id !== onlyJobId) continue;
       if (!job.repeatable || !TERMINAL_JOB_STATUSES.has(job.status) || !job.reopensAt) continue;
+      if (job.fundingSourceType === "building" && this.requireBuilding(job.fundingSourceId).status !== "ACTIVE") continue;
       if (new Date(job.reopensAt) > target) continue;
       const funding = this.fundingBalance(job.fundingSourceType, job.fundingSourceId);
       // When the funder can no longer cover it the post simply stays closed. A world
@@ -3458,6 +3736,8 @@ export class World {
           name: building.name, capacity: building.capacity,
           capabilities: [...building.capabilities],
           activatedAt: building.completesAt,
+          lifecyclePolicyVersion: this.config.city.lifecyclePolicyVersion,
+          lifecycleTerms: this.buildingLifecycleTerms(building),
         },
       });
     }
@@ -3468,15 +3748,17 @@ export class World {
   // that draws a paying crowd pays for itself and an idle one bleeds its owner.
   chargeBuildingUpkeep(targetWorldTime) {
     const target = new Date(targetWorldTime);
-    const intervalMs = this.config.city.upkeepIntervalWorldMinutes * 60_000;
     for (const building of [...this.state.buildings.values()]) {
-      if (!["ACTIVE", "DELINQUENT"].includes(building.status)) continue;
+      if (!["ACTIVE", "DELINQUENT", "INACTIVE"].includes(building.status)) continue;
+      const terms = this.buildingLifecycleTerms(building);
+      const intervalMs = terms.upkeepIntervalWorldMinutes * 60_000;
       const since = new Date(building.lastUpkeepAt ?? building.activatedAt);
       const elapsed = Math.floor((target - since) / intervalMs);
       if (elapsed < 1) continue;
       for (let charge = 1; charge <= elapsed; charge += 1) {
         const chargedAt = new Date(since.getTime() + charge * intervalMs).toISOString();
         const current = this.state.buildings.get(building.buildingId);
+        if (!["ACTIVE", "DELINQUENT", "INACTIVE"].includes(current.status)) break;
         const amount = current.upkeepPerInterval;
         // The proprietor's own pocket pays: a resident holding a thousand credits should
         // not lose a building over an unpaid two, and delinquency is meant to mean
@@ -3484,16 +3766,44 @@ export class World {
         const proprietor = this.state.characters.get(current.proprietorId);
         const fromProprietor = Math.min(amount, proprietor?.credits ?? 0);
         const covered = fromProprietor >= amount;
-        this.record(covered ? "BUILDING_UPKEEP_PAID" : "BUILDING_UPKEEP_FAILED", {
+        const previousStatus = current.status;
+        const due = this.record("BUILDING_UPKEEP_DUE", {
+          actorCharacterId: current.proprietorId, worldTime: chargedAt,
+          data: {
+            buildingId: current.buildingId, proprietorId: current.proprietorId, amount,
+            dueAt: chargedAt, lifecyclePolicyVersion: this.config.city.lifecyclePolicyVersion,
+            lifecycleTerms: terms,
+          },
+        });
+        const outcome = this.record(covered ? "BUILDING_UPKEEP_PAID" : "BUILDING_UPKEEP_FAILED", {
           actorCharacterId: current.proprietorId,
+          causedByEventIds: [due.id],
           worldTime: chargedAt,
           data: {
             buildingId: current.buildingId, proprietorId: current.proprietorId,
-            amount, chargedAt,
+            amount, chargedAt, reason: "scheduled_upkeep",
             fromProprietor: covered ? fromProprietor : 0,
             ...(covered ? {} : { shortfall: amount - fromProprietor }),
+            lifecyclePolicyVersion: this.config.city.lifecyclePolicyVersion,
           },
         });
+        if (covered && previousStatus !== "ACTIVE") {
+          this.transitionBuilding(current, "ACTIVE", outcome, chargedAt, previousStatus);
+        } else if (!covered) {
+          const missed = current.missedUpkeepIntervals;
+          const status = missed >= terms.closedAfterMissedUpkeepIntervals ? "CLOSED"
+            : missed >= terms.inactiveAfterMissedUpkeepIntervals ? "INACTIVE" : "DELINQUENT";
+          if (status !== previousStatus) this.transitionBuilding(current, status, outcome, chargedAt, previousStatus);
+        }
+      }
+    }
+    for (const building of this.state.buildings.values()) {
+      if (building.status !== "CLOSED") continue;
+      const terms = this.buildingLifecycleTerms(building);
+      const abandonedAt = new Date(new Date(building.closedAt).getTime()
+        + terms.abandonedAfterClosedIntervals * terms.upkeepIntervalWorldMinutes * 60_000);
+      if (abandonedAt <= target) {
+        this.transitionBuilding(building, "ABANDONED", { id: building.closedByEventId }, abandonedAt.toISOString());
       }
     }
   }
@@ -3669,7 +3979,7 @@ export class World {
       // affordance is built from it, discloses all three, and has its feasibility
       // decided on them.
       .map((event) => ({
-        id: event.id, title: event.title, locationId: event.locationId,
+        id: event.id, title: event.title, locationId: event.locationId, buildingId: event.buildingId ?? null,
         startsAt: event.startsAt, endsAt: event.endsAt,
         accessPrice: event.accessPrice ?? 0,
         capacity: event.capacity ?? null,
@@ -3706,6 +4016,12 @@ export class World {
       // target of a goal or an invitation. Compact enough for the baseline, and it
       // keeps a runtime from having to fetch a catalog just to know what exists.
       known: this.knownTargetIds(characterId),
+      recentHappiness: structuredClone((this.state.happinessResolutions.get(characterId) ?? []).slice(-5)),
+      goalSourceEventIds: character.secondaryGoals.filter((goal) => goal.status === "active")
+        .map((goal) => goal.sourceEventId).filter((id) => {
+          const source = this.eventById(id);
+          return source && this.characterMayReference(characterId, source);
+        }),
       stateVersion,
       character: publicCharacter(character),
       nearby,
@@ -3823,6 +4139,7 @@ export class World {
       },
       jobs: {
         startGraceWorldHours: this.config.jobs.startGraceWorldHours,
+        systemSlots: "Unfilled system-funded slots expire after their start window, refund escrow without a worker penalty, and reopen only if repeatable, after cooldown and with sufficient budget. Resident-created roles keep their own published deadlines; this policy does not renew them.",
         individualRequirements: "Every listed skill threshold must be met by the worker.",
         teamRequirements: "For team jobs the recruited team must collectively cover every listed skill threshold; compensation is split equally.",
         applicationRoles: "A notice with hiring 'application' is a resident-created role: apply_for_role at its board and wait. The proprietor selects among applicants before the deadline; selection commits you to its schedule exactly like an accepted job. It may also require a minimum Domain Reputation.",
@@ -3870,7 +4187,7 @@ export class World {
         maximumActiveSecondaryGoals: this.config.goals.maximumActiveSecondaryGoals,
         allowedSecondaryGoalTypes: [...this.config.goals.secondaryTypes],
         instruction: "A secondary goal requires a visible causal source event and a valid known target; only authoritative evidence completes it.",
-        selfAuthored: "pursue_goal is self-authored memory: no target, nothing completes it automatically. Its declaredReason returns in every observation, so a multi-step goal survives between decisions; abandon it when done or let it expire.",
+        selfAuthored: "pursue_goal is self-authored memory: no target, nothing completes it automatically. Submit declaredReason; it returns as guidance in every observation. Abandon it when done or let it expire. Never duplicate an active goal of the same type and target.",
       },
       consequences: {
         instruction: "Accepted actions can change energy, credits, work state, commitments, and directional relationships. Kept and broken commitments affect trust.",
@@ -3887,16 +4204,21 @@ export class World {
         // Charging it twice would be double-charging the same choice.
         neglect: `Going ${this.config.happiness.decayWindowWorldMinutes / 1440} world day(s) without a resolved experience costs ${this.config.happiness.decayPerWorldDay} Happiness, down to a floor of ${this.config.happiness.decayFloor}, and every completed job costs ${this.config.happiness.completedWorkCost} more. Nothing punishes low Happiness directly. The cost is simply that you end with Credits and almost nothing lived, and the lived total is part of what a run is won on.`,
         livedTotal: "Happiness is two numbers. 'happiness' is how good your life is right now: bounded, and it saturates as it approaches either end. 'livedHappiness' is the unbounded total of everything you have actually lived, and together with Credits and relationships it is what a run is won on. A wonderful evening when you are already happy barely moves the first and counts in full toward the second, so there is never a point at which experiences stop being worth having.",
+        expectedHappiness: `When joining, you may include expectedHappiness: your own integer prediction of the raw result from ${-this.config.happiness.maximumChangePerExperience} to ${this.config.happiness.maximumChangePerExperience}. It is optional, immutable after entry, never affects resolution or rewards, and is shown beside the realized result only to measure your prediction.`,
         privacy: "You see your own Happiness and preferences and never another character's.",
+        decisions: `On entry and at checkpoints you may talk, leave, or stay_experience to wait up to ${this.config.experience.decisionIntervalWorldMinutes} world minutes. Relevant notifications can wake you earlier. Staying changes no reward formula and does not end attendance. recentHappiness contains only your own last five raw predictions, outcomes and factors; use it to learn, not as a guaranteed reward.`,
       },
       city: {
         gridVersion: this.config.city.gridVersion,
+        grammarPolicyVersion: this.config.city.grammarPolicyVersion,
+        lifecyclePolicyVersion: this.config.city.lifecyclePolicyVersion,
         grid: [this.config.city.width, this.config.city.height],
         capabilities: [...this.config.city.capabilities],
         instruction: "The city is a grid and you may build on it. There is no land to buy: construct_building on any free cell claims the ground and raises the place in one action. You name it, describe it, and choose what it delivers using the same profile dimensions your own preferences use. The world never decides what kind of place it is.",
         cost: `Construction costs cells x (${this.config.city.structuralCostPerCell} + ${this.config.city.profileCostPerCell} x ambition^${this.config.city.ambitionExponent}), where ambition is the sum of your ten profile values divided by 100. The cost rises with the square of the total you promise, so a place that delivers everything is unaffordable and a focused one is cheap. Deciding what your place is for is the whole choice.`,
         ceiling: "A building's profile is the ceiling on every experience you can host there. A venue with music 40 can never host the city's great music night; paying for music 90 is how you earn the right to.",
         earning: "Admission to an experience you host is paid straight to you, the proprietor. Upkeep is charged to your wallet too, so an unused building bleeds you and a busy one pays for itself.",
+        lifecycle: `Upkeep is due every ${this.config.city.upkeepIntervalWorldMinutes} world minutes. One failed payment makes a building DELINQUENT; ${this.config.city.inactiveAfterMissedUpkeepIntervals} consecutive failures make it INACTIVE and ${this.config.city.closedAfterMissedUpkeepIntervals} make it CLOSED. Before closure, reactivate_building pays one interval now and restarts the schedule, or a funded scheduled payment recovers it automatically. Missed charges remain in history but create no debt. Closed buildings become ABANDONED after ${this.config.city.abandonedAfterClosedIntervals} more intervals. Closed and abandoned buildings cannot recover in version 1. New operations and admissions stop outside ACTIVE; already accepted work, enrolled courses, attendance and commitments still settle normally.`,
         capacityRule: `Capacity is ${this.config.city.capacityPerCell} per cell of footprint, so a bigger footprint holds more people and costs proportionally more to build.`,
       },
       // The context discipline is a stable rule, so it lives in the manifest rather
@@ -3970,6 +4292,16 @@ export class World {
         decisionRequiredAt: notification.respondByWorldTime ?? this.clock.now().toISOString(),
         reason: "relevant_event",
         notificationEventId,
+      };
+    }
+    if (character.activity?.type === "attend_event") {
+      const inConversation = [...this.state.conversations.values()].some((conversation) =>
+        conversation.status === "active" && conversation.participantIds.includes(characterId));
+      const at = character.activity.nextDecisionAt ?? character.activity.startedAt;
+      return {
+        requiredNow: !inConversation && this.clock.now() >= new Date(at),
+        decisionRequiredAt: inConversation ? null : at,
+        reason: inConversation ? "waiting_for_event" : "experience_checkpoint", notificationEventId: null,
       };
     }
     if (character.activity) {
@@ -4109,6 +4441,7 @@ export class World {
         // The venue keeps a revenue/upkeep ledger, not a purse: takings land in the
         // proprietor's wallet, so there is no separate balance to report.
         revenue: building.revenue, upkeepPaid: building.upkeepPaid,
+        ...this.buildingLifecycleView(building),
         completesAt: building.completesAt ?? null,
         // Whether the doors are actually open, so the observer can see an idle venue for
         // what it is rather than inferring it from who happens to be standing inside.
@@ -4400,7 +4733,8 @@ export class World {
         });
       }
       for (const job of jobs.filter((item) => item.status === "accepted" && item.workerIds.includes(character.id))) {
-        actions.push({ type: "start_job", jobId: job.id, energyCost: job.energyCost ?? this.config.energy.workCost });
+        actions.push({ type: "start_job", jobId: job.id, energyCost: job.energyCost ?? this.config.energy.workCost,
+          feasibility: this.jobStartFeasibility(character, job) });
         actions.push({ type: "cancel_job", jobId: job.id });
       }
       if (character.energy < this.config.energy.maximum) {
@@ -4417,8 +4751,8 @@ export class World {
       const city = this.config.city;
       const takenCells = [
         ...[...this.state.plots.values()]
-          .filter((plot) => plot.buildingId)
-          .map((plot) => ({ x: plot.x, y: plot.y, why: "built on" })),
+          .filter((plot) => plot.buildingId || (plot.ownerId && plot.ownerId !== character.id))
+          .map((plot) => ({ x: plot.x, y: plot.y, why: plot.buildingId ? "built on" : "legacy ownership" })),
         ...[...this.state.locations.values()]
           .filter((location) => Number.isInteger(location.x))
           .map((location) => ({ x: location.x, y: location.y, why: "occupied" })),
@@ -4547,6 +4881,10 @@ export class World {
             entryEnergyCost: this.config.experience.entryEnergyCost,
             marginalEnergyPerWorldMinutes: this.config.experience.marginalEnergyPerWorldMinutes,
             marginalEnergyMaximum: this.config.experience.marginalEnergyMaximum,
+            expectedHappinessRange: [
+              -this.config.happiness.maximumChangePerExperience,
+              this.config.happiness.maximumChangePerExperience,
+            ],
             profile: gathering.profile ? structuredClone(gathering.profile) : null,
             capacity: gathering.capacity ?? null,
             attendeeCount: this.currentAttendeeCount(gathering.id),
@@ -4562,6 +4900,14 @@ export class World {
           });
         }
       }
+    }
+    for (const building of this.state.buildings.values()) {
+      if (building.proprietorId !== character.id || !["DELINQUENT", "INACTIVE"].includes(building.status)) continue;
+      actions.push({
+        type: "reactivate_building", buildingId: building.buildingId, name: building.name,
+        ...this.buildingLifecycleView(building), availableCredits: character.credits,
+        feasibility: this.buildingRecoveryFeasibility(character, building),
+      });
     }
     for (const job of jobs.filter((item) => item.status === "open")) {
       // A published opportunity is a notice on a public board: a character considering
@@ -4622,7 +4968,10 @@ export class World {
         feeForfeited: enrollment.price,
       });
     }
-    for (const job of jobs.filter((item) => item.fundingSourceId === character.id && ["open", "accepted"].includes(item.status))) {
+    for (const job of jobs.filter((item) => ["open", "accepted"].includes(item.status)
+      && ((item.fundingSourceType === "character" && item.fundingSourceId === character.id)
+        || (item.fundingSourceType === "building"
+          && this.state.buildings.get(item.fundingSourceId)?.proprietorId === character.id)))) {
       actions.push({ type: "cancel_job", jobId: job.id });
     }
     for (const job of jobs.filter((item) => item.status === "open" && item.workerIds.includes(character.id))) {
@@ -4649,11 +4998,10 @@ export class World {
     }
     for (const conversation of conversations) {
       const turnEnergyCost = this.conversationTurnEnergyCost(conversation.messages.length);
-      const turnFeasibility = character.energy >= turnEnergyCost
-        ? { status: "eligible", blockingCode: null }
-        : { status: "blocked", blockingCode: "INSUFFICIENT_ENERGY" };
+      const turnFeasibility = this.conversationTurnFeasibility(character, this.requireConversation(conversation.id));
       actions.push({
         type: "send_message", conversationId: conversation.id,
+        allowedTopics: [...this.config.grammar.profileDimensions],
         energyCost: turnEnergyCost,
         turnsRemaining: conversation.turnsRemaining,
         closingRecommended: conversation.closingRecommended,
@@ -4706,6 +5054,8 @@ export class World {
     // measures, so staying or going changes the outcome.
     if (character.activity?.type === "attend_event") {
       const attending = this.state.gatherings.get(character.activity.eventId);
+      actions.push({ type: "stay_experience", eventId: character.activity.eventId,
+        nextCheckInWorldMinutes: this.config.experience.decisionIntervalWorldMinutes });
       actions.push({
         type: "leave_experience", eventId: character.activity.eventId,
         startedAt: character.activity.startedAt,
@@ -4882,6 +5232,7 @@ export class World {
   eventAttendanceFeasibility(character, gathering) {
     const now = this.clock.now();
     const blockingCodes = [];
+    if (gathering.buildingId && this.requireBuilding(gathering.buildingId).status !== "ACTIVE") blockingCodes.push("BUILDING_NOT_ACTIVE");
     if (character.activity) blockingCodes.push("ACTIVITY_CONFLICT");
     if (character.locationId !== gathering.locationId) blockingCodes.push("WRONG_LOCATION");
     if (now < new Date(gathering.startsAt)) blockingCodes.push("EVENT_NOT_STARTED");
@@ -4906,6 +5257,7 @@ export class World {
 
   jobAcceptanceFeasibility(character, job, unmetRequirements) {
     const blockingCodes = [];
+    if (job.fundingSourceType === "building" && this.requireBuilding(job.fundingSourceId).status !== "ACTIVE") blockingCodes.push("BUILDING_NOT_ACTIVE");
     if (job.creatorId === character.id) blockingCodes.push("SELF_EMPLOYMENT");
     if (character.agentAvailability === "unavailable") blockingCodes.push("AGENT_UNAVAILABLE");
     if (character.activity) blockingCodes.push("ACTIVITY_CONFLICT");
@@ -4926,6 +5278,22 @@ export class World {
       blockingCode: uniqueBlockingCodes[0] ?? null,
       blockingCodes: uniqueBlockingCodes,
     };
+  }
+
+  conversationTurnFeasibility(sender, conversation, { opening = false } = {}) {
+    const blocked = (code, message, httpStatus = 409) => ({
+      status: "blocked", eligible: false, blockingCode: code, blockingCodes: [code], message, httpStatus,
+    });
+    if (!conversation.participantIds.includes(sender.id)) return blocked("NOT_PARTICIPANT", "Character is not a conversation participant", 403);
+    const response = this.findConversationNotification(sender.id, conversation.id, true);
+    if (response?.[1].status === "expired") return blocked("REACTION_WINDOW_EXPIRED", "The conversation response window has expired");
+    if (conversation.status !== "active") return blocked("CONVERSATION_ENDED", "Conversation is no longer active");
+    if (!opening && conversation.expectedResponderId && conversation.expectedResponderId !== sender.id) return blocked("OUT_OF_TURN", "Another participant is expected to respond");
+    if (conversation.messages.length >= this.config.conversation.maximumTurns) return blocked("CONVERSATION_TURN_LIMIT", "Conversation turn limit reached");
+    const oneMinuteAgo = addGameMinutes(this.clock.now(), -1);
+    if (conversation.messages.filter((message) => new Date(message.sentAt) > oneMinuteAgo).length >= this.config.conversation.maximumTurnsPerWorldMinute) return blocked("CONVERSATION_RATE_LIMITED", "Conversation turn frequency limit reached", 429);
+    if (sender.energy < this.conversationTurnEnergyCost(conversation.messages.length)) return blocked("INSUFFICIENT_ENERGY", "Insufficient Energy for this turn", 422);
+    return { status: "eligible", eligible: true, blockingCode: null, blockingCodes: [] };
   }
 
   hasConversationAppraisal(characterId, conversationId) {
@@ -5042,10 +5410,34 @@ export class World {
   }
 
   nextUpkeepAt(building) {
+    if (["CLOSED", "ABANDONED"].includes(building.status)) return null;
     const since = building.lastUpkeepAt ?? building.activatedAt;
     if (!since) return null;
     return new Date(new Date(since).getTime()
-      + this.config.city.upkeepIntervalWorldMinutes * 60_000).toISOString();
+      + this.buildingLifecycleTerms(building).upkeepIntervalWorldMinutes * 60_000).toISOString();
+  }
+
+  buildingLifecycleTerms(building = null) {
+    return structuredClone(building?.lifecycleTerms ?? {
+      upkeepIntervalWorldMinutes: this.config.city.upkeepIntervalWorldMinutes,
+      inactiveAfterMissedUpkeepIntervals: this.config.city.inactiveAfterMissedUpkeepIntervals,
+      closedAfterMissedUpkeepIntervals: this.config.city.closedAfterMissedUpkeepIntervals,
+      abandonedAfterClosedIntervals: this.config.city.abandonedAfterClosedIntervals,
+    });
+  }
+
+  buildingLifecycleView(building) {
+    const recoverable = ["DELINQUENT", "INACTIVE"].includes(building.status);
+    return {
+      lifecyclePolicyVersion: building.lifecyclePolicyVersion ?? this.config.city.lifecyclePolicyVersion,
+      ...this.buildingLifecycleTerms(building),
+      nextUpkeepAt: this.nextUpkeepAt(building),
+      missedUpkeepIntervals: building.missedUpkeepIntervals ?? 0,
+      lifetimeUpkeepFailures: building.lifetimeUpkeepFailures ?? 0,
+      lifecycleChangedAt: building.lifecycleChangedAt ?? building.activatedAt ?? null,
+      recoverable, recoveryCost: recoverable ? building.upkeepPerInterval : null,
+      closedAt: building.closedAt ?? null, abandonedAt: building.abandonedAt ?? null,
+    };
   }
 
   // Whether the place has anything on. An idle building is the thing upkeep punishes, so
@@ -5207,6 +5599,17 @@ export class World {
       .map((goal) => ({ kind: "goal", characterId: character.id, goalId: goal.id, worldTime: goal.expiresAt })));
     const jobs = [...this.state.jobs.values()].flatMap((job) => {
       if (this.state.platformIncident) return [];
+      if (job.fundingSourceType === "system_budget") {
+        const slotExpiry = new Date(new Date(job.startGraceUntil).getTime() + 1);
+        if (job.status === "open" && slotExpiry <= target && slotExpiry < new Date(job.offerExpiresAt)) {
+          return [{ kind: "system_job_slot_expiry", jobId: job.id, worldTime: slotExpiry.toISOString() }];
+        }
+        if (job.repeatable && TERMINAL_JOB_STATUSES.has(job.status) && job.reopensAt
+          && new Date(job.reopensAt) <= target
+          && this.fundingBalance(job.fundingSourceType, job.fundingSourceId) >= job.compensation) {
+          return [{ kind: "system_job_reopen", jobId: job.id, worldTime: job.reopensAt }];
+        }
+      }
       if (job.status === "open" && new Date(job.offerExpiresAt) <= target) {
         return [{ kind: "job_offer_expiry", jobId: job.id, worldTime: job.offerExpiresAt }];
       }
@@ -5235,7 +5638,26 @@ export class World {
       }
       return [];
     });
-    return [...activities, ...notifications, ...goals, ...jobs, ...enrollments, ...commitments]
+    const buildings = [...this.state.buildings.values()].flatMap((building) => {
+      if (building.status === "UNDER_CONSTRUCTION") {
+        return new Date(building.completesAt) <= target
+          ? [{ kind: "construction", worldTime: building.completesAt }] : [];
+      }
+      if (["ACTIVE", "DELINQUENT", "INACTIVE"].includes(building.status)) {
+        const worldTime = this.nextUpkeepAt(building);
+        return worldTime && new Date(worldTime) <= target ? [{ kind: "building_upkeep", worldTime }] : [];
+      }
+      if (building.status === "CLOSED") {
+        const terms = this.buildingLifecycleTerms(building);
+        const worldTime = new Date(new Date(building.closedAt).getTime()
+          + terms.abandonedAfterClosedIntervals * terms.upkeepIntervalWorldMinutes * 60_000).toISOString();
+        return new Date(worldTime) <= target ? [{ kind: "building_abandonment", worldTime }] : [];
+      }
+      return [];
+    });
+    // At an identical instant, already promised work/attendance/commitments settles
+    // before upkeep. Across instants, a later wage cannot fund an earlier missed bill.
+    return [...activities, ...notifications, ...goals, ...jobs, ...enrollments, ...commitments, ...buildings]
       .sort((a, b) => a.worldTime.localeCompare(b.worldTime))[0] ?? null;
   }
 

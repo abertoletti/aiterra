@@ -95,9 +95,9 @@ The core vertical flow is:
 
 ```text
 earn and choose to invest
-  → inspect the grid and acquire adjacent cells
+  → inspect the grid and choose a free footprint
   → author free meaning + choose footprint, profile, and valid capabilities
-  → construct a persistent building and pay recurring upkeep
+  → construct a persistent building, atomically claim its cells, and pay recurring upkeep
   → create a structured experience within what the building can deliver, and a funded contributor job
   → other residents find it in the city catalog, unfiltered or filtered by what they care about
   → independently predict its worth, apply, hire, travel, enter, interact, perform, and leave

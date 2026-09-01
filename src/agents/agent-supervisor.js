@@ -164,12 +164,17 @@ export class AgentSupervisor {
   }
 
   async runDecisionCycle(agent, state) {
+    let validationRepairs = 0;
     for (let actionIndex = 0; actionIndex < this.maximumActionsPerCycle && this.running; actionIndex += 1) {
       let observation = await this.observeWithContext(agent, state);
       const acknowledged = await this.acknowledgeDeliveredNotifications(agent, state, observation);
       if (acknowledged > 0) observation = await this.observeWithContext(agent, state);
       this.recordObservation(agent, state, observation);
       if (!observation.decision?.requiredNow) return;
+      // A changing clock alone must not buy another identical failed inference.
+      const decisionFingerprint = actionableStateFingerprint(observation);
+      if (state.blockedDecisionFingerprint === decisionFingerprint) return;
+      state.blockedDecisionFingerprint = null;
 
       const waitedMs = await state.modelRateLimiter.waitForAvailability(this.abortController.signal, ({ waitMs, callsInWindow }) => {
         state.stats.rateLimitWaits += 1;
@@ -207,29 +212,57 @@ export class AgentSupervisor {
         // request rate is reported: a runtime that asks every time has reproduced the
         // problem progressive context exists to remove.
         const catalogs = {};
+        const buildingQuotes = [];
+        let contextRequestsRemaining = this.contextRequestsPerDecision;
+        let buildingQuoteRequestsRemaining = 1;
         let decision;
-        for (let attempt = 0; attempt <= this.contextRequestsPerDecision; attempt += 1) {
+        const maximumInformationRequests = this.contextRequestsPerDecision + 1;
+        for (let attempt = 0; attempt <= maximumInformationRequests; attempt += 1) {
           if (attempt > 0) state.modelRateLimiter.consume();
           this.modelCalls += 1;
           state.stats.modelCalls += 1;
-          const remaining = this.contextRequestsPerDecision - attempt;
           decision = await this.semaphore.run(() => this.planner.decide({
             observation, history, recentActionFailures: state.recentActionFailures,
             signal: this.abortController.signal,
-            rules: state.rules, catalogs, contextRequestsRemaining: remaining,
+            rules: state.rules, catalogs, contextRequestsRemaining,
+            buildingQuotes, buildingQuoteRequestsRemaining,
           }));
           addUsage(state.stats.usage, decision.usage);
-          if (!decision.contextRequest) break;
-          const { resource, filters } = decision.contextRequest;
-          state.stats.contextRequests += 1;
-          state.stats.contextRequestsByResource[resource] = (state.stats.contextRequestsByResource[resource] ?? 0) + 1;
-          const page = await agent.client.inspect(resource, { filters, signal: this.abortController.signal });
-          catalogs[resource] = page;
-          this.log("info", agent.characterId, "decision_context_requested", null, {
-            resource, filters, returned: page.returned, count: page.count,
-            feasibleCount: page.feasibleCount, blockedCount: page.blockedCount,
-            rationale: decision.rationale, characterName: observation.character?.name,
-          });
+          if (decision.contextRequest && contextRequestsRemaining > 0) {
+            const { resource, filters } = decision.contextRequest;
+            contextRequestsRemaining -= 1;
+            state.stats.contextRequests += 1;
+            state.stats.contextRequestsByResource[resource] = (state.stats.contextRequestsByResource[resource] ?? 0) + 1;
+            const page = await agent.client.inspect(resource, { filters, signal: this.abortController.signal });
+            catalogs[resource] = page;
+            this.log("info", agent.characterId, "decision_context_requested", null, {
+              resource, filters, returned: page.returned, count: page.count,
+              feasibleCount: page.feasibleCount, blockedCount: page.blockedCount,
+              rationale: decision.rationale, characterName: observation.character?.name,
+            });
+            continue;
+          }
+          if (decision.buildingQuoteRequest && buildingQuoteRequestsRemaining > 0) {
+            buildingQuoteRequestsRemaining -= 1;
+            state.stats.buildingQuoteRequests += 1;
+            const quote = await agent.client.quoteBuilding(decision.buildingQuoteRequest, {
+              signal: this.abortController.signal,
+            });
+            buildingQuotes.push(quote);
+            this.log("info", agent.characterId, "building_quote_requested", null, {
+              proposal: decision.buildingQuoteRequest,
+              quoteEventId: quote.quoteEventId,
+              constructionCost: quote.constructionCost,
+              upkeepPerInterval: quote.upkeepPerInterval,
+              availableCredits: quote.availableCredits,
+              creditsAfterConstruction: quote.creditsAfterConstruction,
+              feasibility: quote.feasibility,
+              rationale: decision.rationale,
+              characterName: observation.character?.name,
+            });
+            continue;
+          }
+          break;
         }
         action = decision.action;
         this.log("verbose", agent.characterId, "model_response_received", null, {
@@ -261,6 +294,15 @@ export class AgentSupervisor {
         if (error instanceof DecisionValidationError) {
           state.stats.validationFailures += 1;
           addUsage(state.stats.usage, error.usage);
+          const candidate = error.rejectedAction ?? null;
+          state.recentActionFailures.push({
+            at: new Date().toISOString(), worldTime: observation.worldTime,
+            stateVersion: observation.stateVersion, action: candidate,
+            actionIdentity: actionIdentity(candidate), actionFingerprint: actionFingerprint(candidate),
+            code: error.code, message: error.message, stage: "local_validation",
+            allowedActions: (observation.availableActions ?? []).filter((item) => !candidate?.type || item.type === candidate.type),
+          });
+          state.recentActionFailures = state.recentActionFailures.slice(-5);
           if (error.rawModelContent) {
             this.log("verbose", agent.characterId, "model_response_invalid", null, {
               content: error.rawModelContent,
@@ -270,6 +312,14 @@ export class AgentSupervisor {
               characterName: observation.character?.name,
             });
           }
+          this.log("warn", agent.characterId, "model_decision_failed", error);
+          if (validationRepairs < 1 && actionIndex + 1 < this.maximumActionsPerCycle) {
+            validationRepairs += 1;
+            state.stats.validationRepairs += 1;
+            continue;
+          }
+          state.blockedDecisionFingerprint = actionableStateFingerprint(observation);
+          return;
         }
         else state.stats.modelErrors += 1;
         this.log("warn", agent.characterId, "model_decision_failed", error);
@@ -304,6 +354,7 @@ export class AgentSupervisor {
           previousErrorCode: repeatedFailure.code,
           characterName: observation.character?.name,
         });
+        state.blockedDecisionFingerprint = actionableStateFingerprint(observation);
         return;
       }
       const idempotencyKey = `${agent.characterId}-${Date.now()}-${state.actionSequence}`.slice(0, 100);
@@ -513,16 +564,17 @@ function createAgentState(characterId) {
     modelRateLimiter: null,
     seenConversationMessageIds: new Set(),
     recentActionFailures: [],
+    blockedDecisionFingerprint: null,
     actionSequence: 0,
     stats: {
       modelCalls: 0, acceptedActions: 0, receivedEvents: 0, acknowledgedNotifications: 0,
-      fallbackActions: 0, validationFailures: 0, modelErrors: 0, runtimeErrors: 0,
+      fallbackActions: 0, validationFailures: 0, validationRepairs: 0, modelErrors: 0, runtimeErrors: 0,
       staleRetries: 0, conflictSkips: 0, eventStreamReconnects: 0,
       actionRejections: 0, suppressedRepeatedActions: 0, gracefulConversationClosures: 0,
       actionRejectionsByCode: {},
       conversationEnergySpent: 0,
       rateLimitWaits: 0, rateLimitWaitMilliseconds: 0,
-      contextRequests: 0, contextRequestsByResource: {},
+      contextRequests: 0, contextRequestsByResource: {}, buildingQuoteRequests: 0,
       observationBytes: 0, observations: 0,
       actionsByType: {},
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
@@ -544,6 +596,16 @@ function addUsage(target, usage) {
 // used to lock out the entire action type until the world moved. Kept separate because
 // actionIdentity still matches an accepted action to its affordance template to read
 // energyCost, and templates carry no free-text fields.
+function actionableStateFingerprint(observation) {
+  return JSON.stringify({
+    character: observation.character, nearby: observation.nearby,
+    availableActions: observation.availableActions, opportunities: observation.opportunities,
+    cannotRightNow: observation.cannotRightNow, pendingNotifications: observation.pendingNotifications,
+    activeConversations: observation.activeConversations, known: observation.known,
+    cityTonight: observation.cityTonight, decisionReason: observation.decision?.reason,
+  });
+}
+
 function actionFingerprint(action) {
   if (!action || typeof action !== "object") return "unknown";
   return JSON.stringify(Object.keys(action).sort().map((key) => [key, action[key]]));

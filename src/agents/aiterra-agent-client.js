@@ -44,6 +44,14 @@ export class AiterraAgentClient {
       .then((body) => body.events);
   }
 
+  // A resident-authored proposal goes in; authoritative costs and blockers come
+  // back. This reserves nothing and is deliberately separate from construction.
+  quoteBuilding(proposal, { signal = null } = {}) {
+    return this.request(`/api/characters/${encodeURIComponent(this.characterId)}/building-quotes`, {
+      method: "POST", signal, body: proposal,
+    });
+  }
+
   health({ signal = null } = {}) {
     return this.request(`/api/characters/${encodeURIComponent(this.characterId)}/agent/health`, {
       method: "POST",

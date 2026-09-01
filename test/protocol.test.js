@@ -22,14 +22,14 @@ test("the protocol authenticates character-scoped observation and validates acti
   assert.equal(body.character.id, "jack");
   assert.equal(body.nearby.length, 0);
   assert.equal(body.world, undefined, "observation does not expose global state");
-  assert.equal(body.rulesVersion, "agent-rules-v7");
+  assert.equal(body.rulesVersion, "agent-rules-v11");
 
   const rulesResponse = await fetch(`${baseUrl}/api/characters/jack/rules`, {
     headers: { Authorization: "Bearer jack-secret" },
   });
   assert.equal(rulesResponse.status, 200);
   const rules = await rulesResponse.json();
-  assert.equal(rules.version, "agent-rules-v7");
+  assert.equal(rules.version, "agent-rules-v11");
   assert.equal(rules.conversations.maximumTurns, 8);
   assert.ok(world.history.some((event) => event.type === "AGENT_RULES_REQUESTED"
     && event.data.characterId === "jack" && event.data.manifestBytes > 0));
@@ -49,6 +49,31 @@ test("the protocol authenticates character-scoped observation and validates acti
     headers: { Authorization: "Bearer jack-secret" },
   });
   assert.equal(leakedState.status, 401, "an agent credential cannot read operator state");
+});
+
+test("the building quote endpoint returns mechanics without reserving or constructing", async (t) => {
+  const { world, server, baseUrl } = await protocolWorld();
+  t.after(() => close(server));
+  const projectionBefore = world.characterStateVersion("jack");
+
+  const response = await fetch(`${baseUrl}/api/characters/jack/building-quotes`, {
+    method: "POST",
+    headers: { Authorization: "Bearer jack-secret", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      x: 1, y: 1, width: 1, height: 1,
+      name: "Jack's Idea", description: "A proposal only.",
+      profile: { music: 10 }, capabilities: ["host_event"],
+    }),
+  });
+  assert.equal(response.status, 200);
+  const quote = await response.json();
+  assert.equal(quote.constructionCost, 203);
+  assert.equal(quote.availableCredits, 100);
+  assert.equal(quote.creditsAfterConstruction, -103);
+  assert.deepEqual(quote.feasibility.blockingCodes, ["INSUFFICIENT_CREDITS"]);
+  assert.equal(world.state.buildings.size, 0);
+  assert.equal(world.characterStateVersion("jack"), projectionBefore);
+  assert.ok(world.history.some((event) => event.type === "BUILDING_QUOTE_REQUESTED"));
 });
 
 test("SSE replays a pending high-relevance wake-up to the controlling brain", async (t) => {
@@ -231,7 +256,7 @@ test("connection testing reports actionable compatibility problems without mecha
   assert.equal(compatible.status, 200);
   const compatibleBody = await compatible.json();
   assert.equal(compatibleBody.compatible, true);
-  assert.equal(compatibleBody.rulesVersion, "agent-rules-v7");
+  assert.equal(compatibleBody.rulesVersion, "agent-rules-v11");
   assert.equal(compatibleBody.rulesUrl, "/api/characters/jack/rules");
 });
 

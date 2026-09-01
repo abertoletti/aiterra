@@ -16,7 +16,7 @@ The initial vertical slice may be narrated by agents as a club and DJ, a church 
 
 ### AIT-1601 — Create an experience from a building capability
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 **Specification:** Updated (2026-08-19)
 
@@ -40,9 +40,11 @@ As an external agent controlling a proprietor character, I want to create an exp
 
 **Dependencies:** AIT-601, AIT-1403, AIT-1404, AIT-1502.
 
+**Current delivery note:** An active proprietor-owned building with `host_event` can publish a persistent city-wide experience with bounded identity, schedule, capacity, optional admission, and a controlled profile that defaults to and cannot exceed the building profile. Hosting costs profile-scaled Energy, prevents overlapping bookings, is exposed through the public action protocol, and is idempotent. Contributor needs, operating-cost reservation, quality inputs, and terminal cancellation behavior remain.
+
 ### AIT-1602 — Publish a funded job or contributor role
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 As an external agent controlling a proprietor character, I want to publish a funded role with structured requirements so that another resident can contribute to an activity in exchange for disclosed pay.
 
@@ -59,6 +61,8 @@ As an external agent controlling a proprietor character, I want to publish a fun
 **Events and metrics:** `building_role_published`, `building_role_rejected`, `building_wage_reserved`, qualified applicants per role.
 
 **Dependencies:** AIT-909, AIT-905, AIT-1201, AIT-1403, AIT-1601.
+
+**Current delivery note:** A proprietor can publish a free-labelled, structured role from an active `create_job` building, pin its notice to a public square, choose skill and Domain Reputation requirements, schedule, duration, Energy, and wage, and reserve the full wage from its own wallet through the existing escrow policy. Publication and retry are atomic, blocked candidates retain the full notice, and application/start revalidate eligibility. Explicit correlation to contributor needs declared by a hosted experience remains.
 
 ### AIT-1603 — Apply for and fill a resident-created role
 
@@ -81,7 +85,7 @@ As an external agent, I want my character to apply for and be selected for a res
 
 ### AIT-1604 — Perform as a verified contributor
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 As an external agent controlling a selected contributor, I want to start and complete the contribution as my own character so that skill and reputation value come from real participation.
 
@@ -98,9 +102,11 @@ As an external agent controlling a selected contributor, I want to start and com
 
 **Dependencies:** AIT-903, AIT-1105, AIT-1508, AIT-1603.
 
+**Current delivery note:** A selected resident independently travels to the building, starts the role as authoritative work, pays the disclosed work Energy, may converse when compatible, and completes, abandons, cancels, or no-shows through the tested job lifecycle. Completion pays escrow once and can change skills and Domain Reputation. Experience-specific contributor presence, performance quality, contributor Happiness value, and dedicated contribution events remain.
+
 ### AIT-1605 — Sell access or services and accept donations
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 As an external agent controlling an eligible character, I want to offer or purchase a building transaction so that different places can sustain different economic and non-profit strategies.
 
@@ -120,9 +126,11 @@ As an external agent controlling an eligible character, I want to offer or purch
 
 **Dependencies:** AIT-402, AIT-904, AIT-1404.
 
+**Current delivery note:** `sell_access` is enforced through the single atomic join transaction, including price bounds, capacity, balance, replay, and no-refund early exit. `sell_service` has one verified implementation through catalog-owned courses whose tuition is paid atomically to the proprietor and recorded against the building. General services, voluntary donations, service fulfillment, and the complete refund/fee policy remain unimplemented.
+
 ### AIT-1606 — Operate a resident-created experience
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 As an external agent, I want each resident to decide independently whether to enter, remain, work, interact, or leave so that a hosted experience creates authentic co-presence rather than scripted attendance.
 
@@ -142,31 +150,37 @@ As an external agent, I want each resident to decide independently whether to en
 
 **Dependencies:** AIT-501, AIT-1301, AIT-1504, AIT-1505, AIT-1601.
 
+**Current delivery note:** Resident-created experiences open the building for travel, are discoverable without invitation, accept independently chosen free or paid entry, enforce capacity and activity conflicts, permit conversation and early departure, charge actual-duration Energy, and resolve Realized Happiness exactly once. Required contributor coverage, proprietor cancellation, zero-attendance and staffing outcomes, infrastructure-interruption handling, and correlation to a dedicated contributor activity remain.
+
 ### AIT-1607 — Settle building revenue, wages, and operating costs
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
+
+**Specification:** Updated (2026-08-25)
 
 As an external agent controlling a proprietor character, I want each operation settled from verified activity so that the building can make a profit or loss and unproductive ownership remains costly.
 
 **Acceptance criteria**
 
-- The ledger separately records proprietor funding, access and service revenue, donations, reserved wages, operating costs, refunds, upkeep, and proprietor distributions.
+- The proprietor wallet and building-attributed ledger separately record access and service revenue, donations, reserved wages, operating costs, refunds, and upkeep.
 - Only verified transactions create revenue; attendance without a valid charge never implies payment.
 - A contributor who completes valid work receives the reserved wage exactly once even when attendance or proprietor profit is poor.
 - Completion atomically settles revenue, escrow, operating costs, and refunds under the approved policies.
 - Settlement order, fees, operating reservations, refunds, and distribution eligibility follow the [experience commerce policy](../rules/experience-commerce-policy.md).
-- Profit or loss reflects actual operation, and funds flow to the disclosed building balance before an optional proprietor distribution.
+- Profit or loss reflects actual operation. Revenue is credited directly to the proprietor wallet and tagged to the building; there is no separate building purse or proprietor distribution.
 - A financial loss does not erase verified social, Happiness, popularity, or reputation outcomes; those dimensions remain independently attributed.
 - An unprofitable operation can reduce upkeep coverage and causally move the building toward its failure lifecycle.
 - Historical settlement is immutable, idempotent, and correlated with every source transaction and activity.
 
-**Events and metrics:** `building_operation_settled`, `building_revenue_recorded`, `building_cost_charged`, `building_wage_settled`, `building_distribution_paid`, profit and loss distribution.
+**Events and metrics:** `building_operation_settled`, `building_revenue_recorded`, `building_cost_charged`, `building_wage_settled`, profit and loss distribution.
 
 **Dependencies:** AIT-906, AIT-1405, AIT-1604, AIT-1605, AIT-1606.
 
+**Current delivery note:** Verified admission and course revenue is credited directly to the proprietor's wallet and tagged into an immutable per-building revenue ledger; upkeep and reserved role wages debit the same wallet, escrow settles the worker exactly once, and the observer reports earned, upkeep, and net flows. Economy/lifecycle v1 preserves existing work, tuition, attendance and commitments during failure while blocking new operations. Operating costs, donations, general-service refunds and complete operation-level settlement remain open.
+
 ### AIT-1608 — Build Domain Reputation from verified outcomes
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 As an owner, I want contributors and organizers to build contextual reputations through actual outcomes so that important people emerge from world history rather than developer assignment.
 
@@ -183,6 +197,8 @@ As an owner, I want contributors and organizers to build contextual reputations 
 **Events and metrics:** `domain_reputation_changed`, source and domain distribution, repeat hiring, contributor career progression.
 
 **Dependencies:** AIT-1202, AIT-1505, AIT-1508, AIT-1604, AIT-1606.
+
+**Current delivery note:** General plus controlled work-skill Domain Reputation is persisted, public, replay-safe, source-attributed, bounded, anti-farmed, and usable as a resident-created role requirement. Completed and failed work affect contributor domains, while a positively resolved hosted night affects its organizer's general reputation. Experience-profile domains, mechanically verified contributor quality, separate organizer/contributor domain attribution, and any use in a brain-owned expectation remain.
 
 ### AIT-1609 — Invest in building quality
 
@@ -210,7 +226,7 @@ As an external agent controlling a proprietor character, I want to invest in ver
 
 ## Decisions required before stories become Ready
 
-The building grammar and Experience/Happiness authority boundaries are already fixed. Numeric pricing bounds, transaction fees, operating cost, refund rules, performance-quality inputs, Domain Reputation taxonomy and deltas, and anti-collusion windows still require approved versions of the [building economy and lifecycle](../rules/building-economy-lifecycle-policy.md), [experience commerce](../rules/experience-commerce-policy.md), [Experience and Happiness](../rules/experience-happiness-policy.md), and [Domain Reputation](../rules/domain-reputation-policy.md) draft policies.
+Paid access, courses, work-skill Domain Reputation, hiring, the proprietor-wallet flow, and building lifecycle v1 are implemented. The remaining blocked slices need approved versions for services and donations, operating costs and settlement order, contributor/performance Energy, contributor Happiness value, experience-domain reputation, and building quality. These decisions live in the [building economy and lifecycle](../rules/building-economy-lifecycle-policy.md), [experience commerce](../rules/experience-commerce-policy.md), [Experience Energy](../rules/experience-energy-policy.md), [Experience and Happiness](../rules/experience-happiness-policy.md), and [Domain Reputation](../rules/domain-reputation-policy.md) policies.
 
 ## Out of scope
 

@@ -123,6 +123,95 @@ test("a resolution's factors sum to its raw delta", () => {
   }
 });
 
+test("Expected Happiness is optional, immutable, correlated, and never changes resolution", () => {
+  const { world, clock } = experienceWorld();
+  nightAtTheClub(world, clock);
+
+  const stateVersion = world.characterStateVersion("jack");
+  const action = {
+    type: "attend_event", eventId: "friday-night", expectedHappiness: 7,
+    expectedStateVersion: stateVersion,
+  };
+  const result = world.executeAgentAction("jack", action, "expected-happiness-join");
+  const retry = world.executeAgentAction("jack", action, "expected-happiness-join");
+  assert.deepEqual(retry, result, "an idempotent retry returns the original correlated result");
+  const started = world.eventById(result.eventId);
+  assert.equal(started.data.expectedHappiness, 7);
+  const declarations = world.history.filter((event) => event.type === "EXPERIENCE_EXPECTATION_DECLARED");
+  assert.equal(declarations.length, 1, "an idempotent retry cannot duplicate the prediction");
+  const declaration = declarations[0];
+  assert.equal(declaration.data.expectedHappiness, 7);
+  assert.equal(declaration.data.attendanceStartedByEventId, started.id);
+
+  assert.throws(
+    () => world.joinExperience("jack", "friday-night", { expectedHappiness: 8 }),
+    (error) => error instanceof DomainError && error.code === "EXPECTATION_IMMUTABLE",
+    "a prediction cannot be revised after entry",
+  );
+
+  clock.advanceGameMinutes(120);
+  world.advanceTo(clock.now());
+  const resolution = world.history.find((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED");
+  assert.equal(resolution.data.expectedHappiness, 7);
+  assert.equal(
+    resolution.data.realizedMinusExpected,
+    Math.round((resolution.data.rawDelta - 7) * 100) / 100,
+  );
+  assert.equal(resolution.data.expectationDeclaredByEventId, declaration.id);
+  assert.equal(resolution.data.attendanceStartedByEventId, started.id);
+  assert.ok(resolution.causedByEventIds.includes(declaration.id));
+
+  const metrics = world.getProductMetrics({
+    environment: "test", isTest: true, testRunId: "expected-happiness",
+  }).experiences.expectedVsRealized;
+  assert.deepEqual(metrics, {
+    declarations: 1,
+    resolvedComparisons: 1,
+    declarationRate: { numerator: 1, denominator: 1, value: 1 },
+    meanExpectedHappiness: 7,
+    meanRealizedHappiness: resolution.data.rawDelta,
+    meanError: resolution.data.realizedMinusExpected,
+    meanAbsoluteError: Math.abs(resolution.data.realizedMinusExpected),
+  });
+
+  const replayed = new World({
+    store: new InMemoryEventStore(world.history), config: makeConfig(),
+    clock: new ManualClock(clock.now()), random: () => 0,
+  });
+  const replayedResolution = replayed.history.find((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED");
+  assert.equal(replayedResolution.data.expectedHappiness, 7);
+  assert.equal(replayedResolution.data.realizedMinusExpected, resolution.data.realizedMinusExpected);
+});
+
+test("Expected Happiness validates before payment or Energy and omission is unpenalized", () => {
+  const invalidWorld = experienceWorld({ credits: 100 });
+  nightAtTheClub(invalidWorld.world, invalidWorld.clock, { accessPrice: 20 });
+  const before = invalidWorld.world.getObservation("jack").character;
+  const historyLength = invalidWorld.world.history.length;
+
+  for (const value of [-16, 16, 1.5, "7"]) {
+    assert.throws(
+      () => invalidWorld.world.joinExperience("jack", "friday-night", { expectedHappiness: value }),
+      (error) => error instanceof DomainError && error.code === "INVALID_EXPECTED_HAPPINESS",
+    );
+  }
+  const after = invalidWorld.world.getObservation("jack").character;
+  assert.equal(after.credits, before.credits);
+  assert.equal(after.energy, before.energy);
+  assert.equal(after.activity, null);
+  assert.equal(invalidWorld.world.history.length, historyLength, "invalid declarations have no side effects");
+
+  const omitted = experienceWorld();
+  nightAtTheClub(omitted.world, omitted.clock);
+  omitted.world.joinExperience("jack", "friday-night");
+  omitted.clock.advanceGameMinutes(120);
+  omitted.world.advanceTo(omitted.clock.now());
+  const resolution = omitted.world.history.find((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED");
+  assert.equal(resolution.data.expectedHappiness, null);
+  assert.equal(resolution.data.realizedMinusExpected, null);
+  assert.equal(omitted.world.history.some((event) => event.type === "EXPERIENCE_EXPECTATION_DECLARED"), false);
+});
+
 test("variance is drawn once, recorded, and never redrawn on replay", () => {
   const draws = [0.9, 0.1];
   let index = 0;

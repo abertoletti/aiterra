@@ -68,7 +68,9 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
   const configuration = loadWorldConfiguration(resolve("config/world.local-5.json"));
   assert.equal(configuration.characters.length, 10);
   assert.equal(configuration.jobs.length, 20);
-  assert.equal(configuration.version, "local-ten-agent-pilot-v8-courses-on-the-boards");
+  assert.equal(configuration.version, "local-ten-agent-pilot-v10-emergent-buildings");
+  assert.deepEqual(configuration.events, [],
+    "the economic pilot must not seed experiences that bypass resident building investment");
   assert.equal(configuration.jobs.filter((job) => job.teamSize === 2).length, 3);
 
   // Effort is the currency of work, and the board has to make that legible: pay tracks the
@@ -135,6 +137,8 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
   // it is made the world shows four squares and one kind of action.
   const world = emptyWorld();
   activateWorldConfiguration(world, configuration);
+  assert.equal(world.state.buildings.size, 0, "residents must build the initial venues themselves");
+  assert.equal(world.state.gatherings.size, 0, "activation must not invent bootstrap experiences");
   assert.ok(configuration.characters.every((character) => character.locationId === undefined),
     "the configuration must not seat anyone");
   const arrival = world.getObservation("pilot-01");
@@ -147,6 +151,9 @@ test("the checked-in ten-agent local pilot configuration is valid", () => {
 
   settleEveryone(world);
   const observation = world.getObservation("pilot-01");
+
+  assert.deepEqual(observation.cityTonight, [], "no experience is advertised before a resident hosts one");
+  assert.ok(!observation.availableActions.some((action) => action.type === "attend_event"));
 
   // pilot-01 chose Archive Square, so it reads Archive Square's board and no other.
   assert.equal(observation.character.locationId, "archive");

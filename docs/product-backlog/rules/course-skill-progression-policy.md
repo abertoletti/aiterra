@@ -1,11 +1,13 @@
 # Course and skill progression policy
 
-**Status:** Approved · **Version:** 1 · **Updated:** 2026-08-20 · **Applies to:** AIT-1201, AIT-1205
+**Status:** Approved · **Version:** 1 · **Updated:** 2026-08-25 · **Applies to:** AIT-1201, AIT-1205
 
 Version 1 fixes the shape below and records where each open decision landed. The calibration
 values themselves live in versioned configuration (`config.skills`, `config.courses` in
 `src/domain/config.js`), each with the observation that produced it; this document names the
 rules those values instantiate.
+
+The 2026-08-25 edit reconciles the description of where resident-course tuition lands after the building-purse removal; it does not change the course catalog, skill effects, bounds, or stored policy version.
 
 ## Fixed product decisions
 
@@ -40,10 +42,10 @@ rules those values instantiate.
    Duplicate enrolment attempts conflict rather than charge twice; a platform incident pauses
    start-window expiry rather than consuming it.
 5. **Resident providers.** A resident teaches from an ACTIVE building holding `sell_service`;
-   tuition funds the building balance the way admission does. A provider chooses commercial
-   terms only (entry, skill, price in band, board); custom course profiles remain out of
-   scope for a later compatible version. Open notices per building are capped so a free
-   announcement cannot be spammed.
+   tuition is credited to the proprietor's wallet and tagged in the building's revenue
+   ledger, exactly like admission. A provider chooses commercial terms only (entry, skill,
+   price in band, board); custom course profiles remain out of scope for a later compatible
+   version. Open notices per building are capped so a free announcement cannot be spammed.
 
 The reverted `teaches` field (menial work teaching a little) stays out: a course is the priced
 way into a skill you cannot yet work in, and free menial learning would undercut the thing it

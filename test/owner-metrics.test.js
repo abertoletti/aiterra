@@ -100,7 +100,7 @@ test("versioned metrics use exact event denominators and project causal story ca
   world.rateStory("owner-jack", "jack", detailId, 5);
 
   const metrics = world.getProductMetrics({ environment: "test", isTest: true, testRunId: "metrics-1" });
-  assert.equal(metrics.dimensions.metricDefinitionVersion, 1);
+  assert.equal(metrics.dimensions.metricDefinitionVersion, 3);
   assert.deepEqual(metrics.socialLoop.interactionStartRate, { numerator: 1, denominator: 1, value: 1 });
   assert.deepEqual(metrics.socialLoop.onTimeConversationResponseRate, { numerator: 1, denominator: 1, value: 1 });
   assert.deepEqual(metrics.socialLoop.successfulConversationCompletionRate, { numerator: 1, denominator: 1, value: 1 });

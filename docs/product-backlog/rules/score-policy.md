@@ -29,7 +29,7 @@ The exact weight and the transform's parameters are **not** decided here. They a
 ## Required decisions before version 1 approval
 
 1. Component normalization, weights, caps, diminishing-return functions, and rounding, including the `livedHappiness` transform's parameters and its bounded weight.
-2. Wealth definition and treatment of building balances, assets, upkeep liabilities, and realized losses.
+2. Wealth definition and treatment of proprietor wallets, building assets, attributed revenue/upkeep flows, upkeep liabilities, and realized losses.
 3. Relationship aggregation without exposing private reverse edges.
 4. Domain Reputation aggregation and whether general reputation is separate.
 5. Achievement catalog, time windows, leaderboard eligibility, and formula migration behavior.

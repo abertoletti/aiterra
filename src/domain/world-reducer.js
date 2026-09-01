@@ -368,6 +368,15 @@ export function applyEvent(state, event) {
     case "EVENT_CREATED":
       state.gatherings.set(data.id, { ...structuredClone(data), attendees: new Set() });
       break;
+    // Legacy grammar-v2 purchases remain owned and paid on replay. New commands do
+    // not sell bare land, but neither may they silently confiscate an old purchase.
+    case "PLOT_ACQUIRED":
+      moveCredits(state, event, data.ownerId, -data.price, "plot_acquired", { plotId: data.plotId });
+      state.creditsRetired += data.price;
+      state.plots.set(data.plotId, {
+        id: data.plotId, x: data.x, y: data.y, ownerId: data.ownerId, buildingId: null,
+      });
+      break;
     case "BUILDING_CONSTRUCTION_STARTED": {
       moveCredits(state, event, data.proprietorId, -data.constructionCost, "building_built", { buildingId: data.buildingId, name: data.name });
       // Construction pays nobody: the credits become the building.
@@ -375,6 +384,7 @@ export function applyEvent(state, event) {
       state.buildings.set(data.buildingId, {
         ...structuredClone(data),
         locationId: null, lastUpkeepAt: null, revenue: 0, upkeepPaid: 0,
+        missedUpkeepIntervals: 0, lifetimeUpkeepFailures: 0,
       });
       // Claiming the cells at the start is what stops a second building being started on
       // the same ground while the first is still going up.
@@ -382,6 +392,7 @@ export function applyEvent(state, event) {
         const [, x, y] = data.plotIds[index].split("-");
         state.plots.set(data.plotIds[index], {
           id: data.plotIds[index], x: Number(x), y: Number(y), buildingId: data.buildingId,
+          ownerId: data.proprietorId,
         });
       }
       break;
@@ -392,10 +403,21 @@ export function applyEvent(state, event) {
       building.locationId = data.locationId;
       building.activatedAt = data.activatedAt;
       building.lastUpkeepAt = data.activatedAt;
+      building.lifecycleChangedAt = data.activatedAt;
+      building.lifecycleTerms ??= data.lifecycleTerms;
+      building.lifecyclePolicyVersion ??= data.lifecyclePolicyVersion;
+      break;
+    }
+    case "BUILDING_UPKEEP_DUE": {
+      const building = state.buildings.get(data.buildingId);
+      building.lifecycleTerms ??= data.lifecycleTerms;
+      building.lifecyclePolicyVersion ??= data.lifecyclePolicyVersion;
       break;
     }
     case "BUILDING_UPKEEP_PAID": {
       const building = state.buildings.get(data.buildingId);
+      building.lifecycleTerms ??= data.lifecycleTerms;
+      building.lifecyclePolicyVersion ??= data.lifecyclePolicyVersion;
       // Upkeep is paid straight out of the proprietor's wallet - the venue keeps no
       // balance to draw on - and then leaves the world for good.
       if (data.fromProprietor) {
@@ -406,14 +428,38 @@ export function applyEvent(state, event) {
       // Keeping a place standing costs, and that cost leaves the world too.
       state.creditsRetired += data.amount;
       building.lastUpkeepAt = data.chargedAt;
-      if (building.status === "DELINQUENT") building.status = "ACTIVE";
+      building.missedUpkeepIntervals = 0;
+      if (!data.lifecyclePolicyVersion && building.status === "DELINQUENT") building.status = "ACTIVE";
       break;
     }
     case "BUILDING_UPKEEP_FAILED": {
       const building = state.buildings.get(data.buildingId);
-      building.status = "DELINQUENT";
+      if (!data.lifecyclePolicyVersion) building.status = "DELINQUENT";
       building.lastUpkeepAt = data.chargedAt;
-      building.delinquentSince = data.chargedAt;
+      building.missedUpkeepIntervals = data.lifecyclePolicyVersion
+        ? (building.missedUpkeepIntervals ?? 0) + 1 : 0;
+      building.lifetimeUpkeepFailures = (building.lifetimeUpkeepFailures ?? 0) + 1;
+      building.delinquentSince ??= data.chargedAt;
+      break;
+    }
+    case "BUILDING_DELINQUENT":
+    case "BUILDING_INACTIVATED":
+    case "BUILDING_REACTIVATED":
+    case "BUILDING_CLOSED":
+    case "BUILDING_ABANDONED": {
+      const building = state.buildings.get(data.buildingId);
+      building.status = data.status;
+      building.lifecycleChangedAt = event.worldTime;
+      building.lifecyclePolicyVersion = data.lifecyclePolicyVersion;
+      if (data.status === "ACTIVE") {
+        building.missedUpkeepIntervals = 0;
+        building.delinquentSince = null;
+      }
+      if (data.status === "CLOSED") {
+        building.closedAt = event.worldTime;
+        building.closedByEventId = event.id;
+      }
+      if (data.status === "ABANDONED") building.abandonedAt = event.worldTime;
       break;
     }
     case "BUILDING_REVENUE_RECORDED": {
@@ -511,7 +557,8 @@ export function applyEvent(state, event) {
       state.characters.get(data.characterId).activity = {
         type: "attend_event", eventId: data.eventId, title: data.title,
         startedAt: data.startedAt, expectedEndAt: data.expectedEndAt, startedByEventId: event.id,
-        compatibleSecondaryActions: ["start_conversation", "send_message", "end_conversation", "appraise_interaction", "leave_experience"],
+        nextDecisionAt: data.startedAt,
+        compatibleSecondaryActions: ["start_conversation", "send_message", "end_conversation", "appraise_interaction", "leave_experience", "stay_experience"],
       };
       const key = experienceAttendanceKey(data.eventId, data.characterId);
       const prior = state.experienceAttendance.get(key);
@@ -520,13 +567,33 @@ export function applyEvent(state, event) {
       state.experienceAttendance.set(key, {
         eventId: data.eventId,
         characterId: data.characterId,
+        startedByEventId: prior && !prior.resolved ? prior.startedByEventId : event.id,
         startedAt: data.startedAt,
         endedAt: null,
         accruedMinutes: prior && !prior.resolved ? prior.accruedMinutes : 0,
         conversationTurns: prior && !prior.resolved ? prior.conversationTurns : 0,
         interactions: prior && !prior.resolved ? prior.interactions : {},
+        expectedHappiness: prior && !prior.resolved
+          ? (prior.expectedHappiness ?? null)
+          : (data.expectedHappiness ?? null),
+        expectationDeclaredByEventId: prior && !prior.resolved
+          ? (prior.expectationDeclaredByEventId ?? null)
+          : null,
         resolved: false,
       });
+      break;
+    }
+    case "EXPERIENCE_STAYED": {
+      const activity = state.characters.get(data.characterId)?.activity;
+      if (activity?.type === "attend_event" && activity.eventId === data.eventId) activity.nextDecisionAt = data.nextDecisionAt;
+      break;
+    }
+    case "EXPERIENCE_EXPECTATION_DECLARED": {
+      const attendance = state.experienceAttendance.get(experienceAttendanceKey(data.eventId, data.characterId));
+      if (attendance && attendance.startedByEventId === data.attendanceStartedByEventId) {
+        attendance.expectedHappiness = data.expectedHappiness;
+        attendance.expectationDeclaredByEventId = event.id;
+      }
       break;
     }
     case "EVENT_ATTENDANCE_ENDED": {
@@ -564,6 +631,9 @@ export function applyEvent(state, event) {
       history.push({
         eventId: data.eventId, locationId: data.locationId,
         dominantDimension: data.dominantDimension ?? null, worldTime: event.worldTime,
+        sourceEventId: event.id, expectedHappiness: data.expectedHappiness ?? null,
+        realizedHappiness: data.rawDelta, realizedMinusExpected: data.realizedMinusExpected ?? null,
+        factors: structuredClone(data.factors),
       });
       state.happinessResolutions.set(data.characterId, history);
       break;
@@ -693,6 +763,7 @@ export function applyEvent(state, event) {
         conversationId: data.conversationId ?? null,
         invitationId: data.invitationId ?? null,
         commitmentId: data.commitmentId ?? null,
+        buildingId: data.buildingId ?? null,
         compatibleActions: structuredClone(data.compatibleActions ?? []),
         timingPolicyVersion: data.timingPolicyVersion ?? 1,
         deliveryAttempts: 0,

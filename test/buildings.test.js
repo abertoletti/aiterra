@@ -71,6 +71,22 @@ test("building claims the ground, and a claimed cell cannot be built on twice", 
   assert.equal(world.state.buildings.get(started.data.buildingId).status, "ACTIVE");
 });
 
+test("a resident may construct any number of buildings they can fund and place", () => {
+  const { world } = cityWorld();
+
+  for (let index = 0; index < 5; index += 1) {
+    world.constructBuilding("luca", {
+      x: 11 + index, y: 11, name: `Luca Venue ${index + 1}`,
+      profile: { music: 10 }, capabilities: ["host_event"],
+    });
+  }
+
+  const owned = [...world.state.buildings.values()]
+    .filter((building) => building.proprietorId === "luca");
+  assert.equal(owned.length, 5,
+    "ownership is constrained by land, construction cost, and upkeep rather than an arbitrary count");
+});
+
 test("construction is priced convexly, so promising everything is unaffordable", () => {
   const { world } = cityWorld();
 
@@ -99,6 +115,49 @@ test("construction is priced convexly, so promising everything is unaffordable",
       capabilities: ["host_event"],
     });
   }, (error) => error instanceof DomainError && error.code === "INSUFFICIENT_CREDITS");
+});
+
+test("a resident-authored building quote is exact, non-binding, and reserves nothing", () => {
+  const { world } = cityWorld();
+  const proposal = {
+    x: 12, y: 10, width: 1, height: 1,
+    name: "Quoted Hole", description: "A proposal, not yet a place.",
+    profile: { music: 90, socializing: 80, luxury: 20 },
+    capabilities: ["host_event", "sell_access"],
+  };
+  const creditsBefore = world.getObservation("luca").character.credits;
+  const projectionBefore = world.characterStateVersion("luca");
+
+  const quote = world.quoteBuildingProposal("luca", proposal);
+  assert.equal(quote.feasibility.status, "eligible");
+  assert.equal(quote.availableCredits, creditsBefore);
+  assert.equal(quote.creditsAfterConstruction, creditsBefore - quote.constructionCost);
+  assert.equal(quote.nonBinding, true);
+  assert.equal(world.state.buildings.size, 0);
+  assert.equal(world.getObservation("luca").character.credits, creditsBefore);
+  assert.equal(world.characterStateVersion("luca"), projectionBefore,
+    "quote telemetry does not change the character projection");
+
+  const built = world.constructBuilding("luca", proposal);
+  assert.equal(built.data.constructionCost, quote.constructionCost,
+    "the command independently revalidates to the quoted mechanics");
+  assert.ok(world.history.some((event) => event.type === "BUILDING_QUOTE_REQUESTED"
+    && event.id === quote.quoteEventId));
+});
+
+test("a building quote reports affordability and footprint blockers without constructing", () => {
+  const { world } = cityWorld({ credits: 300 });
+  const quote = world.quoteBuildingProposal("luca", {
+    x: 10, y: 10, width: 2, height: 1,
+    name: "Blocked Idea", description: "Still safe to inspect.",
+    profile: { music: 100 }, capabilities: ["host_event"],
+  });
+
+  assert.equal(quote.affordable, false);
+  assert.deepEqual(quote.feasibility.blockingCodes, ["CELL_OCCUPIED", "INSUFFICIENT_CREDITS"]);
+  assert.equal(quote.creditsAfterConstruction, -700);
+  assert.equal(world.state.buildings.size, 0);
+  assert.equal(world.getObservation("luca").character.credits, 300);
 });
 
 test("a finished building is a venue: the city gets in when something is on", () => {
@@ -306,7 +365,7 @@ test("upkeep is charged to the proprietor's wallet, and failure is explicit", ()
   assert.ok(paidFromPocket.length > 0, "and every charge comes out of their credits");
 });
 
-test("a building whose proprietor is also broke fails explicitly", () => {
+test("a building whose proprietor stays broke reaches explicit abandonment", () => {
   // Just enough to build, and nothing left over.
   const { world, clock } = cityWorld({ credits: 1_290, upkeepIntervalWorldMinutes: 60 });
   const started = buildTheHole(world);
@@ -319,7 +378,7 @@ test("a building whose proprietor is also broke fails explicitly", () => {
   world.advanceTo(clock.now());
   const failed = world.history.filter((event) => event.type === "BUILDING_UPKEEP_FAILED");
   assert.ok(failed.length > 0, "an unfundable building fails explicitly rather than going into hidden debt");
-  assert.equal(world.state.buildings.get(buildingId).status, "DELINQUENT");
+  assert.equal(world.state.buildings.get(buildingId).status, "ABANDONED");
   assert.ok(failed[0].data.shortfall > 0, "with the shortfall recorded");
 });
 

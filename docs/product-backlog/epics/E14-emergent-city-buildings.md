@@ -1,6 +1,6 @@
 # E14 — Emergent city and agent-authored buildings
 
-**Status:** To do
+**Status:** In progress
 
 ## Objective
 
@@ -18,57 +18,60 @@ Two decisions carry the epic's weight, and both are the resident's. Footprint de
 
 ## Stories
 
-### AIT-1401 — Discover and acquire a buildable plot
+### AIT-1401 — Discover and claim buildable ground
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** Done
 
-**Specification:** Updated (2026-08-19)
+**Specification:** Updated (2026-08-26)
 
-As an external agent, I want to inspect and acquire a buildable plot on the city grid so that my character can invest in changing the city.
+As an external agent, I want to inspect the city grid and claim a free footprint through construction so that my character can invest in changing the city without accumulating idle land.
 
 **Acceptance criteria**
 
-- The city is the versioned 20 × 20 grid of the [grammar policy](../rules/building-grammar-policy.md). Every plot is one cell, addressed by its coordinates, and its identity is stable for the life of the world.
-- A requested plot catalog discloses coordinates, purchase price, current owner or availability, whether a building occupies it, which footprints the character could legally build there given its own adjacent holdings, and every known blocker.
-- Adjacency is disclosed factually. A resident can see which neighbouring cells are free or owned, which is what makes assembling a larger footprint a decision rather than a guess.
-- Unaffordable or unavailable plots remain inspectable; their presence does not guarantee acquisition.
-- Acquisition revalidates funds, plot availability, and current policy versions. A resident may hold any number of plots.
-- Payment and ownership transfer are atomic and idempotent; rejection creates no partial charge or ownership change.
-- The external brain cannot declare price, ownership, coordinates, or a mechanical land benefit.
-- Price is uniform per cell in grammar version 2. Positional pricing, district modifiers, dynamic land value, and resale remain future scope, and the grid is what makes them addable later without moving anything.
+- The city is a versioned 20 × 20 grid. Every cell has stable coordinates and identity for the life of the world.
+- A requested grid catalog discloses coordinates, availability, any standing location or building, distance, travel time, and every known blocker; unavailable cells remain inspectable.
+- Construction chooses an approved contiguous footprint directly over free cells. Grammar version 3 has no new separate plot purchase; historical purchases retain their buyer and may be used only by that buyer without paying for the land again.
+- Submission revalidates every cell, the footprint bounds, construction funds, and active rule versions.
+- Construction payment, building creation, and the claim over every footprint cell are atomic and idempotent; rejection creates no partial charge, building, or land claim.
+- The external brain cannot declare occupancy, capacity, construction cost, ownership, coordinates outside the grid, or a mechanical positional benefit.
+- Positional pricing, district modifiers, dynamic land value, idle land ownership, and resale remain future scope; adding any of them requires a new compatible grid contract.
 
-**Events and metrics:** `plots_viewed`, `plot_acquired`, `plot_acquisition_rejected`, occupancy and clustering across the grid.
+**Events and metrics:** `plots_viewed`, `building_construction_started`, `building_construction_rejected`, occupancy and clustering across the grid.
 
-**Dependencies:** AIT-301, AIT-402, AIT-904, AIT-1006.
+**Dependencies:** AIT-301, AIT-402, AIT-1006.
+
+**Delivery evidence:** The complete 20 × 20 grid is inspectable with stable coordinates, availability, occupancy, distance, travel time, and blockers. Construction atomically claims the footprint and rejects off-grid, occupied, duplicate, or unaffordable builds. Grammar version 3 and `groundClaimMode` are stamped at construction. Legacy `PLOT_ACQUIRED` replay preserves the recorded debit and owner, permits only that buyer to build, and never charges for land twice. Construction, catalog, idempotency, and compatibility tests cover the contract.
 
 ### AIT-1402 — Author a building's identity and mechanical profile
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 **Specification:** Updated (2026-08-19)
 
-As an external agent controlling a plot-owning character, I want to name and describe a building, choose its footprint, and decide what it delivers, so that its narrative purpose comes from the resident rather than a developer-authored building type.
+As an external agent controlling a character, I want to name and describe a building, choose its footprint, and decide what it delivers, so that its narrative purpose comes from the resident rather than a developer-authored building type.
 
 **Acceptance criteria**
 
 - The brain may freely propose a bounded name and description, including an invented kind of place.
-- It chooses a footprint from the approved set of 1 × 1, 1 × 2, 2 × 1, and 2 × 2 over contiguous cells it already owns, and the server derives capacity from that footprint alone.
+- It chooses a footprint from the approved set of 1 × 1, 1 × 2, 2 × 1, and 2 × 2 over free contiguous cells (or its own legacy holdings), and the server derives capacity from that footprint alone.
 - It sets the building's **profile** over the ten controlled dimensions. The profile is what the building delivers, priced convexly rather than capped by a budget: a building can in principle promise everything, and no plausible run of wages can pay for it.
 - Because cost is convex in the total promised and neutral about its distribution, a resident must decide **which** dimensions to bet on. Focus is not enforced by a rule; it is what a limited budget buys the most value with, since affinity rewards a profile that matters intensely to some residents over one that mildly suits everyone.
 - Tags are derived from the profile, never submitted. Capabilities come from the controlled versioned catalog.
 - Free text never creates a mechanical effect, bypasses a requirement, or causes the server to classify the building as a nightclub, church, restaurant, or any other semantic type.
 - The brain cannot declare capacity, revenue, attendance, construction cost, upkeep, or future Happiness.
 - Before confirmation the proposal discloses the derived construction cost, capacity, and recurring upkeep, so an unaffordable ambition is visible as a number rather than a rejection.
-- Invalid footprints, unowned or occupied cells, unknown dimensions, and incompatible capabilities return actionable blockers without re-acquiring a plot, charging the character, or creating a partial building.
+- Invalid footprints, another resident's legacy holding, occupied cells, unknown dimensions, and incompatible capabilities return actionable blockers without charging the character or creating a partial building.
 - The proposal persists both the free narrative identity and the structured mechanical profile, with their schema and policy versions.
 
 **Events and metrics:** `building_proposed`, `building_proposal_rejected`, footprint distribution, profile concentration, and how the two relate to later attendance.
 
 **Dependencies:** AIT-401, AIT-402, AIT-1401.
 
+**Current delivery note:** A resident can author bounded free identity, rectangular footprint, controlled profile, derived tags, and generic capabilities; cost, capacity, duration, and upkeep are server-derived, and invalid dimensions, capabilities, footprints, cells, or funds are rejected. Construction currently combines proposal and confirmation in one command, so there is no persisted proposal or exact pre-confirmation quote for the submitted profile and footprint.
+
 ### AIT-1403 — Construct and activate a persistent building
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 **Specification:** Updated (2026-08-19)
 
@@ -78,7 +81,7 @@ As an external agent, I want to confirm construction after seeing its authoritat
 
 - Before confirmation, the proposal discloses the server-derived construction cost, duration, capacity, recurring upkeep, and resulting affordances.
 - Construction cost derives from the approved formula over footprint and profile, and upkeep derives from that cost, so ambition is both a large purchase and a recurring risk.
-- Confirmation revalidates ownership of every cell in the footprint, that no other building occupies them, funds, and the current validity of the structured proposal.
+- Confirmation revalidates that every cell is free or a legacy holding of the proprietor, that no standing location or building occupies it, funds, and the current validity of the structured proposal.
 - Construction payment, building creation, and occupation of every cell in the footprint change atomically; a rejected command creates no partial state.
 - Completion creates one persistent, reachable world location spanning its cells, with its proprietor, footprint, status, profile, derived tags, capabilities, capacity, and rule versions.
 - Capacity derives from footprint and the profile from paid investment, never from promotional text or a client-submitted value.
@@ -89,9 +92,11 @@ As an external agent, I want to confirm construction after seeing its authoritat
 
 **Dependencies:** AIT-301, AIT-302, AIT-402, AIT-403, AIT-1402.
 
+**Current delivery note:** Construction cost, cell claims, building creation, and payment are atomic and idempotent; completion is world-time driven, creates one reachable persistent location, and replay rebuilds the building, footprint, profile, proprietor, capacity, ledger, and policy identifiers. The missing pre-confirmation proposal/quote contract inherited from AIT-1402 and incomplete cross-policy grammar activation keep the story open.
+
 ### AIT-1404 — Discover a building and its affordances
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** In progress
 
 **Specification:** Updated (2026-08-19)
 
@@ -112,30 +117,36 @@ As an external agent, I want to inspect a building and what is possible there so
 
 **Dependencies:** AIT-202, AIT-207, AIT-401, AIT-1403.
 
-### AIT-1405 — Fund and pay recurring building upkeep
+**Current delivery note:** Every public building is available through the decision-scoped building catalog with identity, proprietor, coordinates, footprint, state, capacity, profile, tags, the viewer's own affinity, distance, travel time, and capabilities. Financial flows are disclosed only to the proprietor and operator. Selection retention/invalidation and dedicated building-view/affordance metrics remain part of the unfinished AIT-207 contract.
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+### AIT-1405 — Pay recurring building upkeep
 
-**Specification:** Updated (2026-08-18)
+**Priority:** P1 · **Increment:** D · **Status:** Done
 
-As an external agent controlling a proprietor character, I want to see and fund recurring upkeep so that an unused building becomes a real economic liability instead of a free permanent asset.
+**Specification:** Updated (2026-08-26)
+
+As an external agent controlling a proprietor character, I want to see and pay recurring upkeep from my character's wallet so that an unused building becomes a real economic liability instead of a free permanent asset.
 
 **Acceptance criteria**
 
-- Every active building has a disclosed operating balance, upkeep amount, due interval, next due instant, and policy version.
-- The proprietor can explicitly and atomically transfer available character credits into the building balance.
+- Every active building discloses its upkeep amount, due interval, next due instant, lifetime revenue and upkeep ledger, and policy version; the proprietor also sees the wallet that will pay it.
+- The proprietor's wallet is the building's spendable purse. There is no separate building balance, funding transfer, or proprietor distribution action.
 - Upkeep is charged exactly once for each due world interval, including after restart recovery.
 - Revenue is never fabricated merely because the building exists or characters are nearby.
 - Insufficient funds cause an explicit lifecycle transition rather than a hidden debt, negative balance, or silently skipped charge.
 - Funding, charges, failures, and resulting state changes remain reconstructable in the building ledger and causal event history.
 
-**Events and metrics:** `building_funded`, `building_upkeep_due`, `building_upkeep_paid`, `building_upkeep_failed`, upkeep coverage rate.
+**Events and metrics:** `building_upkeep_due`, `building_upkeep_paid`, `building_upkeep_failed`, upkeep coverage rate.
 
 **Dependencies:** AIT-301, AIT-304, AIT-402, AIT-1403.
 
+**Delivery evidence:** Economy/lifecycle policy version 1 fixes the wallet model, rounding, exact due instants, grace, recovery, and terminal states. Each new building freezes its interval and thresholds. Due/paid/failed events are causal, replay-safe, and wallet-ledgered; no partial debit or hidden debt exists. Chronological recovery prevents future wages from paying earlier bills. Proprietor catalogs disclose revenue, paid upkeep, next due time, failure history, funds and recovery cost. Metric definition version 3 reports scheduled coverage separately from explicit recovery payments.
+
 ### AIT-1406 — Experience building inactivity and failure
 
-**Priority:** P1 · **Increment:** D · **Status:** To do
+**Priority:** P1 · **Increment:** D · **Status:** Done
+
+**Specification:** Updated (2026-08-26)
 
 As a proprietor character, I want building failure to follow disclosed and recoverable rules so that economic risk creates consequences without silently erasing prior activity.
 
@@ -152,6 +163,8 @@ As a proprietor character, I want building failure to follow disclosed and recov
 **Events and metrics:** `building_delinquent`, `building_inactivated`, `building_reactivated`, `building_closed`, `building_abandoned`, time in lifecycle states.
 
 **Dependencies:** AIT-1405, AIT-603, AIT-604, AIT-906, AIT-1304.
+
+**Delivery evidence:** One/two/three consecutive failed upkeep payments produce `DELINQUENT`/`INACTIVE`/`CLOSED`; two further intervals produce `ABANDONED` without more charges. Warnings disclose the next deadline and recovery cost and notify the proprietor. The idempotent `reactivate_building` payment or a funded scheduled payment recovers nonterminal buildings while preserving lifetime failures. New admissions, enrolments, hiring, publication and repeatable reopening stop outside `ACTIVE`; existing attendance, accepted work/escrow, paid courses and commitments still settle under their original contracts. Location, footprint, ownership and ledger survive closure, abandonment and replay. Time-in-state metrics are interval-aware.
 
 ### AIT-1407 — Transfer or repurpose a building
 

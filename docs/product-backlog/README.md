@@ -26,8 +26,8 @@ Autonomous characters placed in a persistent environment with land, incentives, 
 ## Emergent-city loop
 
 ```text
-earn Credits → acquire adjacent cells of the city grid → author and construct a building,
-      choosing its footprint and what it delivers → pay upkeep
+earn Credits → inspect the city grid → author and construct a building on a free footprint,
+      atomically claiming its cells and choosing what it delivers → pay upkeep
       → create experiences, services, and jobs → residents find them in the city catalog
       → residents predict what an evening is worth, against Credits, Energy, and goals
       → move and become co-present → interact → realize Happiness and consequences
@@ -36,11 +36,17 @@ earn Credits → acquire adjacent cells of the city grid → author and construc
 
 ## Latest specification review
 
-Stories materially clarified on **2026-08-19** carry the marker `Specification: Updated (2026-08-19)`: AIT-1203, AIT-1204, AIT-1401, AIT-1402, AIT-1403, AIT-1404, AIT-1501, AIT-1502, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1509, AIT-1601, and AIT-1609.
+Stories materially clarified on **2026-08-26** carry the marker `Specification: Updated (2026-08-26)`: AIT-1401, AIT-1405, and AIT-1406. Grammar version 3 and economy/lifecycle version 1 complete these stories, preserve legacy land purchases, and add warning, recovery, closure, abandonment, and existing-obligation settlement. The historical grammar version 2 is preserved separately.
+
+The delivery reconciliation maps the backlog to the current 233-test suite. AIT-1201, AIT-1401, AIT-1405, AIT-1406 and AIT-1503 are `Done`; AIT-1006, AIT-1007, AIT-1105, AIT-1402–AIT-1404, AIT-1601, AIT-1602, and AIT-1604–AIT-1608 retain explicit evidence and remaining gaps. Totals are 48 Done, 35 In progress, and 17 To do.
+
+Stories materially clarified on **2026-08-25** carry the marker `Specification: Updated (2026-08-25)`: AIT-1607, for the wallet-flow reconciliation.
+
+Stories materially clarified on **2026-08-19** carry the marker `Specification: Updated (2026-08-19)`: AIT-1203, AIT-1204, AIT-1402, AIT-1403, AIT-1404, AIT-1501, AIT-1502, AIT-1503, AIT-1505, AIT-1506, AIT-1507, AIT-1509, AIT-1601, and AIT-1609.
 
 That review settled four things: experiences became discoverable city-wide through the new AIT-1510, the ten-dimension vocabulary became the single closed contract for tags and conversation topics as well as profiles, Expected Happiness left the server for the external brain, and `livedHappiness` became the approved Score component that makes ignoring wellbeing cost a run.
 
-Stories materially clarified on 2026-08-18 carry the marker `Specification: Updated (2026-08-18)`: AIT-101, AIT-102, AIT-103, AIT-104, AIT-204, AIT-205, AIT-301, AIT-401, AIT-503, AIT-504, AIT-602, AIT-603, AIT-604, AIT-701, AIT-703, AIT-704, AIT-801, AIT-901, AIT-904, AIT-905, AIT-906, AIT-908, AIT-1002, AIT-1005, AIT-1102, AIT-1201, AIT-1202, AIT-1205, AIT-1206, AIT-1301, and AIT-1405.
+Stories materially clarified on 2026-08-18 carry the marker `Specification: Updated (2026-08-18)`: AIT-101, AIT-102, AIT-103, AIT-104, AIT-204, AIT-205, AIT-301, AIT-401, AIT-503, AIT-504, AIT-602, AIT-603, AIT-604, AIT-701, AIT-703, AIT-704, AIT-801, AIT-901, AIT-904, AIT-905, AIT-906, AIT-908, AIT-1002, AIT-1005, AIT-1102, AIT-1201, AIT-1202, AIT-1205, AIT-1206, and AIT-1301.
 
 The marker is independent from delivery state. Newly created stories already contain the current specification and therefore do not need an `Updated` marker.
 
@@ -71,7 +77,7 @@ The marker is independent from delivery state. Newly created stories already con
 | E11 | [Energy and recovery](epics/E11-energy-recovery.md) | A–D | In progress |
 | E12 | [Skills, popularity, Domain Reputation, and score](epics/E12-progression.md) | B–D | In progress |
 | E13 | [Invitations and social commitments](epics/E13-social-commitments.md) | B | In progress |
-| E14 | [Emergent city and agent-authored buildings](epics/E14-emergent-city-buildings.md) | D | To do |
+| E14 | [Emergent city and agent-authored buildings](epics/E14-emergent-city-buildings.md) | D | In progress |
 | E15 | [Experience and Happiness Engine](epics/E15-experience-happiness.md) | D | In progress |
 | E16 | [Building operations and contributor economy](epics/E16-building-operations.md) | D | In progress |
 

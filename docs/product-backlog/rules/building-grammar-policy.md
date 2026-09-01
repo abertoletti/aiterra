@@ -1,6 +1,6 @@
 # City, building, and experience grammar policy
 
-**Version:** 2 · **Scope:** the shared profile taxonomy, the tag contract, the city grid, plots, footprints, capacity, and construction cost · **Updated:** 2026-08-19 · **Applies to:** AIT-1006, AIT-1401, AIT-1402, AIT-1403, AIT-1404, AIT-1407, AIT-1501, AIT-1505, AIT-1510, AIT-1601, AIT-1602, AIT-1605, AIT-1609
+**Version:** 3 · **Scope:** the shared profile taxonomy, tags, city grid, atomic ground claims, footprints, capacity, and construction cost · **Updated:** 2026-08-26 · **Applies to:** AIT-1006, AIT-1401, AIT-1402, AIT-1403, AIT-1404, AIT-1407, AIT-1501, AIT-1505, AIT-1510, AIT-1601, AIT-1602, AIT-1605, AIT-1609
 
 Version 1 approved only the controlled universal profile dimensions and their budget and normalization rules, which is what the Experience and Happiness slice needed.
 
@@ -8,9 +8,11 @@ Version 2 adds the decisions that let a resident actually build: the closed tag 
 
 Version 2 is additive. Every version 1 rule stands unchanged, so no stored preference vector or experience profile needs migrating.
 
+Version 3 replaces separate land purchase with an atomic construction-and-ground claim, matching the pilot-tested implementation. The [historical version 2](building-grammar-policy-v2.md) remains preserved. Its taxonomy, grid identifiers, profile rules, cost formula, and capacity stay unchanged. Historical land purchases retain their buyer and recorded cost; the buyer may build without paying for the land again, and another resident cannot take it. New construction stamps `grammarPolicyVersion: 3` and `groundClaimMode: atomic_with_construction`.
+
 ## Fixed product decisions
 
-- The city is a fixed grid of buildable plots. A plot has coordinates, size, availability, owner when acquired, purchase price, and mechanical constraints.
+- The city is a fixed grid of buildable cells. Each has coordinates, size, availability, occupancy and mechanical constraints. New construction claims its footprint in the same transaction; only historical purchases may exist as independently owned bare land.
 - A building has proprietor character, plots, free name and description, controlled profile and tags, generic capabilities, capacity, construction cost, recurring upkeep, lifecycle status, and creation versions.
 - The brain freely authors the narrative identity. The server never needs to decide that a building is a nightclub, church, restaurant, gym, theater, or another semantic type.
 - Free text cannot create mechanics. Tags, profile dimensions, and capabilities come from controlled catalogs with bounds, costs, prerequisites, and compatibility rules.
@@ -43,7 +45,7 @@ The taxonomy is deliberately semantic-free. A nightclub is whatever profile its 
 
 The point of naming them concretely rather than abstractly is authoring. A resident inventing *The Silent Garden — midnight meditation under synthetic trees* can write `relaxation 90, spirituality 80, nature 70` without translating anything, and two residents can author places with the same profile and entirely different meaning.
 
-**The document version and `profileTaxonomyVersion` are different identifiers, and only one of them moved.** This policy is at version 2 because it now decides the grid, footprints, and cost. The taxonomy stays at 1 because the ten dimensions are byte-identical, and every stored preference vector and experience profile remains valid without migration.
+**The document version and `profileTaxonomyVersion` are different identifiers.** This policy is at version 3 because it changes the ground-acquisition contract. The taxonomy stays at 1 because the ten dimensions are byte-identical, and every stored preference vector and experience profile remains valid without migration.
 
 Keeping them separate is the point. `profileTaxonomyVersion` is a data-compatibility stamp: it answers whether a stored vector can still be read. Bumping it for a policy change that adds no dimension would announce a migration that does not exist, and the next person to see the increment would go looking for one.
 
@@ -107,19 +109,20 @@ Both vectors are server-owned. A brain authors free description and may not subm
 | Coordinates | `x` and `y`, 1–20 |
 | Plot identifier | `plot-{x}-{y}`, zero-padded, e.g. `plot-07-12` |
 | Plot size | one cell |
-| Plot purchase price | 150 Credits per cell, uniform in version 2 |
-| Ownership limit | one proprietor may hold any number of plots; construction limits apply per building |
+| Separate land price | none for new construction; historical version-2 purchases retain their recorded cost |
+| Ground claim | atomic with construction, never a new independent bare-land purchase |
+| Ownership limit | construction limits apply per building; legacy holdings are preserved |
 | `cityGridVersion` | 1 |
 
 A fixed grid rather than a list of named districts is the decision that keeps this cheap and open. Adjacency, distance, clustering, and neighbourhood all fall out of coordinates without a single semantic label, so the city can develop a nightlife quarter because residents built one there, which is the outcome the product wants, and not because a configuration file called a region `Downtown`.
 
-400 plots against a pilot world of seven to twenty residents is deliberate oversupply. Version 2 makes land cheap and abundant so that the first runs measure whether residents choose to build at all; scarcity, uneven pricing, and the speculation it invites are a later decision that the grid already has room for.
+400 plots against a pilot world of seven to twenty residents is deliberate oversupply. Version 3 makes land available only with an affordable build: the pilot had produced paid holdings that never became places. Scarcity, uneven pricing, and speculation remain later decisions.
 
-The uniform price is the honest version of an unmade decision. Location-dependent price is exactly what district modifiers will introduce, and writing a flat number now records that no positional advantage has been calibrated yet, rather than pretending one has.
+No positional pricing advantage is calibrated. A location can still matter through distance and proximity to other residents.
 
 ## Approved: footprint and capacity
 
-A building occupies a rectangle of contiguous plots that its proprietor owns.
+A building occupies a rectangle of contiguous cells claimed by its proprietor through construction.
 
 | Footprint | Cells | Capacity |
 | --- | ---: | ---: |
@@ -132,9 +135,9 @@ A building occupies a rectangle of contiguous plots that its proprietor owns.
 capacity = 10 × cells
 ```
 
-Capacity is derived from footprint alone, so it is verifiable from land the proprietor demonstrably paid for and cannot be claimed in a description. Footprint is the only lever on it in version 2.
+Capacity is derived from footprint alone, so it is verifiable from the cells the proprietor paid to build on and cannot be claimed in a description.
 
-Construction requires every cell of the rectangle to be owned by the proprietor, unoccupied by another building, and inside the grid. No other footprint is valid in version 2; larger and irregular shapes require a later version.
+Construction requires every cell to be free (or a legacy holding of the same proprietor), unoccupied by a standing location or building, and inside the grid. Payment, building creation, and all cell claims are one idempotent authoritative event. Larger and irregular shapes require a later version.
 
 Capacity 10 for the smallest building is calibrated against a world of seven to twenty residents, so that a small venue can genuinely fill and the Happiness crowd-context factor has something to measure. A 2 × 2 at 40 is aspirational for a larger world on purpose.
 
@@ -169,11 +172,11 @@ Convexity in the total makes breadth ruinous. A building that delivers everythin
 
 | Building | Ambition | Construction | Land | Daily upkeep |
 | --- | ---: | ---: | ---: | ---: |
-| 1 × 1, `music 50` | 0.5 | 275 | 150 | 9 |
-| 1 × 1, `music 100` | 1.0 | 500 | 150 | 15 |
-| 1 × 2, `music 90` `socializing 60` | 1.5 | 1,750 | 300 | 53 |
-| 2 × 2, `music 90` `socializing 80` `luxury 70` | 2.4 | 7,712 | 600 | 232 |
-| 2 × 2, everything at 100 | 10.0 | 120,800 | 600 | 3,624 |
+| 1 × 1, `music 50` | 0.5 | 275 | 0 | 9 |
+| 1 × 1, `music 100` | 1.0 | 500 | 0 | 15 |
+| 1 × 2, `music 90` `socializing 60` | 1.5 | 1,750 | 0 | 53 |
+| 2 × 2, `music 90` `socializing 80` `luxury 70` | 2.4 | 7,712 | 0 | 232 |
+| 2 × 2, everything at 100 | 10.0 | 120,800 | 0 | 3,624 |
 
 Against jobs paying 10 to 100 Credits a shift to a resident who starts at zero, the first row is a handful of shifts, the fourth is a campaign, and the last is unreachable. Building everything is not forbidden by a rule; it is simply not affordable, which teaches the lesson better than a rejection message.
 
@@ -193,9 +196,9 @@ The upkeep *formula* is approved here because it follows directly from construct
 
 Every figure in this section is calibration for a first run against a pilot economy, not a balanced market.
 
-## Still Draft: what version 2 does not decide
+## Still Draft: what version 3 does not decide
 
-- **District modifiers.** Named regions over the grid, and any land-price, upkeep, traffic, or prestige modifier attached to position. Version 2 prices every cell identically, so no positional advantage exists yet.
+- **District modifiers.** Named regions over the grid, and any land-price, upkeep, traffic, or prestige modifier attached to position. No positional price advantage exists yet.
 - **Dynamic land value.** Repricing, speculation, and resale of plots.
 - **Capability prerequisites and exclusivity.** Which capabilities require which profile, footprint, or investment, and which exclude each other.
 - **Quality.** Whether a separate derived quality value is still needed now that the profile has a mechanical use and a price, or whether quality is subsumed by it. This is the open question AIT-1609 and the deferred venue-quality Happiness factor depend on, and version 2 deliberately narrows it rather than answering it.
@@ -203,4 +206,4 @@ Every figure in this section is calibration for a first run against a pilot econ
 - **Repurposing compatibility** across grammar versions, including what happens to hosted experiences when a profile is lowered below what they deliver.
 - **Footprints beyond 2 × 2** and irregular shapes.
 
-AIT-1407 and the quality-dependent parts of AIT-1609 stay blocked until those receive a version 3. AIT-1401 through AIT-1403, AIT-1510, and the grammar-dependent parts of AIT-1601, AIT-1602, and AIT-1605 are unblocked by this version and depend only on their own remaining policies.
+AIT-1407 and the quality-dependent parts of AIT-1609 stay blocked until those receive a later scoped version. AIT-1401 is implemented under version 3; AIT-1402/1403 still require the proposal/quote workflow and complete cross-policy validation. Upkeep and failure use [economy/lifecycle version 1](building-economy-lifecycle-policy.md).

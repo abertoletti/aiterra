@@ -20,9 +20,12 @@ export const ownerFeedTypes = new Set([
   "BUILDING_ROLE_APPLIED", "BUILDING_ROLE_APPLICATION_WITHDRAWN",
   "BUILDING_ROLE_FILLED", "BUILDING_ROLE_CANDIDATE_REJECTED",
   "EVENT_CREATED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED",
-  "HAPPINESS_CHANGED", "HAPPINESS_DECAYED", "EXPERIENCE_HAPPINESS_RESOLVED", "EXPERIENCE_ACCESS_PAID",
+  "HAPPINESS_CHANGED", "HAPPINESS_DECAYED", "EXPERIENCE_EXPECTATION_DECLARED",
+  "EXPERIENCE_HAPPINESS_RESOLVED", "EXPERIENCE_ACCESS_PAID",
   "PLOT_ACQUIRED", "BUILDING_CONSTRUCTION_STARTED", "BUILDING_ACTIVATED",
-  "BUILDING_UPKEEP_PAID", "BUILDING_UPKEEP_FAILED",
+  "BUILDING_UPKEEP_DUE", "BUILDING_UPKEEP_PAID", "BUILDING_UPKEEP_FAILED",
+  "BUILDING_DELINQUENT", "BUILDING_INACTIVATED", "BUILDING_REACTIVATED",
+  "BUILDING_LIFECYCLE_WARNING", "BUILDING_CLOSED", "BUILDING_ABANDONED",
   "INVITATION_SENT", "INVITATION_ACCEPTED", "INVITATION_DECLINED", "INVITATION_EXPIRED",
   "COMMITMENT_CREATED", "COMMITMENT_REMINDER_SENT", "COMMITMENT_WINDOW_OPENED", "COMMITMENT_KEPT", "COMMITMENT_MISSED",
   "JOB_TEAM_MEMBER_JOINED", "JOB_TEAM_MEMBER_LEFT",
@@ -34,7 +37,7 @@ export const nonProjectionEventTypes = new Set([
   "AGENT_ACTION_PROCESSED", "RELEVANCE_EVALUATED", "OWNER_FEED_VIEWED",
   "RETURN_SUMMARY_VIEWED", "STORY_DETAIL_VIEWED", "STORY_INTEREST_RATED",
   "AGENT_EVENT_REPLAYED", "AGENT_CONNECTION_TESTED",
-  "OPPORTUNITIES_VIEWED", "AGENT_RULES_REQUESTED", "DECISION_CONTEXT_REQUESTED",
+  "OPPORTUNITIES_VIEWED", "AGENT_RULES_REQUESTED", "DECISION_CONTEXT_REQUESTED", "BUILDING_QUOTE_REQUESTED",
 ]);
 
 // A directional relationship is private to its owner, so only `fromId` projects it.
@@ -527,7 +530,7 @@ export function publicJob(job, energyCost = null) {
 }
 
 export function ownerFeedCategory(type) {
-  if (["MOVEMENT_STARTED", "CHARACTER_ARRIVED", "REST_STARTED", "REST_COMPLETED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED"].includes(type)) return "action";
+  if (["MOVEMENT_STARTED", "CHARACTER_ARRIVED", "REST_STARTED", "REST_COMPLETED", "EVENT_ATTENDANCE_STARTED", "EVENT_ATTENDANCE_ENDED", "EXPERIENCE_EXPECTATION_DECLARED"].includes(type)) return "action";
   if (["CO_PRESENCE_STARTED", "CO_PRESENCE_ENDED", "CONVERSATION_STARTED", "CONVERSATION_MESSAGE_SENT", "CONVERSATION_ENDED"].includes(type)) return "encounter";
   if (["RELATIONSHIP_CREATED", "RELATIONSHIP_CHANGED", "KNOWLEDGE_LEARNED", "SECONDARY_GOAL_ADOPTED", "SECONDARY_GOAL_COMPLETED",
     "REPUTATION_CHANGED", "DOMAIN_REPUTATION_CHANGED", "COURSE_COMPLETED"].includes(type)) return "consequence";
@@ -578,8 +581,17 @@ export function ownerFeedDetails(event) {
   // where "he expected a great night and it went badly" stops being a claim.
   if (event.type === "EXPERIENCE_HAPPINESS_RESOLVED") return {
     eventId: data.eventId, locationId: data.locationId, cause: data.cause,
-    rawDelta: data.rawDelta, factors: data.factors,
+    rawDelta: data.rawDelta, expectedHappiness: data.expectedHappiness,
+    realizedMinusExpected: data.realizedMinusExpected,
+    expectationDeclaredByEventId: data.expectationDeclaredByEventId,
+    attendanceStartedByEventId: data.attendanceStartedByEventId,
+    factors: data.factors,
     dominantDimension: data.dominantDimension,
+    happinessPolicyVersion: data.happinessPolicyVersion,
+  };
+  if (event.type === "EXPERIENCE_EXPECTATION_DECLARED") return {
+    eventId: data.eventId, expectedHappiness: data.expectedHappiness,
+    attendanceStartedByEventId: data.attendanceStartedByEventId,
     happinessPolicyVersion: data.happinessPolicyVersion,
   };
   if (event.type === "HAPPINESS_CHANGED") return {
@@ -598,6 +610,10 @@ export function ownerFeedDetails(event) {
     constructionCost: data.constructionCost, amount: data.amount,
     shortfall: data.shortfall, capacity: data.capacity,
     capabilities: data.capabilities, price: data.price,
+    previousStatus: data.previousStatus, status: data.status, nextStatus: data.nextStatus,
+    transitionAt: data.transitionAt, recoveryCost: data.recoveryCost,
+    missedUpkeepIntervals: data.missedUpkeepIntervals,
+    lifecyclePolicyVersion: data.lifecyclePolicyVersion,
   };
   if (event.type === "EXPERIENCE_ACCESS_PAID") return {
     eventId: data.eventId, price: data.price,
@@ -607,6 +623,7 @@ export function ownerFeedDetails(event) {
 }
 
 export function summaryPriority(type) {
+  if (["BUILDING_LIFECYCLE_WARNING", "BUILDING_CLOSED", "BUILDING_ABANDONED"].includes(type)) return 95;
   if (type === "RELATIONSHIP_CHANGED") return 100;
   // A resolved evening ranks with a completed job: it is the other thing a resident
   // spent their day on, and the one an owner returns to read about.

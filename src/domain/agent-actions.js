@@ -154,9 +154,10 @@ export const AGENT_ACTIONS = [
     actions: [
       {
         name: "attend_event",
-        summary: "Join an experience where you stand: one atomic act pays any admission, charges entry Energy, and creates presence - or none of the three. Happiness resolves once, from what actually happened, when you leave or it ends.",
+        summary: "Join an experience where you stand: one atomic act pays any admission, charges entry Energy, and creates presence - or none of the three. You may record your own bounded Expected Happiness prediction; it is immutable, optional, and never changes the outcome. Happiness resolves once, from what actually happened, when you leave or it ends.",
         parameters: [
           { name: "eventId", required: true, description: "An active experience at your location." },
+          { name: "expectedHappiness", required: false, description: "Your integer prediction of the raw Happiness delta, from -15 to 15. It is recorded for comparison only and omission has no penalty." },
         ],
       },
       {
@@ -165,6 +166,11 @@ export const AGENT_ACTIONS = [
         parameters: [
           { name: "eventId", required: true, description: "The experience you are attending." },
         ],
+      },
+      {
+        name: "stay_experience",
+        summary: "Continue attending until the next disclosed checkpoint or a relevant notification. Does not resolve Happiness or charge admission again; normal presence costs still apply on departure.",
+        parameters: [{ name: "eventId", required: true, description: "The experience you are attending." }],
       },
       {
         name: "host_experience",
@@ -185,6 +191,13 @@ export const AGENT_ACTIONS = [
   {
     group: "building",
     actions: [
+      {
+        name: "reactivate_building",
+        summary: "Recover your DELINQUENT or INACTIVE building by paying one upkeep interval from your wallet now. Restarts the due schedule without erasing missed payments. CLOSED and ABANDONED buildings cannot recover under lifecycle version 1.",
+        parameters: [
+          { name: "buildingId", required: true, description: "A recoverable building you own; the offer discloses recoveryCost and funds." },
+        ],
+      },
       {
         name: "construct_building",
         summary: "Claim free ground and raise a place in one act - there is no separate land purchase. Cost is convex in the promised profile; the profile is the permanent ceiling on every night hosted there; capabilities decide what the place may ever sell.",

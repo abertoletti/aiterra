@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  AgentDecisionPlanner, asContextRequest, buildDecisionMessages, DecisionValidationError,
-  parseDecisionDocument, safeFallbackAction, validateAction, validateContextRequest,
+  AgentDecisionPlanner, asBuildingQuoteRequest, asContextRequest, buildDecisionMessages, DecisionValidationError,
+  parseDecisionDocument, safeFallbackAction, validateAction, validateBuildingQuoteRequest,
+  validateContextRequest,
 } from "../src/agents/decision-planner.js";
 
 test("the decision parser accepts a fenced JSON object but returns only a currently available action", () => {
@@ -54,6 +55,31 @@ test("the decision validator rejects invented identifiers and mechanical fields"
     () => validateAction({ type: "set_credits", amount: 1_000_000 }, observation()),
     (error) => error instanceof DecisionValidationError && /not currently available/.test(error.message),
   );
+});
+
+test("the decision planner accepts only a bounded optional Expected Happiness prediction", () => {
+  const current = observation({
+    availableActions: [{
+      type: "attend_event", eventId: "night-1", expectedHappinessRange: [-15, 15],
+    }],
+  });
+  assert.deepEqual(
+    validateAction({ type: "attend_event", eventId: "night-1", expectedHappiness: 6 }, current),
+    { type: "attend_event", eventId: "night-1", expectedHappiness: 6 },
+  );
+  assert.deepEqual(
+    validateAction({ type: "attend_event", eventId: "night-1" }, current),
+    { type: "attend_event", eventId: "night-1" },
+    "omitting a prediction is valid and carries no invented default",
+  );
+  for (const value of [-16, 16, 1.5]) {
+    assert.throws(
+      () => validateAction({ type: "attend_event", eventId: "night-1", expectedHappiness: value }, current),
+      (error) => error instanceof DecisionValidationError,
+    );
+  }
+  const context = JSON.parse(buildDecisionMessages(current)[1].content);
+  assert.match(context.requiredActionShapes.attend_event.expectedHappiness, /optional integer/);
 });
 
 test("a failed model decision falls back only to a deadline-resolving action", () => {
@@ -177,6 +203,67 @@ test("a context request is limited to offered resources and allowed filters", ()
     assert.throws(() => validateContextRequest(bad, progressive),
       (error) => error instanceof DecisionValidationError, `expected ${JSON.stringify(bad)} to be rejected`);
   }
+
+  const typed = observation({
+    contextMode: "progressive",
+    summaries: [{
+      resource: "plots", count: 400, feasibleCount: 395,
+      allowedFilters: { availableOnly: "boolean", maximumDistance: "number >= 0", feasibleOnly: "boolean" },
+    }],
+  });
+  assert.deepEqual(
+    validateContextRequest({ resource: "plots", filters: { availableOnly: true, maximumDistance: 3 } }, typed),
+    { resource: "plots", filters: { availableOnly: true, maximumDistance: 3 } },
+  );
+  assert.throws(
+    () => validateContextRequest({ resource: "plots", filters: { locationId: "commons" } }, typed),
+    (error) => error instanceof DecisionValidationError,
+    "the summary's per-resource schema prevents a valid filter from being used on the wrong catalog",
+  );
+});
+
+test("a brain can price its own complete building proposal before deciding", async () => {
+  const proposal = {
+    x: 8, y: 6, width: 1, height: 1,
+    name: "The Workshop", description: "A focused creative workshop.",
+    profile: { creativity: 60 }, capabilities: ["host_event"],
+  };
+  const current = observation({
+    availableActions: [{
+      type: "construct_building", gridWidth: 20, gridHeight: 20,
+      maximumFootprint: { width: 2, height: 2 },
+      capabilities: ["host_event", "sell_service"],
+      profileDimensions: ["creativity", "learning"],
+    }],
+  });
+  assert.deepEqual(validateBuildingQuoteRequest(proposal, current), proposal);
+  assert.deepEqual(asBuildingQuoteRequest({
+    type: "request_building_quote", proposal,
+  }), proposal, "a quote wrapped as an action remains a read request");
+
+  const calls = [];
+  const planner = new AgentDecisionPlanner({
+    modelClient: {
+      async complete({ messages }) {
+        calls.push(JSON.parse(messages[1].content));
+        return calls.length === 1
+          ? { content: JSON.stringify({ requestBuildingQuote: proposal, rationale: "I chose this project." }), usage: {} }
+          : { content: JSON.stringify({ action: { type: "construct_building", ...proposal }, rationale: "The quoted risk suits me." }), usage: {} };
+      },
+    },
+  });
+  const requested = await planner.decide({
+    observation: current, buildingQuoteRequestsRemaining: 1,
+  });
+  assert.deepEqual(requested.buildingQuoteRequest, proposal);
+  assert.equal(requested.action, undefined);
+
+  const quote = { constructionCost: 608, upkeepPerInterval: 18, feasibility: { status: "eligible" } };
+  const decided = await planner.decide({
+    observation: current, buildingQuotes: [quote], buildingQuoteRequestsRemaining: 0,
+  });
+  assert.deepEqual(decided.action, { type: "construct_building", ...proposal });
+  assert.equal(calls[1].buildingQuotes[0].constructionCost, 608);
 });
 
 test("the context protocol is offered only in progressive mode and only while budget remains", () => {
@@ -245,10 +332,10 @@ test("secondary goals validate against known identifiers, not against full-mode 
 
 test("the prompt asks the character to pursue something and says how to name a goal", () => {
   const prompt = buildDecisionMessages(observation())[0].content;
-  assert.ok(prompt.includes("keep at least one active secondary goal"),
-    "the first pilot adopted zero goals because the prompt told it to adopt them only rarely");
+  assert.ok(prompt.includes("consider a secondary goal"));
+  assert.ok(prompt.includes("you may choose none"), "planning must not force arbitrary goals");
   assert.ok(prompt.includes("`known`"), "and it must say where a valid target comes from");
-  assert.ok(prompt.includes("sourceEventId you actually perceived"));
+  assert.ok(prompt.includes("sourceEventId from goalSourceEventIds"));
   assert.ok(!prompt.includes("only when a concrete new commitment"), "the discouraging wording is gone");
 });
 
@@ -281,8 +368,8 @@ test("the prompt states what a run is judged on, and stays a spec rather than an
   assert.ok(prompt.includes("yours to judge"), "when to recover is the brain's call");
   assert.doesNotMatch(prompt, /^\s*\d+[a-z]?\.\s.*"type":"rest/m,
     "rest must not be a numbered entry in the ordered list");
-  assert.ok(prompt.indexOf("host_experience") < prompt.indexOf("accept_job"),
-    "an idle building is the most valuable thing to fix, so it heads the list");
+  assert.doesNotMatch(prompt, /^\s*\d+[a-z]?\.\s.*\"type\":/m,
+    "the route menu must not imply that one autonomous choice outranks another");
 
   // The mechanics are stated and the conclusions are left to the brain. Every phrase below is
   // a judgement the prompt used to make on the agent's behalf, and the proprietor of the run
@@ -294,6 +381,12 @@ test("the prompt states what a run is judged on, and stays a spec rather than an
     assert.ok(!prompt.includes(moral), `the prompt should state mechanics, not conclude: "${moral}"`);
   }
   assert.ok(prompt.includes("CEILING on every experience"));
+  assert.ok(prompt.includes("Goals are free-form memory and intention, not authoritative facts"));
+  assert.ok(prompt.includes("A condition already true is not a reason"));
+  assert.ok(prompt.includes("merely earning more toward an already-met threshold is not a reason"));
+  assert.ok(prompt.includes("Use the final reread message"));
+  assert.ok(prompt.includes("include it as expectedHappiness"),
+    "the external brain is asked to make the prediction the server deliberately refuses to make");
 
   const lines = prompt.split("\n");
   const longest = Math.max(...lines.map((line) => line.length));
@@ -428,6 +521,39 @@ test("a catalog request is honoured whichever envelope the model reaches for", a
 test("an action that merely looks like a request is still an action", () => {
   assert.equal(asContextRequest({ type: "move", destinationId: "commons" }), null);
   assert.equal(asContextRequest({ type: "requestContext" }), null, "a request needs a resource");
+});
+
+test("free-text goals are repeated beside current facts at the decision edge without interpretation", () => {
+  const current = observation({
+    character: {
+      id: "pilot-07", name: "Rook", locationId: "foundry", credits: 4_785, energy: 18,
+      goal: "Be impossible to ignore.",
+      primaryGoal: { status: "active", guidance: "Claim the hardest foundry work." },
+      secondaryGoals: [
+        { status: "active", guidance: "Save 2000 credits, then build a workshop." },
+        { status: "abandoned", guidance: "This text must not be repeated." },
+      ],
+      activity: { type: "rest" },
+    },
+    commitments: [{ id: "commitment-1" }],
+  });
+  const messages = buildDecisionMessages(current);
+  const reread = JSON.parse(messages[2].content.split("\n").at(-1));
+  assert.deepEqual(reread, {
+    goalTexts: [
+      "Be impossible to ignore.",
+      "Claim the hardest foundry work.",
+      "Save 2000 credits, then build a workshop.",
+    ],
+    currentFacts: {
+      credits: 4_785, energy: 18, locationId: "foundry", activity: "rest", commitments: 1,
+    },
+  });
+  assert.equal(messages[2].role, "user");
+  const framing = messages[2].content.split("\n")[0];
+  assert.match(framing, /quoted verbatim/);
+  assert.doesNotMatch(framing, /construct|building|job|work/i,
+    "the priority message must not smuggle in a recommended action");
 });
 
 test("the rules manifest rides the stable system message, not the volatile context", () => {

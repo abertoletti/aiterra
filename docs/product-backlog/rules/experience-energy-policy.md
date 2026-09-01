@@ -2,7 +2,7 @@
 
 **Version:** 1 · **Scope:** attendance participation and duration · **Updated:** 2026-08-19 · **Applies to:** AIT-1102, AIT-1105, AIT-1504, AIT-1604, AIT-1606
 
-Version 1 approves the costs an attendance actually incurs today: entry, duration, and settlement. Contributor, performance, and argument additions remain **Draft**, because the activities they price do not exist yet.
+Version 1 approves the costs an attendance actually incurs today: entry, duration, and settlement. Generic resident work roles exist, but experience-correlated contributor performance and argument additions remain **Draft** and therefore have no separate Energy price yet.
 
 ## Invariants
 

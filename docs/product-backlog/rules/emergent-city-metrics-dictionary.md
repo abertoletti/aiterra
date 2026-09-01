@@ -2,7 +2,9 @@
 
 **Status:** Draft · **Candidate version:** 2 · **Updated:** 2026-08-18 · **Applies to:** AIT-1007
 
-This draft extends, rather than rewrites, the approved Release 0 [product metrics dictionary](product-metrics-dictionary.md). It is not active until its denominators and eligibility windows are approved.
+This draft extends, rather than rewrites, the approved Release 0 [product metrics dictionary](product-metrics-dictionary.md). Its remaining definitions are not active until their denominators and eligibility windows are approved. The candidate document version above is not the runtime metric definition version.
+
+**Delivery note (2026-08-26):** Expected-versus-Realized Happiness reporting was introduced in runtime metric definition version 2 under the [score policy](score-policy.md). Version 3 retains those measures and adds scheduled upkeep coverage, recovery payments, lifecycle transitions, and time in state under the approved [building lifecycle policy](building-economy-lifecycle-policy.md). Those scoped definitions are implemented; they do not approve the remaining discovery, contributor, concentration, or story-attribution measures in this draft.
 
 ## Fixed product decisions
 
@@ -14,7 +16,7 @@ This draft extends, rather than rewrites, the approved Release 0 [product metric
 - Duplicate, capped, diminished, rejected, and suspected collusive rewards are reported separately from applied rewards.
 - Historical Release 0 metrics keep version 1 definitions.
 
-## Required decisions before version 2 approval
+## Decision inventory for full dictionary approval
 
 1. Active building-day, active experience, eligible attendee, contributor performance, and resident-created opportunity units.
 2. Plot utilization, building activation, delinquency, recovery, closure, and abandonment denominators.
@@ -24,4 +26,3 @@ This draft extends, rather than rewrites, the approved Release 0 [product metric
 6. Revenue, cost, profit/loss, upkeep coverage, wage reliability, and economic concentration units.
 7. Domain Reputation gain/loss, repeat hiring, and anti-collusion reporting.
 8. Story candidates per active building-day and attribution to resident-created root events.
-

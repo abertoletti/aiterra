@@ -239,6 +239,10 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
   // actually recorded what residents chose and what it was worth to them.
   const attendanceStarts = events.filter((event) => event.type === "EVENT_ATTENDANCE_STARTED");
   const resolutions = events.filter((event) => event.type === "EXPERIENCE_HAPPINESS_RESOLVED");
+  const expectationDeclarations = events.filter((event) => event.type === "EXPERIENCE_EXPECTATION_DECLARED");
+  const expectedVsRealized = resolutions.filter((event) =>
+    Number.isFinite(event.data.expectedHappiness) && Number.isFinite(event.data.rawDelta));
+  const expectationErrors = expectedVsRealized.map((event) => event.data.rawDelta - event.data.expectedHappiness);
   const accessPayments = events.filter((event) => event.type === "EXPERIENCE_ACCESS_PAID");
   const decays = events.filter((event) => event.type === "HAPPINESS_DECAYED");
   const workCosts = events.filter((event) => event.type === "HAPPINESS_CHANGED" && event.data.reason === "work_completed");
@@ -268,6 +272,26 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
     meanFactorContribution: Object.fromEntries(Object.entries(factorTotals)
       .map(([factor, total]) => [factor, round2(total / Math.max(1, resolutions.length))])
       .sort(([left], [right]) => left.localeCompare(right))),
+    expectedVsRealized: {
+      declarations: expectationDeclarations.length,
+      resolvedComparisons: expectedVsRealized.length,
+      declarationRate: metric(
+        expectationDeclarations.length,
+        attendanceStarts.filter((event) => !event.data.reEntry).length,
+      ),
+      meanExpectedHappiness: expectedVsRealized.length
+        ? round2(expectedVsRealized.reduce((sum, event) => sum + event.data.expectedHappiness, 0) / expectedVsRealized.length)
+        : null,
+      meanRealizedHappiness: expectedVsRealized.length
+        ? round2(expectedVsRealized.reduce((sum, event) => sum + event.data.rawDelta, 0) / expectedVsRealized.length)
+        : null,
+      meanError: expectationErrors.length
+        ? round2(expectationErrors.reduce((sum, value) => sum + value, 0) / expectationErrors.length)
+        : null,
+      meanAbsoluteError: expectationErrors.length
+        ? round2(expectationErrors.reduce((sum, value) => sum + Math.abs(value), 0) / expectationErrors.length)
+        : null,
+    },
     repeatedVenueResolutions: resolutions.filter((event) => (event.data.factors?.repetition ?? 0) < 0).length,
     distinctVenuesPerAttendingCharacter: distinctVenuesPerCharacter.size
       ? round2([...distinctVenuesPerCharacter.values()].reduce((sum, seen) => sum + seen.size, 0)
@@ -296,6 +320,7 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
     timingPolicyVersion: world.config.timing.policyVersion,
     goalsPolicyVersion: world.config.goals.policyVersion,
     escrowPolicyVersion: world.config.jobs.escrowPolicyVersion,
+    buildingLifecyclePolicyVersion: world.config.city.lifecyclePolicyVersion,
     rulesVersion: world.config.rules.version,
   };
   return {
@@ -314,6 +339,7 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
       platformSuppressedDeadlineCount: events.filter((event) => event.type === "DEADLINE_SUPPRESSED_FOR_PLATFORM_INCIDENT").length,
     },
     experiences,
+    buildings: buildingMetrics(world, events, from, through),
     stories: {
       candidates: storyCandidates,
       candidatesPerActiveCharacterDay: metric(storyCandidates.length, activeCharacterDays.size),
@@ -340,5 +366,53 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
         .map((event) => event.data.processingDelayWorldMilliseconds)
         .filter(Number.isFinite)),
     },
+  };
+}
+
+function buildingMetrics(world, events, from, through) {
+  const paid = events.filter((event) => event.type === "BUILDING_UPKEEP_PAID");
+  const scheduledPaid = paid.filter((event) => event.data.reason !== "reactivation");
+  const failed = events.filter((event) => event.type === "BUILDING_UPKEEP_FAILED");
+  const states = ["ACTIVE", "DELINQUENT", "INACTIVE", "CLOSED", "ABANDONED"];
+  const duration = Object.fromEntries(states.map((state) => [state, 0]));
+  const transitions = {
+    BUILDING_ACTIVATED: "ACTIVE", BUILDING_REACTIVATED: "ACTIVE",
+    BUILDING_DELINQUENT: "DELINQUENT", BUILDING_INACTIVATED: "INACTIVE",
+    BUILDING_CLOSED: "CLOSED", BUILDING_ABANDONED: "ABANDONED",
+  };
+  const start = from?.getTime() ?? -Infinity;
+  const end = through?.getTime() ?? world.clock.now().getTime();
+  const current = new Map();
+  const addDuration = (entry, until) => {
+    if (!entry) return;
+    duration[entry.status] += Math.max(0, Math.min(until, end) - Math.max(entry.at, start)) / 60_000;
+  };
+  for (const event of [...world.history].sort((a, b) => a.worldTime.localeCompare(b.worldTime) || a.sequence - b.sequence)) {
+    const at = new Date(event.worldTime).getTime();
+    if (at > end) continue;
+    const status = transitions[event.type] ?? (!event.data.lifecyclePolicyVersion
+      ? ({ BUILDING_UPKEEP_FAILED: "DELINQUENT", BUILDING_UPKEEP_PAID: "ACTIVE" })[event.type]
+      : null);
+    if (!status) continue;
+    const id = event.data.buildingId;
+    addDuration(current.get(id), at);
+    current.set(id, { status, at });
+  }
+  for (const entry of current.values()) addDuration(entry, end);
+  return {
+    constructed: events.filter((event) => event.type === "BUILDING_CONSTRUCTION_STARTED").length,
+    upkeepDue: scheduledPaid.length + failed.length,
+    upkeepPaid: scheduledPaid.length,
+    upkeepFailed: failed.length,
+    upkeepCoverageRate: metric(scheduledPaid.length, scheduledPaid.length + failed.length),
+    upkeepCreditsPaid: paid.reduce((sum, event) => sum + event.data.amount, 0),
+    recoveryPayments: paid.length - scheduledPaid.length,
+    reactivations: events.filter((event) => event.type === "BUILDING_REACTIVATED").length,
+    warnings: events.filter((event) => event.type === "BUILDING_LIFECYCLE_WARNING").length,
+    lifecycleTransitions: Object.fromEntries(states.map((state) => [state,
+      events.filter((event) => event.data.status === state && transitions[event.type]).length])),
+    currentStateCounts: Object.fromEntries(states.map((state) => [state,
+      [...world.state.buildings.values()].filter((building) => building.status === state).length])),
+    lifecycleWorldMinutes: Object.fromEntries(states.map((state) => [state, round2(duration[state])])),
   };
 }

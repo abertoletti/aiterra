@@ -24,13 +24,15 @@ export class AgentDecisionPlanner {
   async decide({
     observation, history = [], recentActionFailures = [], signal = null,
     rules = null, catalogs = {}, contextRequestsRemaining = 0,
+    buildingQuotes = [], buildingQuoteRequestsRemaining = 0,
   }) {
     const messages = buildDecisionMessages(observation, history, recentActionFailures, {
-      rules, catalogs, contextRequestsRemaining,
+      rules, catalogs, contextRequestsRemaining, buildingQuotes, buildingQuoteRequestsRemaining,
     });
     const response = await this.modelClient.complete({ messages, signal });
+    let document;
     try {
-      const document = parseDecisionDocument(response.content);
+      document = parseDecisionDocument(response.content);
       const common = {
         rationale: typeof document.rationale === "string" ? document.rationale.slice(0, 500) : null,
         providerResponseId: response.responseId,
@@ -54,12 +56,20 @@ export class AgentDecisionPlanner {
       if (contextRequestsRemaining > 0 && requested) {
         return { ...common, contextRequest: validateContextRequest(requested, observation) };
       }
+      const requestedQuote = document.requestBuildingQuote ?? asBuildingQuoteRequest(document.action);
+      if (buildingQuoteRequestsRemaining > 0 && requestedQuote) {
+        return {
+          ...common,
+          buildingQuoteRequest: validateBuildingQuoteRequest(requestedQuote, observation, history),
+        };
+      }
       return { ...common, action: validateAction(document.action ?? document, observation, history) };
     } catch (error) {
       if (error instanceof DecisionValidationError) {
         error.rawModelContent = response.content.slice(0, 10_000);
         error.providerResponseId = response.responseId;
         error.usage = response.usage;
+        error.rejectedAction = document?.action ?? document ?? null;
       }
       throw error;
     }
@@ -77,8 +87,21 @@ export function asContextRequest(action) {
   return { resource, filters: action.filters ?? action.requestContext?.filters ?? {} };
 }
 
+// Models sometimes wrap every intention in `action` even when the output contract
+// calls for a top-level read request. Accept the harmless variants without turning a
+// quote into a command.
+export function asBuildingQuoteRequest(action) {
+  if (!action || typeof action !== "object" || Array.isArray(action)) return null;
+  const type = typeof action.type === "string" ? action.type.toLowerCase().replace(/[_-]/g, "") : "";
+  if (!["requestbuildingquote", "quotebuilding", "buildingquote"].includes(type)) return null;
+  if (action.proposal && typeof action.proposal === "object") return action.proposal;
+  const { type: ignored, ...proposal } = action;
+  return proposal;
+}
+
 export function buildDecisionMessages(observation, history = [], recentActionFailures = [], {
   rules = null, catalogs = {}, contextRequestsRemaining = 0,
+  buildingQuotes = [], buildingQuoteRequestsRemaining = 0,
 } = {}) {
   if (!observation || typeof observation !== "object") throw new Error("An Aiterra observation is required");
   const progressive = observation.contextMode === "progressive";
@@ -105,6 +128,8 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
     // Never changed in the measurement.
     relationships: observation.relationships,
     knowledge: observation.knowledge,
+    known: observation.known,
+    recentHappiness: observation.recentHappiness,
     commitments: observation.commitments ?? [],
     invitations: observation.invitations ?? [],
     // Rarely changes, and carries the bulk of the bytes.
@@ -132,8 +157,10 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
     summaries: observation.summaries,
     recentActionFailures: recentActionFailures.slice(-5),
     recentPermittedHistory: history.slice(-12).map(compactHistoryEvent),
+    goalSourceEventIds: [...goalSourceEventIds(observation, history)],
     // Only the catalogs this decision actually asked for, and only on the turn it asked.
     catalogs: Object.keys(catalogs).length > 0 ? catalogs : undefined,
+    buildingQuotes: buildingQuotes.length > 0 ? buildingQuotes : undefined,
     rulesVersion: observation.rulesVersion,
     // Last on purpose: it changes every call and everything after it would be uncacheable.
     worldTime: observation.worldTime,
@@ -141,9 +168,16 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
   const contextProtocol = progressive && contextRequestsRemaining > 0
     ? [
       "This observation is deliberately compact. `summaries` reports, per resource, how many items you know and how many are currently possible; a low feasibleCount is not an empty world.",
-      "To ask, answer with {\"requestContext\":{\"resource\":\"<a resource named in summaries>\",\"filters\":{}},\"rationale\":\"why you need it\"} and you will be asked again with that catalog included. Ask whenever you are about to choose blind: before choosing where to build, before deciding there is nothing worth attending, or when you want to know what other residents have built.",
+      "To ask, answer with {\"requestContext\":{\"resource\":\"<a resource named in summaries>\",\"filters\":{}},\"rationale\":\"why you need it\"}. Each summary names allowedFilters and their value types; use only the criteria you actually choose.",
       `You may request detail ${contextRequestsRemaining} more time(s) for this decision; after that, decide with what you have.`,
-      "Do not request a catalog you already received below, and do not request one whose summary shows nothing you could act on.",
+      "Do not request a catalog you already received below. Blocked opportunities may still be worth inspecting to plan skills, savings or travel; zero feasibleCount does not mean nothing exists.",
+    ]
+    : [];
+  const buildingQuoteProtocol = buildingQuoteRequestsRemaining > 0
+    && (observation.availableActions ?? []).some((action) => action.type === "construct_building")
+    ? [
+      "To price a project you invented, answer with requestBuildingQuote instead of an action. Supply the complete same fields as construct_building except type.",
+      "The quote is non-binding and reserves nothing. It returns exact cost, upkeep, duration, capacity, remaining credits and blockers; after reading it you still choose freely.",
     ]
     : [];
   return [
@@ -177,7 +211,7 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "",
         "## If a reply is pending",
         "It has a deadline, so answer it: send_message | remain_silent | end_conversation.",
-        "- topics: at most 2 profile dimensions. Talking about what the OTHER person cares about is worth more.",
+        "- topics: at most 2 values from the action's allowedTopics; never skill names such as technical or business. Talking about what the OTHER person cares about is worth more.",
         "- respect turnsRemaining; closingRecommended means conclude now",
         "- appraise_interaction once after a conversation ends",
         "- conversation is how you learn things and arrange what happens next. Close it once its purpose is met, then go do the thing you agreed.",
@@ -185,46 +219,68 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "## If nothing is pending — this is where a run is won",
         "Talking to whoever is standing there is one option among these, not the default.",
         ...(contextProtocol.length > 0
-          ? ["FIRST, IF YOU DO NOT KNOW WHAT IS OUT THERE, ASK. Answer with a requestContext instead of an action and you will be asked again with the catalog included. Use `experiences` to see what is on across the city, `plots` to find land worth buying, `buildings` to see what other residents have built and where the crowds are, `opportunities` for work, `people` for who is around. Asking costs you one decision and is how you stop acting blind."]
+          ? ["FIRST, IF YOU DO NOT KNOW WHAT IS OUT THERE, ASK. Answer with a requestContext instead of an action and you will be asked again with the catalog included. Use `experiences` to see what is on across the city, `plots` to find free ground worth building on, `buildings` to see what other residents have built and where the crowds are, `opportunities` for work, `people` for who is around. Asking costs you one decision and is how you stop acting blind."]
           : []),
         "{\"type\":\"rest\"} recovers restRecovery Energy over restDurationGameMinutes world minutes. It is available whenever you are idle and it is not on the list below, because when to spend Energy and when to get it back is yours to judge.",
-        "Work through this list in order and take the first one that applies. An entry that costs more Energy than you hold will be refused, so read energyCost before choosing it.",
-        "1a. APPLICANTS ARE WAITING ON A ROLE YOU PUBLISHED -> {\"type\":\"select_applicant\",...}. Each application carries the candidate's verified reputation, general and per domain; the wage is already reserved. Pick before offerExpiresAt or the escrow returns and nobody works.",
-        "1b. YOU OWN A BUILDING AND CAN AFFORD A WAGE -> {\"type\":\"publish_role\",...}. The city's wages never change; a role you publish may pay anything up to what you hold.",
+        "These routes are options, not a priority order. Read energyCost before choosing.",
+        "",
+        "## Read before choosing",
+        "Use the final reread message. It repeats the goal text without classifying or rewriting it, beside current facts; it does not recommend an action.",
+        "1. Resolve an urgent authoritative commitment or deadline first.",
+        "2. Re-read every active goal against the current observation. Goals are free-form memory and intention, not authoritative facts.",
+        "3. Test factual premises in the goal against current credits, energy, activity, place, knowledge and commitments.",
+        "4. A condition already true is not a reason to repeat the action that achieved it. Continue reading the remaining intention, then choose freely.",
+        "5. Before repeating routine work, compare it with every active goal whose own stated threshold or prerequisite is already satisfied. If you still choose the routine, state the concrete reason the goal's next intention should wait; merely earning more toward an already-met threshold is not a reason.",
+        "6. If goals compete, choose which one matters now and state the real conflict. Do not silently let an open-ended routine erase a finite plan.",
+        "7. Ask only for missing facts, then choose one available action.",
+        "If you have no relevant goal, or your situation changed, briefly plan and optionally pin a secondary goal. If none makes sense, say so briefly and act; never invent one to fill a quota.",
+        "- APPLICANTS ARE WAITING ON A ROLE YOU PUBLISHED -> {\"type\":\"select_applicant\",...}. Each application carries verified reputation; the wage is reserved. Pick before offerExpiresAt or the escrow returns.",
+        "- YOU OWN A BUILDING AND CAN AFFORD A WAGE -> {\"type\":\"publish_role\",...}. The city's wages never change; a role you publish may pay anything up to what you hold.",
         "    Employ a resident out of your own wallet and pin the notice on a public square from boardChoices, because nobody can stand inside a venue that is shut. Staff are admitted even when the doors are.",
         "    Your role is filled by application: candidates apply at the board and you choose with select_applicant. You may also demand a minimum Domain Reputation in reputationRequirements.",
-        "1. YOU OWN A BUILDING WITH NO EVENT RUNNING -> {\"type\":\"host_experience\",...}. A building admits nobody while it has nothing on, and upkeep is charged whether or not anyone comes.",
+        "- YOU OWN AN ACTIVE BUILDING WITH NO EVENT RUNNING -> {\"type\":\"host_experience\",...}. A building admits nobody while it has nothing on, and upkeep is charged whether or not anyone comes.",
+        "   If it is DELINQUENT or INACTIVE, inspect recoveryCost and use reactivate_building before closure if you want to keep it. Recovery pays one upkeep interval from your wallet; it does not erase prior failures.",
         "   Hosting is work and costs Energy on what the night promises: hostingBaseEnergyCost + hostingEnergyPerAmbition x (sum of your chosen profile / 100). A lavish night can cost more than a shift.",
         "   One night at a time per building. If bookedUntil is set, the room is taken: use startsInGameMinutes to programme the next free slot instead of resubmitting.",
-        "2. SOMETHING IN cityTonight SUITS YOU (high affinity, affordable) -> {\"type\":\"move\",\"destinationId\":...}, then {\"type\":\"attend_event\",\"eventId\":...} once you are there. cityTonight lists every public experience with its affinity for you, its price and how far away it is.",
+        "- SOMETHING IN cityTonight SUITS YOU -> {\"type\":\"move\",\"destinationId\":...}, then {\"type\":\"attend_event\",\"eventId\":...,\"expectedHappiness\":...} once there. cityTonight states affinity, price and distance.",
         "   affinity is out of 100 and is what that night is worth TO YOU. A low one costs credits and Energy to be made LESS happy.",
         "   repetition on each night states your own habit: priorSimilarAttendances similar nights inside the window, of which freeAttendances cost nothing, and factor is the penalty already earned past that free run. Read it before paying, not after.",
+        "   Before attend_event, make your own integer prediction on the disclosed raw -15..15 Happiness scale and include it as expectedHappiness. The world records it but never uses it to change the result. Omission is valid when you genuinely cannot estimate, not a penalty or a safer score.",
+        "   recentHappiness preserves your own last five predictions, realized raw outcomes and factors. Learn from errors; affinity is not a raw Happiness prediction, and nobody guarantees a positive result.",
+        "   While attending, an entry/checkpoint decision lets you talk, leave_experience, or stay_experience until the next checkpoint. Relevant notifications still need a response. Staying is a real choice, not a new admission or a reward claim.",
         "   A venue is open only while it has something on: a `move` to a shut one says BUILDING_CLOSED and carries opensAt to plan around.",
-        "3. YOU CAN AFFORD A BUILDING AND HAVE NONE -> {\"type\":\"construct_building\",\"x\":...,\"y\":...}. One action: pick any free cell and it is yours. Build near where people already are; check cityTonight and nearby for where that is. The affordance names cheapestUsefulBuilding and takenCells.",
-        "4. YOU ARE SHORT OF CREDITS -> {\"type\":\"accept_job\",\"jobId\":...} then {\"type\":\"start_job\",\"jobId\":...}.",
+        "- BUILDING IS AN ENTREPRENEURIAL OPTION -> {\"type\":\"construct_building\",\"x\":...,\"y\":...}. It is never mandatory and ownership has no count limit.",
+        "   You decide whether, when, and where to invest. Construction spends credits and an unused building keeps charging upkeep.",
+        "   A venue that attracts residents can turn your hosting Energy into admission or tuition income. The affordance names cheapestUsefulBuilding and takenCells.",
+        "- YOU CHOOSE EMPLOYMENT -> {\"type\":\"accept_job\",\"jobId\":...} then {\"type\":\"start_job\",\"jobId\":...}.",
         "   A notice states its energyCost as well as its pay: they vary a lot now. Short errands cost little and pay little; long skilled work costs a third of your Energy and pays many times more. Compare pay against energyCost, not against pay alone.",
         "   Each notice says what completing it TEACHES, in skillGains. A post that demands a skill you lack is not a wall: do the work on this board that raises it and come back. Routine work below your level teaches nothing.",
         "   WORK IS FOUND IN THE SQUARES. Each square has its own notice board and you read only the one you are standing in. jobBoards lists every square, how many notices and courses are waiting there and how far away it is. If this square has nothing for you, move to one that does.",
         "   A notice with hiring 'application' is a resident's role: apply_for_role at its board, then carry on - you are committed only if selected. The proprietor reads your reputation when it selects.",
-        "4b. THE SKILL BETTER WORK DEMANDS IS ONE NO REACHABLE POST TEACHES -> {\"type\":\"enroll_course\",...} at its board, move to its location, then {\"type\":\"start_course\",...} within the window. The notice states price, duration, energy, prerequisites and the EXACT effects for you before you pay.",
+        "- A SKILL YOU WANT IS TAUGHT BY NO REACHABLE POST -> {\"type\":\"enroll_course\",...} at its board, move there, then {\"type\":\"start_course\",...}. The notice states price, duration, energy, prerequisites and exact effects.",
         "    effects is computed for YOU: each entry says what completion changes from your current level. A course whose every delta is 0 changes nothing you have, at full price.",
         "    Tuition is never refunded: abandoning, cancelling or missing the start forfeits it. Work that stretches you teaches for nothing (skillGains).",
         "",
         "## Building, and then running it",
+        "- the entrepreneurial loop is: choose a project -> pay construction -> activate an idle closed venue -> spend Energy hosting, teaching or organizing -> possibly earn admission or tuition -> keep paying upkeep",
+        "- demand and profit are never guaranteed. Construction risk comes from the project you choose and what residents later choose, not from hidden mechanical costs",
         "- there is no land to buy. Building claims the ground: name a free cell and a footprint (1x1 up to 2x2) and every cell of it becomes yours.",
-        "- profile = what your place delivers, on the ten dimensions. Cost = cells x (structural + profileCost x ambition^2), ambition = sum of your profile values / 100. Squared, so broad profiles are unaffordable: pick 2-3 dimensions.",
+        "- profile = what your place delivers, on the ten dimensions. Cost = cells x (structural + profileCost x ambition^2), ambition = sum of your profile values / 100. Breadth raises construction cost and upkeep convexly; how concentrated or broad to make the investment is your choice.",
         "- capacity comes from footprint alone; your building's profile is the CEILING on every experience you host there",
         "- to host: pick a title and description, a profile at or under your ceiling (omit `profile` and it uses your building's own), a duration, and an accessPrice from 0 to maximumAccessPrice.",
         "- what each attendee pays goes straight to YOU, the proprietor; upkeep is charged to your wallet too, so an unused building bleeds you and a busy one pays for itself",
         "- a building with sell_service can offer_course: pick a catalog entry, a skill, a price in the entry's band and a square for the notice. Tuition is paid to you, like admission.",
         "- residents come only if the night suits them and they can reach it. You cannot make them come; you can only put on something worth coming to.",
         "- `plots` lists free cells, `buildings` shows what others built and where the crowds are; rules.city has the exact numbers",
+        "- before committing, you may submit requestBuildingQuote with your own complete proposed building. The server returns exact cost, upkeep, duration, capacity, remaining credits and blockers; it never chooses any field for you",
         "",
         "## Goals",
-        "- keep at least one active secondary goal whenever you have capacity",
-        "- propose_secondary_goal needs a sourceEventId you actually perceived (from recentPermittedHistory or a pendingNotification) and a targetId listed in `known`",
+        "- consider a secondary goal when you have a concrete multi-step intention; you may choose none",
+        "- propose_secondary_goal needs a sourceEventId from goalSourceEventIds and a targetId listed in `known` (pursue_goal takes null). The server checks that you actually perceived the source.",
         "- goals persist: use them to stay on a plan instead of reconsidering from scratch",
-        "- anything stated only in a rationale is gone next turn; a goal returns every turn in character.secondaryGoals with its declaredReason. Formed a multi-step goal - save 2000 then build, finish a course then take the post it opens? Pin it: goal type pursue_goal, targetId null, the steps and their numbers in declaredReason.",
+        "- anything stated only in a rationale is gone next turn; submit declaredReason and it returns every turn as guidance in character.secondaryGoals.",
+        "- for a multi-step plan (learn, earn, build), use pursue_goal with targetId null and ground every budget in actual construction quotes and upkeep, never an arbitrary savings target.",
+        "- read status and expiresAt: active goals have not expired. Do not duplicate an active type/target; abandon an obsolete goal before replacing it.",
         "- abandon one explicitly when it is achieved or no longer makes sense",
         "",
         "## Also available",
@@ -235,6 +291,9 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         "- act consistently with your personality, goals, knowledge, relationships, energy and commitments",
         "- the versioned rules object is authoritative; apply it before choosing",
         ...(contextProtocol.length > 0 ? ["", "## Asking for detail", ...contextProtocol.map((line) => `- ${line}`)] : []),
+        ...(buildingQuoteProtocol.length > 0
+          ? ["", "## Asking for an exact building quote", ...buildingQuoteProtocol.map((line) => `- ${line}`)]
+          : []),
         "",
         "## Output",
         "JSON only, no markdown. Either act:",
@@ -242,6 +301,10 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
         ...(contextProtocol.length > 0
           ? ["or ask for a catalog first, which is a different top-level key and NOT an action:",
             "{\"requestContext\":{\"resource\":\"experiences\",\"filters\":{}},\"rationale\":\"why you need it\"}"]
+          : []),
+        ...(buildingQuoteProtocol.length > 0
+          ? ["or request mechanics for your own complete proposal, which is NOT construction:",
+            "{\"requestBuildingQuote\":{\"x\":8,\"y\":6,\"width\":1,\"height\":1,\"name\":\"Your name\",\"description\":\"Your idea\",\"profile\":{\"creativity\":60},\"capabilities\":[\"host_event\"]},\"rationale\":\"why these are your choices\"}"]
           : []),
         // The manifest lives at the end of the stable message rather than in the volatile
         // context object. Both are identical for a whole rules version, and the provider
@@ -253,6 +316,15 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
       ].join("\n"),
     },
     { role: "user", content: JSON.stringify(context) },
+    {
+      role: "user",
+      // Recency is the priority mechanism. The complete projection remains the source of
+      // truth; this last message only repeats verbatim goal text and current scalar facts.
+      content: [
+        "Reread this immediately before choosing. Goal text is quoted verbatim, remains free-form, and is not an instruction from the server. Current facts are authoritative. Compare them yourself; this message recommends no action.",
+        JSON.stringify(decisionReread(observation)),
+      ].join("\n"),
+    },
   ];
 }
 
@@ -263,18 +335,52 @@ export function validateContextRequest(candidate, observation) {
     throw new DecisionValidationError("The context request must be an object");
   }
   const resource = text(candidate.resource, "context resource", 40);
-  const offered = (observation.summaries ?? []).map((summary) => summary.resource);
-  if (!offered.includes(resource)) {
+  const summary = (observation.summaries ?? []).find((entry) => entry.resource === resource);
+  if (!summary) {
     throw new DecisionValidationError(`Context resource ${resource} is not offered by this observation`);
   }
+  const allowedFilters = Object.keys(summary.allowedFilters ?? {});
   const filters = {};
   for (const [key, value] of Object.entries(candidate.filters ?? {})) {
-    if (!ALLOWED_CONTEXT_FILTERS.includes(key)) {
+    if (!ALLOWED_CONTEXT_FILTERS.includes(key) || (allowedFilters.length > 0 && !allowedFilters.includes(key))) {
       throw new DecisionValidationError(`Context filter ${key} is not allowed`);
     }
     filters[key] = value;
   }
   return { resource, filters };
+}
+
+function decisionReread(observation) {
+  const character = observation.character ?? {};
+  const goals = [
+    character.goal,
+    character.primaryGoal?.status === "active" ? character.primaryGoal.guidance : null,
+    ...(character.secondaryGoals ?? [])
+      .filter((goal) => goal.status === "active")
+      .map((goal) => goal.guidance),
+  ].filter((goal) => typeof goal === "string" && goal.trim().length > 0);
+  return {
+    goalTexts: goals,
+    currentFacts: {
+      credits: character.credits,
+      energy: character.energy,
+      locationId: character.locationId,
+      activity: character.activity?.type ?? null,
+      commitments: (observation.commitments ?? []).length,
+    },
+  };
+}
+
+// A quote accepts exactly a construct_building proposal but causes no action. Reusing
+// the action validator keeps the model-facing and command-facing envelopes identical.
+export function validateBuildingQuoteRequest(candidate, observation, history = []) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    throw new DecisionValidationError("requestBuildingQuote must contain a complete building proposal");
+  }
+  const { type, ...proposal } = validateAction(
+    { ...candidate, type: "construct_building" }, observation, history,
+  );
+  return proposal;
 }
 
 function compactJob(job) {
@@ -325,7 +431,7 @@ function actionShapes(availableActions) {
       case "construct_building": shapes.construct_building = {
         type,
         x: "<x, 1..gridWidth, a cell not in takenCells>", y: "<y, 1..gridHeight>",
-        width: "<1 or 2>", height: "<1 or 2, and you must own every cell of the rectangle>",
+        width: "<1 or 2>", height: "<1 or 2, with every cell free or already yours under the legacy land contract>",
         name: "<required, what you call the place>",
         description: "<required, what it is; free text, no mechanical effect>",
         profile: "<object of profile dimensions to 0-100; what the place delivers, priced convexly>",
@@ -337,6 +443,7 @@ function actionShapes(availableActions) {
       case "buy_vehicle": shapes.buy_vehicle = {
         type, vehicleId: "<a vehicleId from the offered catalog>",
       }; break;
+      case "reactivate_building": shapes.reactivate_building = { type, buildingId: "<an offered recoverable buildingId>" }; break;
       case "publish_role": shapes.publish_role = {
         type, buildingId: "<one of your ACTIVE buildings>",
         boardLocationId: "<a square from boardChoices: the notice goes there>",
@@ -398,8 +505,13 @@ function actionShapes(availableActions) {
         boardLocationId: "<a square from boardChoices: the notice goes there>",
         title: "<what you call the course>", description: "<free text, no mechanical effect>",
       }; break;
-      case "attend_event": shapes.attend_event = { type, eventId: "<an offered eventId>" }; break;
-      case "leave_experience": shapes.leave_experience = { type, eventId: "<the eventId you are attending>" }; break;
+      case "attend_event": shapes.attend_event = {
+        type,
+        eventId: "<an offered eventId>",
+        expectedHappiness: "<optional integer raw Happiness prediction inside expectedHappinessRange>",
+      }; break;
+      case "leave_experience":
+      case "stay_experience": shapes[type] = { type, eventId: "<the eventId you are attending>" }; break;
       case "send_invitation": shapes.send_invitation = {
         type,
         targetCharacterId: "<an offered targetCharacterId>",
@@ -472,16 +584,17 @@ export function validateAction(candidate, observation, history = []) {
       return { ...action, openingMessage: text(candidate.openingMessage, "openingMessage", MAX_MESSAGE_CHARACTERS) };
     }
     case "send_message": {
-      const topics = candidate.topics === undefined || candidate.topics === null
-        ? []
-        : (Array.isArray(candidate.topics) ? candidate.topics.slice(0, 2).map((topic) => text(String(topic), "topic", 40)) : []);
       const action = matchedIdentifierAction(type, "conversationId", candidate, templates);
+      const template = templates.find((item) => item.conversationId === action.conversationId);
+      const topics = candidate.topics ?? [];
+      if (!Array.isArray(topics) || topics.length > 2) throw new DecisionValidationError("topics must be an array of at most two allowedTopics");
+      if (topics.some((topic) => typeof topic !== "string" || !(template.allowedTopics ?? observation.rules?.happiness?.profileDimensions ?? []).includes(topic))) {
+        throw new DecisionValidationError(`topics must use allowedTopics: ${(template.allowedTopics ?? []).join(", ")}`);
+      }
       return {
         ...action,
         text: text(candidate.text, "message text", MAX_MESSAGE_CHARACTERS),
         sharedFacts: validateSharedFacts(candidate.sharedFacts ?? []),
-        // The server revalidates against the controlled taxonomy and rejects an
-        // invented topic, so passing it through unchecked is safe and honest.
         ...(topics.length > 0 ? { topics } : {}),
       };
     }
@@ -490,6 +603,8 @@ export function validateAction(candidate, observation, history = []) {
       return matchedIdentifierAction(type, "conversationId", candidate, templates);
     case "ignore_event":
       return matchedIdentifierAction(type, "notificationEventId", candidate, templates);
+    case "reactivate_building":
+      return matchedIdentifierAction(type, "buildingId", candidate, templates);
     case "appraise_interaction": {
       const template = templates.find((item) => item.conversationId === candidate.conversationId
         && item.otherCharacterId === candidate.otherCharacterId);
@@ -552,7 +667,17 @@ export function validateAction(candidate, observation, history = []) {
         description: text(candidate.description ?? "", "course description", 500),
       };
     }
-    case "attend_event":
+    case "attend_event": {
+      const action = matchedIdentifierAction(type, "eventId", candidate, templates);
+      if (candidate.expectedHappiness === undefined || candidate.expectedHappiness === null) return action;
+      const template = templates.find((item) => item.eventId === action.eventId);
+      const [minimum, maximum] = template?.expectedHappinessRange ?? [-15, 15];
+      return {
+        ...action,
+        expectedHappiness: boundedInteger(candidate.expectedHappiness, "expectedHappiness", minimum, maximum),
+      };
+    }
+    case "stay_experience":
     case "leave_experience":
       return matchedIdentifierAction(type, "eventId", candidate, templates);
     case "send_invitation": {
@@ -763,15 +888,15 @@ function validateSecondaryGoal(candidate, template, observation, history) {
   const type = text(goal.type, "goal type", 100);
   if (!(template.allowedGoalTypes ?? []).includes(type)) throw new DecisionValidationError("The secondary goal type is not allowed");
   const sourceEventId = text(goal.sourceEventId, "goal sourceEventId", 100);
-  const visibleEventIds = new Set([
-    ...history.map((event) => event.id),
-    ...(observation.pendingNotifications ?? []).flatMap((item) => [item.eventId, item.sourceEventId]).filter(Boolean),
-  ]);
+  const visibleEventIds = goalSourceEventIds(observation, history);
   if (!visibleEventIds.has(sourceEventId)) throw new DecisionValidationError("The secondary goal source is not visible to the character");
   const priority = goal.priority ?? "medium";
   if (!["low", "medium", "high"].includes(priority)) throw new DecisionValidationError("The secondary goal priority is invalid");
   const targetId = goal.targetId ? text(String(goal.targetId), "goal targetId", 100) : null;
   validateGoalTarget(type, targetId, observation);
+  if ((observation.character?.secondaryGoals ?? []).some((item) => item.status === "active" && item.type === type && (item.targetId ?? null) === targetId)) {
+    throw new DecisionValidationError("An equivalent secondary goal is already active; do not duplicate it");
+  }
   return {
     type: "propose_secondary_goal",
     goal: {
@@ -779,6 +904,15 @@ function validateSecondaryGoal(candidate, template, observation, history) {
       declaredReason: text(goal.declaredReason, "goal declaredReason", 500),
     },
   };
+}
+
+function goalSourceEventIds(observation, history) {
+  return new Set([
+    ...history.map((event) => event.id),
+    ...(observation.goalSourceEventIds ?? []),
+    ...(observation.recentHappiness ?? []).map((item) => item.sourceEventId),
+    ...(observation.pendingNotifications ?? []).flatMap((item) => [item.eventId, item.sourceEventId]),
+  ].filter(Boolean));
 }
 
 // Prefers observation.known, which both context modes carry as identifiers, and falls
