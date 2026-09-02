@@ -51,6 +51,32 @@ test("the protocol authenticates character-scoped observation and validates acti
   assert.equal(leakedState.status, 401, "an agent credential cannot read operator state");
 });
 
+test("the protocol accepts selected-context actions with idempotency and an expected state version", async (t) => {
+  const { world, server, baseUrl } = await protocolWorld();
+  t.after(() => close(server));
+  const observation = await fetch(`${baseUrl}/api/characters/jack/observation`, {
+    headers: { Authorization: "Bearer jack-secret" },
+  });
+  const before = await observation.json();
+  const plotId = world.inspectContext("jack", { resource: "plots", limit: 1 }).items[0].id;
+  const request = (body) => fetch(`${baseUrl}/api/characters/jack/actions`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer jack-secret", "Content-Type": "application/json", "Idempotency-Key": "select-plot-1",
+    },
+    body: JSON.stringify(body),
+  });
+  const action = { type: "select_context", resource: "plots", itemId: plotId, expectedStateVersion: before.stateVersion };
+  const selected = await request(action);
+  assert.equal(selected.status, 202);
+  const selectedBody = await selected.json();
+  assert.equal(selectedBody.resource, "plots");
+  const retried = await request(action);
+  assert.equal(retried.status, 202);
+  assert.deepEqual(await retried.json(), selectedBody, "a retry returns the original receipt");
+  assert.equal(world.getObservation("jack").selectedContexts.length, 1);
+});
+
 test("the building quote endpoint returns mechanics without reserving or constructing", async (t) => {
   const { world, server, baseUrl } = await protocolWorld();
   t.after(() => close(server));

@@ -42,7 +42,7 @@ management can each be implemented and verified as a coherent increment.
 - [X] T007 Add shared selection lookup, capacity, version attribution, lifecycle-transition construction, first-cause precedence, and receipt helpers in `src/domain/world.js`
 - [X] T008 [P] Declare `select_context` and `release_context` envelopes and document `record_decision` as final no-action in `src/domain/agent-actions.js`
 - [X] T009 [P] Publish selection limit, TTL, replacement, stale handling, and no-action discipline under a new manifest version in `src/domain/config.js`
-- [ ] T010 Add reducer-only replay, deterministic ordering, non-enumerating resolver, and cross-character projection tests for FR-012/FR-017 in `test/selected-context.test.js`
+- [X] T010 Add reducer-only replay, deterministic ordering, non-enumerating resolver, and cross-character projection tests for FR-012/FR-017 in `test/selected-context.test.js`
 
 **Checkpoint**: Lifecycle events rebuild a private deterministic projection, but no complete user
 journey is exposed yet.
@@ -62,8 +62,8 @@ full/progressive known-ID parity and payload budgets remain intact.
 
 - [ ] T011 [US1] Add failing table-driven explicit-selection coverage for all six resources plus same-item idempotency, applicable implicit engagement, successful-terminal release, plan-breaking terminal invalidation, and dependent-action retention cases for FR-001/FR-003/FR-005/FR-013/FR-017 in `test/selected-context.test.js`
 - [ ] T012 [P] [US1] Add failing pinned-context compact-delivery, full/progressive parity, board-departure retention, blocker preservation, and 20/32 KB budget cases for FR-003/FR-004/FR-011/FR-014 and SC-001/SC-002/SC-005/SC-006 in `test/progressive-context.test.js`
-- [ ] T013 [P] [US1] Add failing authenticated `select_context` envelope, optimistic-concurrency, non-enumerating error, and successful-retry cases in `test/protocol.test.js`
-- [ ] T014 [P] [US1] Add failing catalog-to-select parsing, validation, and prompt-disclosure cases in `test/agent-decision-planner.test.js`
+- [X] T013 [P] [US1] Add failing authenticated `select_context` envelope, optimistic-concurrency, non-enumerating error, and successful-retry cases in `test/protocol.test.js`
+- [X] T014 [P] [US1] Add failing catalog-to-select parsing, validation, and prompt-disclosure cases in `test/agent-decision-planner.test.js`
 
 ### Implementation for User Story 1
 
@@ -123,10 +123,10 @@ an engaged selection survives its original deadline.
 
 ### Tests for User Story 3
 
-- [ ] T035 [US3] Add failing three-slot, fourth-rejection, named replacement, release, semantic retry, and implicit-fourth preflight cases for FR-002/FR-005/FR-017 in `test/selected-context.test.js`
+- [X] T035 [US3] Add failing three-slot, fourth-rejection, named replacement, release, semantic retry, and implicit-fourth preflight cases for FR-002/FR-005/FR-017 in `test/selected-context.test.js`
 - [ ] T036 [P] [US3] Add failing exact six-world-hour TTL, engaged exemption, equal-time tie ordering, overdue restart, and exact-once cases for FR-006/FR-007 and SC-004/SC-007 in `test/persistence-recovery.test.js`
 - [ ] T037 [P] [US3] Add failing selection-limit, invalid replacement/release, atomic response, and idempotent retry contract cases in `test/protocol.test.js`
-- [ ] T038 [P] [US3] Add failing select/release/replacement action-shape and local-validation cases in `test/agent-decision-planner.test.js`
+- [X] T038 [P] [US3] Add failing select/release/replacement action-shape and local-validation cases in `test/agent-decision-planner.test.js`
 
 ### Implementation for User Story 3
 
@@ -135,7 +135,7 @@ an engaged selection survives its original deadline.
 - [X] T041 [US3] Add unengaged selection due items with `(worldTime, lifecyclePriority, selectionId)` ordering and exact-once TTL invalidation to `nextDueItem()` and `advanceTo()` in `src/domain/world.js`
 - [X] T042 [US3] Expose release/replacement affordances with only character-owned selection IDs and keep implicit engagement from evicting existing plans in `src/domain/world.js`
 - [X] T043 [US3] Generate and validate release plus optional `replacesSelectionId` model actions in `src/agents/decision-planner.js`
-- [ ] T044 [US3] Record explicit selection and first-engagement correlation plus retained-versus-catalog byte evidence with fixed numerators, denominators, and zero-denominator behavior in `src/domain/world.js`
+- [X] T044 [US3] Record explicit selection and first-engagement correlation plus retained-versus-catalog byte evidence with fixed numerators, denominators, and zero-denominator behavior in `src/domain/world.js`
 
 **Checkpoint**: All three user stories are independently functional and the complete lifecycle is
 replay-safe.
@@ -147,9 +147,9 @@ replay-safe.
 **Purpose**: Close compatibility, observability, documentation, and delivery gates shared by all
 stories.
 
-- [ ] T045 [P] Add selected-context metric schema/version, denominator, invalidation-cause, avoided-byte, and rejection-rate assertions for FR-015/FR-016/SC-008 in `test/owner-metrics.test.js`
+- [X] T045 [P] Add selected-context metric schema/version, denominator, invalidation-cause, avoided-byte, and rejection-rate assertions for FR-015/FR-016/SC-008 in `test/owner-metrics.test.js`
 - [ ] T046 [P] Add public action-catalog parity assertions for select/release/final-no-action in `test/observer-dashboard.test.js`
-- [ ] T047 [P] Add selected-context stable-prefix placement and cache-stability assertions in `test/prompt-prefix-stability.test.js`
+- [X] T047 [P] Add selected-context stable-prefix placement and cache-stability assertions in `test/prompt-prefix-stability.test.js`
 - [ ] T048 [P] Update context v4 behavior, manifest version, compatibility, privacy, and lifecycle evidence in `docs/architecture.md` and `docs/domain.md`
 - [ ] T049 [P] Update AIT-207/AIT-909 acceptance/status traceability and the rules index in `docs/product-backlog/epics/E02-external-brain.md`, `docs/product-backlog/epics/E09-minimal-economy.md`, `docs/product-backlog/IMPLEMENTATION-STATUS.md`, and `docs/product-backlog/rules/README.md`
 - [X] T050 [P] Update the public character-agent protocol examples and selected-context compatibility notes in `README.md`
@@ -257,4 +257,9 @@ T038: replacement/release planner tests in test/agent-decision-planner.test.js
 
 - [ ] T055 Complete the selected-context lifecycle registry and atomic invalidation producers for filled, rescheduled, eligibility, rules-version, and world-configuration changes; preserve first-cause precedence and add coverage per FR-008/FR-016 (partial).
 - [X] T056 Require and validate the open `decisionCycleId` on correlated final actions and context reads, returning a non-enumerating stale-cycle conflict while preserving idempotent retry behavior per FR-009/FR-010 (partial).
-- [ ] T057 Add aggregate selected-context operational metrics (conversion, invalidation cause counts, avoided catalog bytes, and post-disclosure rejection rates) with versioned zero-denominator behavior and tests per FR-015/SC-008 (missing).
+- [X] T057 Add aggregate selected-context operational metrics (conversion, invalidation cause counts, avoided catalog bytes, and post-disclosure rejection rates) with versioned zero-denominator behavior and tests per FR-015/SC-008.
+
+## Phase 8: Convergence
+
+- [ ] T058 Add authoritative event producers for material rescheduling and feasible-to-ineligible changes, atomically invalidating unengaged selected context with `CONTEXT_ITEM_RESCHEDULED` or `CONTEXT_ELIGIBILITY_CHANGED` while retaining first-cause precedence per FR-008/SC-003 (partial).
+- [ ] T059 Complete deterministic lifecycle evidence across all six context resources, including HTTP stale-cycle/retry, restart/overdue-TTL, and full/progressive payload-budget scenarios per FR-001/FR-009/FR-014/FR-017 and SC-001/SC-005/SC-007 (partial).

@@ -330,7 +330,8 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
     catalogBytesRequested: contextRequests.reduce((sum, event) => sum + (event.data.bytes ?? 0), 0),
     retainedSnapshotBytes: selectedContextTransitions.reduce((sum, { transition }) =>
       sum + JSON.stringify(transition.selection?.snapshot ?? {}).length, 0),
-    avoidedRepeatedCatalogBytes: 0,
+    avoidedRepeatedCatalogBytes: events.filter((event) => event.type === "AGENT_ACTION_PROCESSED")
+      .reduce((sum, event) => sum + (event.data.avoidedRepeatedCatalogBytes ?? 0), 0),
     selectionToFirstEngagementRate: metric(
       selectedContextTransitions.filter(({ transition }) => transition.selection?.status === "engaged"
         || engagedSelectionIds.has(transition.selection?.selectionId)).length,

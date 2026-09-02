@@ -106,6 +106,9 @@ test("versioned metrics use exact event denominators and project causal story ca
   assert.deepEqual(metrics.selectedContext.postDisclosureRejectionRate,
     { numerator: 0, denominator: 0, value: null });
   assert.deepEqual(metrics.selectedContext.invalidationsByCause, {});
+  assert.equal(metrics.selectedContext.catalogBytesRequested, 0);
+  assert.equal(metrics.selectedContext.avoidedRepeatedCatalogBytes, 0,
+    "a versioned metric uses zero rather than an inferred value when no catalog was retained");
   assert.deepEqual(metrics.socialLoop.interactionStartRate, { numerator: 1, denominator: 1, value: 1 });
   assert.deepEqual(metrics.socialLoop.onTimeConversationResponseRate, { numerator: 1, denominator: 1, value: 1 });
   assert.deepEqual(metrics.socialLoop.successfulConversationCompletionRate, { numerator: 1, denominator: 1, value: 1 });

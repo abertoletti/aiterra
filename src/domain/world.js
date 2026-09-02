@@ -3214,6 +3214,7 @@ export class World {
     }
     this.reconcileSelectedContextPolicyVersions();
     this.requireDecisionCycle(characterId, action.decisionCycleId);
+    const avoidedRepeatedCatalogBytes = this.retainedCatalogBytesForAction(characterId, action);
     // Unavailability was a one-way door: nothing cleared the flag except a fresh connection
     // test. In the pilot four runtimes were flagged in the first 23 minutes and then went on
     // to submit 131 accepted actions between them, while the world kept refusing their jobs
@@ -3512,7 +3513,7 @@ export class World {
         actorCharacterId: characterId,
         causedByEventIds: [result.eventId],
         data: { characterId, idempotencyKey, actionType: action.type, decisionCycleId: action.decisionCycleId ?? null,
-          result, rulesVersion: this.config.rules.version },
+          result, rulesVersion: this.config.rules.version, avoidedRepeatedCatalogBytes },
       });
     }
     return result;
@@ -4003,6 +4004,10 @@ export class World {
     if (!resolved) throw new DomainError("CONTEXT_ITEM_NOT_SELECTABLE", "Context item is not selectable", 404);
     const now = this.clock.now();
     const summary = this.getContextSummaries(characterId).find((item) => item.resource === resource);
+    // The same bounded page is what an agent would have had to request again without
+    // retaining this item. Store the disclosed-byte baseline with the event so owner
+    // metrics remain replayable and do not infer a payload from today's catalog.
+    const catalogBytesAtSelection = JSON.stringify(inspectCatalog(this, characterId, { resource, limit: 50 }).items).length;
     return {
       selectionId: this.idGenerator(), characterId, resource, itemId, status,
       snapshot: structuredClone(resolved.entry.item),
@@ -4011,6 +4016,7 @@ export class World {
       ...(status === "engaged" ? { engagedAt: now.toISOString() } : {}),
       contextContractVersion: CONTEXT_CONTRACT_VERSION,
       catalogVersion: summary?.catalogVersion ?? resolved.catalogVersion,
+      catalogBytesAtSelection,
       rulesVersion: this.config.rules.version,
       worldConfigurationVersion: this.state.activeWorldConfigurationVersion,
     };
@@ -6049,6 +6055,20 @@ export class World {
     return [...(this.state.selectedContexts.get(characterId)?.values() ?? [])]
       .find((selection) => selection.status === "stale" && selection.resource === targets[0]
         && selection.itemId === targets[1]) ?? null;
+  }
+
+  retainedCatalogBytesForAction(characterId, action) {
+    const targets = {
+      accept_job: ["opportunities", action.jobId], apply_for_role: ["opportunities", action.jobId],
+      start_job: ["opportunities", action.jobId], cancel_job: ["opportunities", action.jobId],
+      enroll_course: ["courses", action.courseId], start_course: ["courses", action.courseId],
+      abandon_course: ["courses", action.courseId], attend_event: ["experiences", action.eventId],
+      leave_experience: ["experiences", action.eventId], stay_experience: ["experiences", action.eventId],
+      start_conversation: ["people", action.targetCharacterId], reactivate_building: ["buildings", action.buildingId],
+    }[action.type];
+    if (!targets || !targets[1]) return 0;
+    const selection = this.selectedContextForItem(characterId, targets[0], targets[1]);
+    return selection?.catalogBytesAtSelection ?? 0;
   }
 
   lifecycleForMatching(resource, itemId, makeTransition) {

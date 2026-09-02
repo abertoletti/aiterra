@@ -32,6 +32,10 @@ test("selected context is sanitized, ordered, capped, replaceable, and replay-sa
   world.selectContext("worker", { resource: "opportunities", itemId: "job-3" });
   assert.throws(() => world.selectContext("worker", { resource: "opportunities", itemId: "job-4" }),
     (error) => error instanceof DomainError && error.code === "CONTEXT_SELECTION_LIMIT_REACHED");
+  assert.throws(() => world.acceptJob("worker", "job-4"),
+    (error) => error instanceof DomainError && error.code === "CONTEXT_SELECTION_LIMIT_REACHED",
+    "implicit engagement preflights the same three-slot limit before accepting the job");
+  assert.equal(world.state.jobs.get("job-4").status, "open", "the rejected implicit fourth selection has no mechanical effect");
 
   world.selectContext("worker", {
     resource: "opportunities", itemId: "job-4", replacesSelectionId: first.selection.selectionId,
@@ -83,10 +87,40 @@ test("unengaged selections expire once and a stale-target rejection closes its e
 test("engaging a selected job pins it and terminal invalidation preserves first cause", () => {
   const { world } = selectedContextWorld();
   const selected = world.selectContext("worker", { resource: "opportunities", itemId: "job-1" });
-  world.acceptJob("worker", "job-1");
+  world.executeAgentAction("worker", { type: "accept_job", jobId: "job-1" }, "accept-selected-job");
   assert.equal(world.getObservation("worker").selectedContexts.find((item) => item.selectionId === selected.selection.selectionId).pinned, true);
   world.cancelJob("worker", "job-1");
   const stale = world.getObservation("worker").selectedContexts.find((item) => item.selectionId === selected.selection.selectionId);
   assert.equal(stale.stale, true);
   assert.equal(stale.invalidation.code, "CONTEXT_ITEM_WITHDRAWN");
+  const receipt = world.history.find((event) => event.type === "AGENT_ACTION_PROCESSED"
+    && event.data.idempotencyKey === "accept-selected-job");
+  assert.ok(receipt.data.avoidedRepeatedCatalogBytes > 0,
+    "a dependent action reports the bounded catalog payload it did not request again");
+  assert.equal(world.getProductMetrics().selectedContext.avoidedRepeatedCatalogBytes,
+    receipt.data.avoidedRepeatedCatalogBytes);
+});
+
+test("selected context is character-private and hidden items are not an existence oracle", () => {
+  const { world } = selectedContextWorld();
+  world.defineLocation({ id: "remote", name: "Remote board" });
+  world.createJob({
+    creatorId: "funder", id: "remote-job", title: "Remote job", locationId: "remote",
+    durationGameMinutes: 30, compensation: 100, requirements: { business: 30 },
+  });
+
+  world.selectContext("worker", { resource: "opportunities", itemId: "job-1" });
+  assert.deepEqual(world.getObservation("funder").selectedContexts, [],
+    "a character never receives another character's retained decision context");
+
+  const failure = (itemId) => {
+    try {
+      world.selectContext("worker", { resource: "opportunities", itemId });
+      assert.fail("selection should have failed");
+    } catch (error) {
+      return { code: error.code, status: error.status, message: error.message };
+    }
+  };
+  assert.deepEqual(failure("remote-job"), failure("not-a-real-job"),
+    "a known-but-hidden item and an unknown id fail identically");
 });

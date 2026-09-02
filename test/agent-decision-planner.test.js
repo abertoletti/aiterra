@@ -136,6 +136,28 @@ function observation(overrides = {}) {
   };
 }
 
+test("selected-context actions are constrained to the server-provided resources and selection IDs", () => {
+  const current = observation({
+    selectedContexts: [{ selectionId: "selection-1", resource: "opportunities", itemId: "job-1", pinned: true }],
+    availableActions: [
+      { type: "select_context", resources: ["opportunities", "courses"], activeSelectionIds: ["selection-1"], maximumActiveSelections: 3 },
+      { type: "release_context", selectionId: "selection-1" },
+    ],
+  });
+  assert.deepEqual(validateAction({
+    type: "select_context", resource: "courses", itemId: "course-1", replacesSelectionId: "selection-1",
+  }, current), {
+    type: "select_context", resource: "courses", itemId: "course-1", replacesSelectionId: "selection-1",
+  });
+  assert.deepEqual(validateAction({ type: "release_context", selectionId: "selection-1" }, current),
+    { type: "release_context", selectionId: "selection-1" });
+  assert.throws(() => validateAction({ type: "select_context", resource: "people", itemId: "pilot-02" }, current),
+    /resource is not offered/);
+  assert.throws(() => validateAction({
+    type: "select_context", resource: "courses", itemId: "course-1", replacesSelectionId: "invented",
+  }, current), /not an active selected context/);
+});
+
 test("a brain may answer with a context request while its budget allows it", async () => {
   const calls = [];
   const modelClient = {

@@ -78,6 +78,21 @@ test("availableActions carries the bulk of the payload, so it sits inside the st
     "the shapes are derived from the actions and belong beside them");
 });
 
+test("retained context is in the stable prompt prefix and survives volatile observation changes", () => {
+  const selectedContexts = [{
+    selectionId: "selection-1", resource: "opportunities", itemId: "job-1", pinned: true,
+    details: { id: "job-1", title: "A retained job" },
+  }];
+  const first = payload(observation({ selectedContexts }));
+  const second = payload(observation({
+    selectedContexts, worldTime: "2049-08-07T06:19:00.000Z", stateVersion: 42,
+    character: { ...observation().character, energy: 51 },
+  }));
+  assert.ok(positionOf(first, "selectedContexts") < positionOf(first, "character"));
+  assert.ok(second.startsWith(first.slice(0, positionOf(first, "character"))),
+    "the retained snapshot stays cacheable when only live state changes");
+});
+
 test("changing only the moment leaves the whole stable prefix byte-identical", () => {
   // The property that actually earns the cache: two consecutive decisions for one character
   // whose world has not otherwise moved must share a long identical opening.
