@@ -15,7 +15,7 @@ A policy may be approved for part of its subject when a vertical slice needs tha
 | [Owner-feed pagination contract](owner-feed-pagination-contract.md) | 1 | AIT-801 |
 | [Job escrow policy](job-escrow-policy.md) | 1 | AIT-905, AIT-906, AIT-1602, AIT-1603, AIT-1607 |
 | [Product metrics dictionary](product-metrics-dictionary.md) | 1 | AIT-1002 |
-| [Progressive decision-context contract](progressive-context-contract.md) | 2 | AIT-207, AIT-909, AIT-1404, AIT-1502, AIT-1510 |
+| [Progressive decision-context contract](progressive-context-contract.md) | 4 | AIT-207, AIT-909, AIT-1404, AIT-1502, AIT-1510 |
 | [Subjective claims and promises policy](subjective-memory-policy.md) | 1 | AIT-705, AIT-706, AIT-707 |
 | [City, building, and experience grammar policy](building-grammar-policy.md) | 3 · atomic ground claims with legacy purchase compatibility | AIT-1401, AIT-1402, AIT-1403, AIT-1501, AIT-1505, AIT-1510 |
 | [Building economy and lifecycle policy](building-economy-lifecycle-policy.md) | 1 · wallet upkeep, recovery, failure and existing obligations | AIT-1401, AIT-1403, AIT-1405, AIT-1406 |

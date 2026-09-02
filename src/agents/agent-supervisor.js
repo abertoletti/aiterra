@@ -233,7 +233,9 @@ export class AgentSupervisor {
             contextRequestsRemaining -= 1;
             state.stats.contextRequests += 1;
             state.stats.contextRequestsByResource[resource] = (state.stats.contextRequestsByResource[resource] ?? 0) + 1;
-            const page = await agent.client.inspect(resource, { filters, signal: this.abortController.signal });
+            const page = await agent.client.inspect(resource, {
+              filters, decisionCycleId: observation.decisionCycleId ?? null, signal: this.abortController.signal,
+            });
             catalogs[resource] = page;
             this.log("info", agent.characterId, "decision_context_requested", null, {
               resource, filters, returned: page.returned, count: page.count,

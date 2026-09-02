@@ -22,6 +22,25 @@ export const byEvent = (type, eventId) => (entry) => entry.type === type && entr
 
 export const byJob = (type, jobId) => (entry) => entry.type === type && entry.jobId === jobId;
 
+// Retained context is intentionally a small, explicit test shape: callers can assert
+// the baseline contract without recreating the private catalog snapshot by hand.
+export function selectedContext({
+  selectionId = "selection-1", resource = "opportunities", itemId = "item-1",
+  pinned = false, stale = false, decisionCycleId = null,
+} = {}) {
+  return {
+    selectionId, resource, itemId, pinned, stale,
+    ...(decisionCycleId ? { decisionCycleId } : {}),
+  };
+}
+
+export function observationWithSelectedContexts(selectedContexts = [], decisionCycleId = null) {
+  return {
+    selectedContexts,
+    ...(decisionCycleId ? { decisionCycleId } : {}),
+  };
+}
+
 // The reason a whole class is impossible, if one was lifted out of it.
 export function classReasons(observation, action) {
   return (observation.cannotRightNow ?? [])

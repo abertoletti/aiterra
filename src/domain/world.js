@@ -7,6 +7,7 @@ import { AGENT_ACTIONS } from "./agent-actions.js";
 import * as ownerProjection from "./world-owner.js";
 import {
   CONTEXT_CONTRACT_VERSION, CONTEXT_MODES, CONTEXT_RESOURCES, contextSummaries, inspectCatalog,
+  resolveKnownContext, selectedContextViews,
 } from "./world-context.js";
 import {
   DomainError, addMilliseconds, clamp, itemsTouchedByEvent, coPresenceKey, conflict, conversationAppraisalKey,
@@ -3207,8 +3208,12 @@ export class World {
     if (!action || typeof action !== "object") throw invalid("INVALID_ACTION", "Action body must be an object");
     const receiptKey = idempotencyKey ? `${characterId}:${idempotencyKey}` : null;
     if (receiptKey && this.state.actionReceipts.has(receiptKey)) {
-      return structuredClone(this.state.actionReceipts.get(receiptKey).result);
+      const receipt = this.state.actionReceipts.get(receiptKey);
+      if (receipt.error) throw new DomainError(receipt.error.code, receipt.error.message, receipt.error.status ?? 409, receipt.error.details ?? null);
+      return structuredClone(receipt.result);
     }
+    this.reconcileSelectedContextPolicyVersions();
+    this.requireDecisionCycle(characterId, action.decisionCycleId);
     // Unavailability was a one-way door: nothing cleared the flag except a fresh connection
     // test. In the pilot four runtimes were flagged in the first 23 minutes and then went on
     // to submit 131 accepted actions between them, while the world kept refusing their jobs
@@ -3226,8 +3231,53 @@ export class World {
       }
     }
 
+    const staleTarget = this.staleSelectedTarget(characterId, action);
+    if (staleTarget) {
+      const error = {
+        code: "CONTEXT_SELECTION_STALE",
+        message: "The selected context changed; observe and choose a current action.",
+        status: 409,
+        details: {
+          selectionId: staleTarget.selectionId,
+          invalidationCode: staleTarget.invalidation?.code ?? null,
+          decisionCycleId: staleTarget.decisionCycleId,
+        },
+      };
+      const rejected = this.record("CONTEXT_STALE_ACTION_REJECTED", {
+        actorCharacterId: characterId,
+        data: {
+          characterId, actionType: action.type, selectionId: staleTarget.selectionId,
+          decisionCycleId: staleTarget.decisionCycleId, error,
+          contextLifecycle: [...(this.state.selectedContexts.get(characterId)?.values() ?? [])]
+            .filter((selection) => selection.status === "stale" && selection.decisionCycleId === staleTarget.decisionCycleId)
+            .map((selection) => ({ kind: "cycle_closed", characterId, selectionId: selection.selectionId })),
+        },
+      });
+      if (receiptKey) this.record("AGENT_ACTION_PROCESSED", {
+        actorCharacterId: characterId, causedByEventIds: [rejected.id],
+        data: { characterId, idempotencyKey, actionType: action.type, decisionCycleId: action.decisionCycleId ?? null,
+          error, rulesVersion: this.config.rules.version },
+      });
+      throw new DomainError(error.code, error.message, error.status, error.details);
+    }
+
     let result;
     switch (action.type) {
+      case "select_context": {
+        const selected = this.selectContext(characterId, action);
+        result = this.actionResult(characterId, selected.event, {
+          selectionId: selected.selection.selectionId, resource: selected.selection.resource,
+          itemId: selected.selection.itemId, reused: selected.reused,
+        });
+        break;
+      }
+      case "release_context": {
+        const released = this.releaseContext(characterId, action.selectionId);
+        result = this.actionResult(characterId, released.event, {
+          selectionId: action.selectionId, released: true, reused: released.reused,
+        });
+        break;
+      }
       case "move": {
         const event = this.startMove(characterId, action.destinationId, { vehicleId: action.vehicleId ?? null });
         result = this.actionResult(characterId, event, {
@@ -3449,11 +3499,20 @@ export class World {
         throw invalid("UNKNOWN_ACTION", `Unsupported action type: ${action.type}`);
     }
 
+    if (action.decisionCycleId) {
+      const closed = this.closeStaleCycle(characterId, action.decisionCycleId, result.eventId);
+      if (closed) {
+        result.stateVersion = this.characterStateVersion(characterId);
+        result.closedDecisionCycleId = action.decisionCycleId;
+      }
+    }
+
     if (receiptKey) {
       this.record("AGENT_ACTION_PROCESSED", {
         actorCharacterId: characterId,
         causedByEventIds: [result.eventId],
-        data: { characterId, idempotencyKey, result, rulesVersion: this.config.rules.version },
+        data: { characterId, idempotencyKey, actionType: action.type, decisionCycleId: action.decisionCycleId ?? null,
+          result, rulesVersion: this.config.rules.version },
       });
     }
     return result;
@@ -3476,6 +3535,21 @@ export class World {
       }
       if (due.kind === "notification") {
         this.expireNotification(due.notificationEventId, due.worldTime);
+        continue;
+      }
+      if (due.kind === "selected_context_ttl") {
+        const selection = this.findSelectedContext(due.characterId, due.selectionId);
+        if (selection?.status === "selected" && selection.expiresAt === due.worldTime) {
+          this.record("CONTEXT_INVALIDATED", {
+            actorCharacterId: due.characterId,
+            worldTime: due.worldTime,
+            data: {
+              characterId: due.characterId, selectionId: due.selectionId,
+              contextLifecycle: [{ kind: "invalidated", characterId: due.characterId,
+                selectionId: due.selectionId, code: "CONTEXT_TTL_EXPIRED" }],
+            },
+          });
+        }
         continue;
       }
       if (due.kind === "goal") {
@@ -3883,6 +3957,8 @@ export class World {
   // An explicit decision-scoped catalog request. Read-only: it records telemetry and
   // never reserves availability, so submission stays authoritative.
   inspectContext(characterId, options = {}) {
+    this.reconcileSelectedContextPolicyVersions();
+    this.requireDecisionCycle(characterId, options.decisionCycleId);
     const page = inspectCatalog(this, characterId, options);
     this.record("DECISION_CONTEXT_REQUESTED", {
       actorCharacterId: characterId,
@@ -3897,9 +3973,151 @@ export class World {
         bytes: JSON.stringify(page.items).length,
         catalogVersion: page.catalogVersion,
         contextContractVersion: CONTEXT_CONTRACT_VERSION,
+        ...(options.decisionCycleId ? { decisionCycleId: options.decisionCycleId } : {}),
       },
     });
-    return page;
+    return { ...page, ...(options.decisionCycleId ? { decisionCycleId: options.decisionCycleId } : {}) };
+  }
+
+  selectedContextsFor(characterId) {
+    this.requireCharacter(characterId);
+    return selectedContextViews(this, characterId);
+  }
+
+  activeSelectedContexts(characterId) {
+    return [...(this.state.selectedContexts.get(characterId)?.values() ?? [])]
+      .filter((selection) => ["selected", "engaged"].includes(selection.status));
+  }
+
+  findSelectedContext(characterId, selectionId) {
+    return this.state.selectedContexts.get(characterId)?.get(selectionId) ?? null;
+  }
+
+  selectedContextForItem(characterId, resource, itemId) {
+    return this.activeSelectedContexts(characterId)
+      .find((selection) => selection.resource === resource && selection.itemId === itemId) ?? null;
+  }
+
+  selectionRecord(characterId, resource, itemId, { status = "selected" } = {}) {
+    const resolved = resolveKnownContext(this, characterId, resource, itemId);
+    if (!resolved) throw new DomainError("CONTEXT_ITEM_NOT_SELECTABLE", "Context item is not selectable", 404);
+    const now = this.clock.now();
+    const summary = this.getContextSummaries(characterId).find((item) => item.resource === resource);
+    return {
+      selectionId: this.idGenerator(), characterId, resource, itemId, status,
+      snapshot: structuredClone(resolved.entry.item),
+      selectedAt: now.toISOString(),
+      expiresAt: status === "selected" ? addGameMinutes(now, 360).toISOString() : null,
+      ...(status === "engaged" ? { engagedAt: now.toISOString() } : {}),
+      contextContractVersion: CONTEXT_CONTRACT_VERSION,
+      catalogVersion: summary?.catalogVersion ?? resolved.catalogVersion,
+      rulesVersion: this.config.rules.version,
+      worldConfigurationVersion: this.state.activeWorldConfigurationVersion,
+    };
+  }
+
+  selectionTransition(characterId, resource, itemId, status = "selected") {
+    const existing = this.selectedContextForItem(characterId, resource, itemId);
+    if (existing) {
+      return existing.status === "engaged" || status !== "engaged"
+        ? [] : [{ kind: "engaged", characterId, selectionId: existing.selectionId }];
+    }
+    if (this.activeSelectedContexts(characterId).length >= 3) {
+      throw conflict("CONTEXT_SELECTION_LIMIT_REACHED", "A character may retain at most three selected contexts");
+    }
+    return [{ kind: "selected", characterId, selection: this.selectionRecord(characterId, resource, itemId, { status }) }];
+  }
+
+  selectContext(characterId, { resource, itemId, replacesSelectionId = null } = {}) {
+    this.requireCharacter(characterId);
+    if (!CONTEXT_RESOURCES.includes(resource) || typeof itemId !== "string" || !itemId) {
+      throw invalid("CONTEXT_ITEM_NOT_SELECTABLE", "Context item is not selectable");
+    }
+    const existing = this.selectedContextForItem(characterId, resource, itemId);
+    if (existing) return { event: this.eventById(existing.selectionEventId), selection: existing, reused: true };
+    const replacement = replacesSelectionId ? this.findSelectedContext(characterId, replacesSelectionId) : null;
+    if (replacesSelectionId && (!replacement || !["selected", "engaged"].includes(replacement.status))) {
+      throw new DomainError("CONTEXT_SELECTION_NOT_FOUND", "Selected context was not found", 404);
+    }
+    if (!replacement && this.activeSelectedContexts(characterId).length >= 3) {
+      throw conflict("CONTEXT_SELECTION_LIMIT_REACHED", "A character may retain at most three selected contexts");
+    }
+    const selection = this.selectionRecord(characterId, resource, itemId);
+    const contextLifecycle = [
+      ...(replacement ? [{ kind: "invalidated", characterId, selectionId: replacement.selectionId,
+        code: "CONTEXT_SELECTION_SUPERSEDED" }] : []),
+      { kind: "selected", characterId, selection },
+    ];
+    const event = this.record(replacement ? "CONTEXT_SELECTION_REPLACED" : "CONTEXT_SELECTED", {
+      actorCharacterId: characterId,
+      data: { characterId, resource, itemId, ...(replacesSelectionId ? { replacesSelectionId } : {}), contextLifecycle },
+    });
+    return { event, selection: this.findSelectedContext(characterId, selection.selectionId), reused: false };
+  }
+
+  releaseContext(characterId, selectionId) {
+    this.requireCharacter(characterId);
+    const selection = this.findSelectedContext(characterId, selectionId);
+    if (!selection) throw new DomainError("CONTEXT_SELECTION_NOT_FOUND", "Selected context was not found", 404);
+    if (selection.status === "released") return { event: this.eventById(selection.releaseEventId), selection, reused: true };
+    const event = this.record("CONTEXT_RELEASED", {
+      actorCharacterId: characterId,
+      data: { characterId, selectionId, contextLifecycle: [{ kind: "released", characterId, selectionId }] },
+    });
+    return { event, selection: this.findSelectedContext(characterId, selectionId), reused: false };
+  }
+
+  closeStaleCycle(characterId, decisionCycleId, causedByEventId = null) {
+    if (!decisionCycleId) return null;
+    const stale = [...(this.state.selectedContexts.get(characterId)?.values() ?? [])]
+      .filter((selection) => selection.status === "stale" && selection.decisionCycleId === decisionCycleId);
+    if (stale.length === 0) return null;
+    return this.record("CONTEXT_STALE_CYCLE_CLOSED", {
+      actorCharacterId: characterId,
+      causedByEventIds: [causedByEventId],
+      data: { characterId, decisionCycleId, contextLifecycle: stale.map((selection) =>
+        ({ kind: "cycle_closed", characterId, selectionId: selection.selectionId })) },
+    });
+  }
+
+  openDecisionCycles(characterId) {
+    return [...(this.state.selectedContexts.get(characterId)?.values() ?? [])]
+      .filter((selection) => selection.status === "stale")
+      .map((selection) => selection.decisionCycleId)
+      .filter(Boolean);
+  }
+
+  requireDecisionCycle(characterId, decisionCycleId = null) {
+    const cycles = [...new Set(this.openDecisionCycles(characterId))];
+    if (cycles.length === 0) {
+      if (decisionCycleId) throw conflict("CONTEXT_DECISION_CYCLE_STALE", "The selected-context decision cycle is no longer open");
+      return;
+    }
+    if (!decisionCycleId) {
+      throw conflict("CONTEXT_DECISION_CYCLE_REQUIRED", "Resolve the current selected-context decision cycle before continuing");
+    }
+    if (!cycles.includes(decisionCycleId)) {
+      throw conflict("CONTEXT_DECISION_CYCLE_STALE", "The selected-context decision cycle is no longer open");
+    }
+  }
+
+  reconcileSelectedContextPolicyVersions() {
+    const transitions = [];
+    for (const [characterId, selections] of this.state.selectedContexts.entries()) {
+      for (const selection of selections.values()) {
+        if (selection.status !== "selected") continue;
+        const code = selection.rulesVersion && selection.rulesVersion !== this.config.rules.version
+          ? "CONTEXT_RULES_VERSION_CHANGED"
+          : selection.worldConfigurationVersion && selection.worldConfigurationVersion !== this.state.activeWorldConfigurationVersion
+            ? "CONTEXT_WORLD_CONFIGURATION_CHANGED" : null;
+        if (code) transitions.push({ kind: "invalidated", characterId, selectionId: selection.selectionId, code });
+      }
+    }
+    if (transitions.length > 0) {
+      this.record("CONTEXT_POLICY_VERSION_TRANSITIONED", {
+        data: { contextLifecycle: transitions, contextContractVersion: CONTEXT_CONTRACT_VERSION },
+      });
+    }
   }
 
   getObservation(characterId, { contextMode = "full", contextVersion = 0 } = {}) {
@@ -3907,6 +4125,7 @@ export class World {
       throw invalid("INVALID_CONTEXT_MODE", `Context mode must be one of ${CONTEXT_MODES.join(", ")}`);
     }
     const character = this.requireCharacter(characterId);
+    this.reconcileSelectedContextPolicyVersions();
     // A resident who has not arrived sees a different world: not a place with neighbours and
     // a board, but four squares and a choice between them. Short-circuiting here is also what
     // keeps a null location from reaching the ninety-odd rules that assume one.
@@ -4001,6 +4220,7 @@ export class World {
       character, nearby, activeConversations, recentConversations, availableJobs, upcomingEvents,
       invitations, commitments,
     );
+    const selectedContexts = this.selectedContextsFor(characterId);
     return {
       worldTime: this.clock.now().toISOString(),
       rulesVersion: this.config.rules.version,
@@ -4012,6 +4232,10 @@ export class World {
       contextContractVersion: CONTEXT_CONTRACT_VERSION,
       contextVersion: stateVersion,
       summaries: this.getContextSummaries(characterId, contextVersion),
+      selectedContexts,
+      ...(selectedContexts.some((selection) => selection.stale)
+        ? { decisionCycleId: selectedContexts.find((selection) => selection.stale).decisionCycleId }
+        : {}),
       // Identifiers, not records: what this character may legitimately name as the
       // target of a goal or an invitation. Compact enough for the baseline, and it
       // keeps a runtime from having to fetch a catalog just to know what exists.
@@ -4084,6 +4308,7 @@ export class World {
       contextMode: "arrival",
       contextContractVersion: CONTEXT_CONTRACT_VERSION,
       stateVersion: this.characterStateVersion(character.id),
+      selectedContexts: [],
       arriving: true,
       character: publicCharacter(character, this.config),
       squares,
@@ -4232,6 +4457,11 @@ export class World {
         summaryReading: "A summary count includes items you cannot currently act on; feasibleCount says how many are possible. A low feasibleCount is not an empty world: request the catalog and read the blockers, because the blocker is often the real decision.",
         caching: "This manifest is stable for its version. Cache it by rulesVersion and stop re-requesting it. Feasibility, energy, credits, capacity, and availability are never stable and always come from the current observation.",
         authority: "A requested catalog reserves nothing. Submission is revalidated, so a disclosed item can still be rejected.",
+        selection: {
+          maximum: 3,
+          unengagedTtlWorldHours: 6,
+          instruction: "You may select a known catalog item, release a selected plan, or explicitly replace one by selectionId. Selected details remain compactly available; stale details last through the named decision cycle only.",
+        },
       },
     };
   }
@@ -4706,6 +4936,25 @@ export class World {
   // every turn was work we were charging it for and then paying for again in mistakes.
   availableActions(character, nearby, conversations, recentConversations, jobs, upcomingEvents, invitations = [], commitments = []) {
     const actions = [];
+    const activeSelections = this.activeSelectedContexts(character.id);
+    // Selection is an explicit planning action. The catalog is intentionally not
+    // duplicated here: the agent names an item it has already inspected and the
+    // authoritative resolver verifies it still belongs to its private catalog.
+    actions.push({
+      type: "select_context", resources: CONTEXT_RESOURCES,
+      activeSelectionIds: activeSelections.map((selection) => selection.selectionId),
+      maximumActiveSelections: 3,
+    });
+    for (const selection of activeSelections) {
+      actions.push({ type: "release_context", selectionId: selection.selectionId });
+    }
+    const staleSelections = this.selectedContextsFor(character.id).filter((selection) => selection.stale);
+    if (staleSelections.length > 0) {
+      actions.push({
+        type: "record_decision", decisionCycleId: staleSelections[0].decisionCycleId,
+        invalidatedSelectionIds: staleSelections.map((selection) => selection.selectionId),
+      });
+    }
     if (!character.activity) {
       const locations = this.reachableLocations(character.locationId);
       for (const location of locations) {
@@ -5597,6 +5846,12 @@ export class World {
     const goals = [...this.state.characters.values()].flatMap((character) => character.secondaryGoals
       .filter((goal) => goal.status === "active" && goal.expiresAt && new Date(goal.expiresAt) <= target)
       .map((goal) => ({ kind: "goal", characterId: character.id, goalId: goal.id, worldTime: goal.expiresAt })));
+    const selectedContexts = [...this.state.selectedContexts.entries()].flatMap(([characterId, selections]) =>
+      [...selections.values()]
+        .filter((selection) => selection.status === "selected" && selection.expiresAt
+          && new Date(selection.expiresAt) <= target)
+        .map((selection) => ({ kind: "selected_context_ttl", characterId, selectionId: selection.selectionId,
+          worldTime: selection.expiresAt })));
     const jobs = [...this.state.jobs.values()].flatMap((job) => {
       if (this.state.platformIncident) return [];
       if (job.fundingSourceType === "system_budget") {
@@ -5657,8 +5912,13 @@ export class World {
     });
     // At an identical instant, already promised work/attendance/commitments settles
     // before upkeep. Across instants, a later wage cannot fund an earlier missed bill.
-    return [...activities, ...notifications, ...goals, ...jobs, ...enrollments, ...commitments, ...buildings]
-      .sort((a, b) => a.worldTime.localeCompare(b.worldTime))[0] ?? null;
+    const priority = { activity: 0, notification: 1, goal: 2, selected_context_ttl: 3,
+      job_offer_expiry: 4, job_no_show: 4, course_no_show: 4, commitment_reminder: 5,
+      commitment_start: 5, commitment_deadline: 5, building_upkeep: 6, building_abandonment: 6 };
+    return [...activities, ...notifications, ...goals, ...selectedContexts, ...jobs, ...enrollments, ...commitments, ...buildings]
+      .sort((a, b) => a.worldTime.localeCompare(b.worldTime)
+        || (priority[a.kind] ?? 99) - (priority[b.kind] ?? 99)
+        || String(a.selectionId ?? a.jobId ?? a.characterId ?? "").localeCompare(String(b.selectionId ?? b.jobId ?? b.characterId ?? "")))[0] ?? null;
   }
 
   changeEnergy(characterId, delta, reason, { causedByEventIds = [], worldTime = null, allowFloor = false } = {}) {
@@ -5776,10 +6036,90 @@ export class World {
     return value;
   }
 
+  staleSelectedTarget(characterId, action) {
+    const targets = {
+      accept_job: ["opportunities", action.jobId], apply_for_role: ["opportunities", action.jobId],
+      start_job: ["opportunities", action.jobId], cancel_job: ["opportunities", action.jobId],
+      enroll_course: ["courses", action.courseId], start_course: ["courses", action.courseId],
+      abandon_course: ["courses", action.courseId], attend_event: ["experiences", action.eventId],
+      leave_experience: ["experiences", action.eventId], stay_experience: ["experiences", action.eventId],
+      start_conversation: ["people", action.targetCharacterId], reactivate_building: ["buildings", action.buildingId],
+    }[action.type];
+    if (!targets || !targets[1]) return null;
+    return [...(this.state.selectedContexts.get(characterId)?.values() ?? [])]
+      .find((selection) => selection.status === "stale" && selection.resource === targets[0]
+        && selection.itemId === targets[1]) ?? null;
+  }
+
+  lifecycleForMatching(resource, itemId, makeTransition) {
+    const transitions = [];
+    for (const [characterId, selections] of this.state.selectedContexts.entries()) {
+      for (const selection of selections.values()) {
+        if (["selected", "engaged"].includes(selection.status)
+          && selection.resource === resource && selection.itemId === itemId) {
+          transitions.push(makeTransition(characterId, selection));
+        }
+      }
+    }
+    return transitions;
+  }
+
+  contextLifecycleForEvent(type, actorCharacterId, data) {
+    if (data.contextLifecycle) return data.contextLifecycle;
+    const engage = (characterId, resource, itemId) => {
+      if (!characterId || !itemId) return [];
+      try { return this.selectionTransition(characterId, resource, itemId, "engaged"); }
+      catch (error) {
+        // A command that would create a fourth implicit plan must fail before its
+        // mechanical event becomes visible. Unknown targets are left to the command's
+        // normal authoritative validation.
+        if (error?.code === "CONTEXT_SELECTION_LIMIT_REACHED") throw error;
+        return [];
+      }
+    };
+    const release = (resource, itemId) => this.lifecycleForMatching(resource, itemId,
+      (characterId, selection) => ({ kind: "released", characterId, selectionId: selection.selectionId }));
+    const invalidate = (resource, itemId, code) => this.lifecycleForMatching(resource, itemId,
+      (characterId, selection) => ({ kind: "invalidated", characterId, selectionId: selection.selectionId, code }));
+    const engageAndFill = (resource, itemId) => [
+      ...engage(actorCharacterId, resource, itemId),
+      ...this.lifecycleForMatching(resource, itemId, (characterId, selection) => characterId !== actorCharacterId
+        ? { kind: "invalidated", characterId, selectionId: selection.selectionId, code: "CONTEXT_ITEM_FILLED" } : null).filter(Boolean),
+    ];
+    if (type === "JOB_ACCEPTED") return engageAndFill("opportunities", data.jobId);
+    if (type === "JOB_TEAM_MEMBER_JOINED") return engage(actorCharacterId, "opportunities", data.jobId);
+    if (type === "BUILDING_ROLE_APPLIED") return engage(actorCharacterId, "opportunities", data.jobId);
+    if (type === "COURSE_ENROLLED") return engage(actorCharacterId, "courses", data.courseId);
+    if (type === "EVENT_ATTENDANCE_STARTED") return engage(actorCharacterId, "experiences", data.eventId);
+    if (type === "CONVERSATION_STARTED") return engage(actorCharacterId, "people", data.targetId);
+    if (type === "JOB_COMPLETED") return release("opportunities", data.jobId);
+    if (["JOB_EXPIRED", "JOB_CANCELLED", "JOB_FAILED"].includes(type)) return invalidate("opportunities", data.jobId,
+      type === "JOB_EXPIRED" ? "CONTEXT_ITEM_EXPIRED" : "CONTEXT_ITEM_WITHDRAWN");
+    if (type === "COURSE_COMPLETED") return release("courses", data.courseId);
+    if (type === "COURSE_ABANDONED") {
+      return data.cause === "start_window_missed"
+        ? invalidate("courses", data.courseId, "CONTEXT_ITEM_EXPIRED")
+        : release("courses", data.courseId);
+    }
+    if (type === "EVENT_ATTENDANCE_ENDED") return release("experiences", data.eventId);
+    if (type === "CONVERSATION_ENDED") {
+      const ids = data.participantIds ?? [];
+      return ids.flatMap((characterId) => ids.filter((id) => id !== characterId).flatMap((otherId) =>
+        this.lifecycleForMatching("people", otherId, (ownerId, selection) => ownerId === characterId
+          ? { kind: "released", characterId: ownerId, selectionId: selection.selectionId } : null)
+          .filter(Boolean)));
+    }
+    return [];
+  }
+
   record(type, { actorCharacterId = null, subjectCharacterId = null, data = {}, causedByEventIds = [], worldTime = null } = {}) {
     const versionedData = structuredClone(data);
     if (this.state.activeWorldConfigurationVersion && versionedData.worldConfigurationVersion === undefined) {
       versionedData.worldConfigurationVersion = this.state.activeWorldConfigurationVersion;
+    }
+    if (versionedData.contextLifecycle === undefined) {
+      const transitions = this.contextLifecycleForEvent(type, actorCharacterId, versionedData);
+      if (transitions.length > 0) versionedData.contextLifecycle = transitions;
     }
     const event = {
       id: this.idGenerator(),

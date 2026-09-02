@@ -1,10 +1,12 @@
 # Progressive decision-context contract
 
-**Version:** 2 · **Updated:** 2026-08-19 · **Applies to:** AIT-207, AIT-909, AIT-1404, AIT-1502, AIT-1510
+**Version:** 4 · **Updated:** 2026-09-02 · **Applies to:** AIT-207, AIT-909, AIT-1404, AIT-1502, AIT-1510
 
 Version 1 replaced the draft of 2026-08-18. It resolved the six decisions that blocked approval: baseline and delta schemas, catalog resources and pagination, selected-context lifecycle, caching and version compatibility, size budgets and overflow behavior, and telemetry.
 
 Version 2 makes one word do real work. Version 1 promised that a catalog returns every **known** item without ever defining what makes an experience known, which left city-wide discovery resting on an undefined term. It defines public discoverability, adds the affinity value and its filter so a resident can find congenial gatherings among hundreds, and requires any filter that removes items to say how many it removed. Version 2 is additive: no version 1 field changes meaning, and a client that sends no new filter sees the version 1 response.
+
+Version 3 was the deployed progressive-context contract. Version 4 is additive: it replaces the optional singular `selectedContext` projection with the always-present `selectedContexts` array, carries a durable `decisionCycleId` while stale context is awaiting one response, and adds explicit `select_context` and `release_context` actions. Historical events remain labelled with the context-contract version that created them; version 3 payloads are not rewritten.
 
 ## Invariants
 
@@ -33,7 +35,7 @@ The baseline is what every observation carries without an explicit request. It i
 | `nearby` | co-present residents: id, name, relationship band, conversation availability | yes |
 | `pendingNotifications` | full envelopes | yes |
 | `activeConversations` | full turn state | yes |
-| `selectedContext` | pinned item details, see lifecycle below | when a selection exists |
+| `selectedContexts` | ordered, sanitized retained items with current safe feasibility and stale/invalidation state | yes (empty when none) |
 | `summaries` | one summary object per catalog resource | yes |
 | `availableActions` | affordances with feasibility, target identifiers only | yes |
 | `decision`, `decisionRequiredAt` | current decision requirement | yes |
@@ -139,6 +141,7 @@ UNSELECTED → SELECTED → PINNED → RELEASED
 - At most **3** pinned selections per character, matching the active secondary-goal limit. A fourth returns `CONTEXT_SELECTION_LIMIT_REACHED`.
 - A selection not engaged by an authoritative action expires **6 world hours** after creation with `CONTEXT_TTL_EXPIRED`.
 - `RELEASED` requires an explicit `release_context`, or the item reaching a terminal state.
+- A stale selection carries one `decisionCycleId`. Catalog reads may echo the ID but do not consume it. One final accepted action, explicit `record_decision`, or an action rejected for targeting the stale item closes the cycle and removes all stale selections in that cycle.
 
 Invalidation codes, all delivered as compact signals rather than a resent catalog:
 

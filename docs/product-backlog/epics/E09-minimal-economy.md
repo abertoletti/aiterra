@@ -188,7 +188,7 @@ The catalog, selection, delta, and invalidation shape follow the [progressive de
 - An explicit `inspect_opportunities` request returns authorized known jobs, team jobs, and other work opportunities with filtering and stable pagination when required.
 - The requested result keeps busy, ineligible, distant, unaffordable, or otherwise blocked known opportunities visible and lists every known blocker, requirement, schedule, duration, Energy cost, compensation, and relevant building or employer context.
 - Filtering narrows the requested view only by agent-selected criteria; it never silently converts `blocked` into `unknown` or `absent`.
-- Selecting an opportunity retains its relevant details through travel, application, team formation, and start; the complete catalog is not resent until explicitly requested or materially invalidated.
+- Selecting an opportunity retains its relevant details through travel, application, team formation, and start; contract v4 supplies explicit selection/release, three slots, six-world-hour unengaged expiry, and a correlated stale cycle without resending the complete catalog.
 - Material publication, withdrawal, fill, expiry, or eligibility changes produce a compact delta or invalidation signal.
 - Acceptance and start always revalidate the current authoritative state, and stale selection returns an actionable error without partial effects.
 

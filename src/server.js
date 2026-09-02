@@ -190,7 +190,7 @@ export function createHttpServer({
         authorizeAndLimit(request, characterId, "observe", agentTokens, rateLimits, world);
         const filters = {};
         for (const [key, value] of url.searchParams) {
-          if (key === "limit" || key === "offset") continue;
+          if (key === "limit" || key === "offset" || key === "decisionCycleId") continue;
           filters[key] = value;
         }
         return json(response, 200, world.inspectContext(characterId, {
@@ -198,6 +198,7 @@ export function createHttpServer({
           filters,
           limit: Number(url.searchParams.get("limit") ?? 20),
           offset: Number(url.searchParams.get("offset") ?? 0),
+          decisionCycleId: url.searchParams.get("decisionCycleId") ?? undefined,
         }));
       }
 

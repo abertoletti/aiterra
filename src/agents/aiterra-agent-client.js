@@ -24,9 +24,10 @@ export class AiterraAgentClient {
   }
 
   // A decision-scoped catalog, requested only when the brain says the detail matters.
-  inspect(resource, { filters = {}, limit = 20, offset = 0, signal = null } = {}) {
+  inspect(resource, { filters = {}, limit = 20, offset = 0, decisionCycleId = null, signal = null } = {}) {
     const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     for (const [key, value] of Object.entries(filters)) query.set(key, String(value));
+    if (decisionCycleId) query.set("decisionCycleId", String(decisionCycleId));
     return this.request(
       `/api/characters/${encodeURIComponent(this.characterId)}/context/${encodeURIComponent(resource)}?${query}`,
       { signal },

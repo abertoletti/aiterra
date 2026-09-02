@@ -129,6 +129,8 @@ export function buildDecisionMessages(observation, history = [], recentActionFai
     relationships: observation.relationships,
     knowledge: observation.knowledge,
     known: observation.known,
+    selectedContexts: observation.selectedContexts ?? [],
+    decisionCycleId: observation.decisionCycleId,
     recentHappiness: observation.recentHappiness,
     commitments: observation.commitments ?? [],
     invitations: observation.invitations ?? [],
@@ -510,6 +512,16 @@ function actionShapes(availableActions) {
         eventId: "<an offered eventId>",
         expectedHappiness: "<optional integer raw Happiness prediction inside expectedHappinessRange>",
       }; break;
+      case "select_context": shapes.select_context = {
+        type, resource: "<one of resources>", itemId: "<an id returned by that resource catalog>",
+        replacesSelectionId: "<optional activeSelectionId when replacing one of three selections>",
+      }; break;
+      case "release_context": shapes.release_context = { type, selectionId: "<an active selected context id>" }; break;
+      case "record_decision": shapes.record_decision = {
+        type, decisionCycleId: "<the offered stale decisionCycleId>",
+        summary: "<required concise decision and why>",
+        influencedByEventIds: "<1-5 visible causal event IDs>",
+      }; break;
       case "leave_experience":
       case "stay_experience": shapes[type] = { type, eventId: "<the eventId you are attending>" }; break;
       case "send_invitation": shapes.send_invitation = {
@@ -578,6 +590,40 @@ export function validateAction(candidate, observation, history = []) {
         throw new DecisionValidationError("vehicleId is not one of that destination's travelOptions");
       }
       return { ...action, vehicleId };
+    }
+    case "select_context": {
+      const envelope = templates[0] ?? {};
+      const resource = text(candidate.resource, "context resource", 40);
+      if (!(envelope.resources ?? []).includes(resource)) {
+        throw new DecisionValidationError("The context resource is not offered");
+      }
+      const itemId = text(candidate.itemId, "context itemId", 100);
+      const replacesSelectionId = candidate.replacesSelectionId;
+      if (replacesSelectionId === undefined || replacesSelectionId === null || replacesSelectionId === "") {
+        return { type, resource, itemId };
+      }
+      const replacement = text(replacesSelectionId, "replacesSelectionId", 100);
+      if (!(envelope.activeSelectionIds ?? []).includes(replacement)) {
+        throw new DecisionValidationError("replacesSelectionId is not an active selected context");
+      }
+      return { type, resource, itemId, replacesSelectionId: replacement };
+    }
+    case "release_context":
+      return matchedIdentifierAction(type, "selectionId", candidate, templates);
+    case "record_decision": {
+      const template = templates[0] ?? {};
+      if (candidate.decisionCycleId !== template.decisionCycleId) {
+        throw new DecisionValidationError("decisionCycleId does not match the offered stale decision cycle");
+      }
+      const influencedByEventIds = candidate.influencedByEventIds;
+      if (!Array.isArray(influencedByEventIds) || influencedByEventIds.length < 1 || influencedByEventIds.length > 5) {
+        throw new DecisionValidationError("influencedByEventIds must contain 1-5 event IDs");
+      }
+      return {
+        type, decisionCycleId: template.decisionCycleId,
+        summary: text(candidate.summary, "decision summary", 500),
+        influencedByEventIds: influencedByEventIds.map((id) => text(id, "influencedByEventId", 100)),
+      };
     }
     case "start_conversation": {
       const action = matchedIdentifierAction(type, "targetCharacterId", candidate, templates);

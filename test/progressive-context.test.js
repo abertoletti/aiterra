@@ -238,7 +238,7 @@ test("a summary reports blocked items rather than hiding them behind a low count
   assert.ok(summary.feasibleCount < summary.count,
     "the pilot world must contain opportunities this character cannot act on");
   assert.equal(summary.requestAction, "inspect_opportunities");
-  assert.equal(summary.contextContractVersion, 3);
+  assert.equal(summary.contextContractVersion, 4);
 });
 
 test("a catalog keeps blocked items with their blockers, and feasibleOnly reports what it removed", () => {
@@ -329,7 +329,7 @@ test("requesting a catalog is read-only and recorded", () => {
   assert.equal(recorded.length, 2, "each request is recorded for telemetry");
   assert.equal(recorded[0].data.resource, "opportunities");
   assert.ok(recorded[0].data.bytes > 0);
-  assert.equal(recorded[0].data.contextContractVersion, 3);
+  assert.equal(recorded[0].data.contextContractVersion, 4);
 });
 
 test("catalog telemetry never advances the character projection version", () => {
@@ -420,8 +420,8 @@ test("the rules manifest states the context discipline under a new version", () 
   const manifest = world.getAgentRules(characterId);
 
   assert.notEqual(manifest.version, "agent-rules-v1", "a manifest body change ships under a new version");
-  assert.equal(manifest.version, "agent-rules-v11");
-  assert.equal(manifest.context.contractVersion, 3);
+  assert.equal(manifest.version, "agent-rules-v12");
+  assert.equal(manifest.context.contractVersion, 4);
   assert.deepEqual(manifest.context.requestable,
     ["opportunities", "experiences", "plots", "buildings", "people", "courses"]);
   for (const field of ["instruction", "summaryReading", "caching", "authority"]) {

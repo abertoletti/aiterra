@@ -148,6 +148,7 @@ The public shape and invalidation behavior are governed by the [progressive deci
 - The rules manifest itself states the context discipline: that the baseline carries only what the current decision requires, which resources can be requested, how to read a summary that includes blocked items, and that a selection survives dependent decisions. A runtime learns the discipline from the manifest rather than from a private prompt, and the section ships under a new manifest version.
 - Delta and invalidation metadata tell the runtime when a summary or selected context must be refreshed; action submission remains authoritatively revalidated.
 - Context selection never exposes private or unlearned information and never removes a constraint required to understand an action or rejection.
+- Contract v4 delivers ordered `selectedContexts`, explicit select/release controls, three active slots, six-world-hour unengaged expiry, replay-safe first-cause invalidation, and a one-response stale decision cycle.
 
 **Events and metrics:** `decision_context_requested`, `decision_context_invalidated`, context bytes and tokens by decision type, repeated catalog bytes avoided, rejection after disclosed context.
 

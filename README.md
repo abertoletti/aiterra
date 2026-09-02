@@ -80,6 +80,8 @@ curl -N -H "Authorization: Bearer demo-jack-token" \
 
 Both `Idempotency-Key` and the latest character-scoped `expectedStateVersion` from the observation are mandatory. A retry with the same key returns the original result; a new command against a stale projection returns `STALE_STATE_VERSION`.
 
+For decision detail, request `/api/characters/:id/context/:resource` and then submit `select_context` with the returned `resource` and `itemId`. Observations always include `selectedContexts`; up to three active selections survive dependent actions without resending unrelated catalogs. An unengaged selection expires after six world hours. If a retained item becomes stale, echo its `decisionCycleId` on catalog reads and resolve it with one final action or `record_decision`.
+
 The protocol also supports permission-scoped credential creation and revocation, runtime compatibility checks, a versioned character-safe rules manifest, verified event-channel replacement, notification acknowledgement and replay, invitations, commitments, team jobs, and character-scoped history. Owner endpoints provide a snapshot-paginated feed, factual return summary, story details, and ratings. Global state, metrics, and the observer timeline are operator-scoped when `OPERATOR_TOKEN` is configured. See [docs/architecture.md](docs/architecture.md) for the endpoint table and [docs/domain.md](docs/domain.md) for authority and lifecycle rules.
 
 ## Product and architecture documentation

@@ -9,7 +9,7 @@ test("versioned agent rules disclose the authoritative eight-turn and fatigue co
   const { world } = dynamicWorld();
   const observation = world.getObservation("aria");
 
-  assert.equal(observation.rulesVersion, "agent-rules-v11");
+  assert.equal(observation.rulesVersion, "agent-rules-v12");
   assert.equal(observation.rules.conversations.maximumTurns, 8);
   assert.equal(observation.rules.energy.extendedConversationStartsAtTurn, 5);
   assert.equal(observation.rules.energy.extendedConversationTurnCost, 2);

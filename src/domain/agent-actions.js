@@ -313,6 +313,20 @@ export const AGENT_ACTIONS = [
     group: "attention & record",
     actions: [
       {
+        name: "select_context",
+        summary: "Retain the details of one known catalog item for a dependent plan. At most three selections may be active; replacing one requires naming its selectionId explicitly.",
+        parameters: [
+          { name: "resource", required: true, description: "One of the requestable context resources." },
+          { name: "itemId", required: true, description: "An identifier returned in your own known catalog." },
+          { name: "replacesSelectionId", required: false, description: "An active selected context of yours to supersede atomically." },
+        ],
+      },
+      {
+        name: "release_context",
+        summary: "Release one selected context you no longer intend to pursue, freeing its slot.",
+        parameters: [{ name: "selectionId", required: true, description: "Your selected-context identifier." }],
+      },
+      {
         name: "ignore_event",
         summary: "Resolve a pending event notification with an explicit no-action, before its deadline lapses on its own.",
         parameters: [
@@ -321,8 +335,9 @@ export const AGENT_ACTIONS = [
       },
       {
         name: "record_decision",
-        summary: "Declare a decision for the record, citing the visible events that influenced it. Changes nothing in the world; it exists so a story can be traced.",
+        summary: "Declare a decision for the record, citing visible events that influenced it. When a stale decisionCycleId is offered, this is the explicit final no-action response and closes that cycle.",
         parameters: [
+          { name: "decisionCycleId", required: false, description: "The currently offered stale-context decision cycle, when resolving one." },
           { name: "summary", required: true, description: "The decision in one statement." },
           { name: "influencedByEventIds", required: true, description: "Visible causal events, within the protocol's cap." },
         ],

@@ -64,6 +64,57 @@ function moveCredits(state, event, characterId, amount, reason, extra = {}) {
   if (wallet.entries.length > WALLET_ENTRY_CAP) wallet.entries.shift();
 }
 
+function selectionMap(state, characterId) {
+  if (!state.selectedContexts.has(characterId)) state.selectedContexts.set(characterId, new Map());
+  return state.selectedContexts.get(characterId);
+}
+
+function applyContextLifecycle(state, event) {
+  for (const transition of event.data?.contextLifecycle ?? []) {
+    if (!transition?.characterId || !transition?.kind) continue;
+    const selections = selectionMap(state, transition.characterId);
+    if (transition.kind === "selected") {
+      const selection = structuredClone(transition.selection ?? transition);
+      if (!selection.selectionId) continue;
+      selections.set(selection.selectionId, {
+        ...selection,
+        characterId: transition.characterId,
+        status: selection.status ?? "selected",
+        selectedAt: selection.selectedAt ?? event.worldTime,
+        selectionEventId: selection.selectionEventId ?? event.id,
+        invalidation: selection.invalidation ?? null,
+        decisionCycleId: selection.decisionCycleId ?? null,
+        releaseEventId: selection.releaseEventId ?? null,
+      });
+      continue;
+    }
+    const selection = selections.get(transition.selectionId);
+    if (!selection) continue;
+    if (transition.kind === "engaged" && ["selected", "engaged"].includes(selection.status)) {
+      selection.status = "engaged";
+      selection.engagedAt = transition.engagedAt ?? event.worldTime;
+      selection.engagementEventId = transition.engagementEventId ?? event.id;
+      selection.expiresAt = null;
+    } else if (transition.kind === "invalidated" && selection.status !== "released" && !selection.invalidation) {
+      selection.status = "stale";
+      selection.invalidation = {
+        code: transition.code,
+        eventId: transition.eventId ?? event.id,
+        eventSequence: transition.eventSequence ?? event.sequence,
+        at: transition.at ?? event.worldTime,
+        pinned: selection.status === "engaged",
+        ...(transition.details ? { details: structuredClone(transition.details) } : {}),
+      };
+      selection.decisionCycleId = transition.decisionCycleId ?? `context-cycle-${event.id}`;
+      selection.expiresAt = null;
+    } else if (["released", "cycle_closed"].includes(transition.kind)) {
+      selection.status = "released";
+      selection.closedAt = transition.closedAt ?? event.worldTime;
+      selection.releaseEventId = transition.releaseEventId ?? event.id;
+    }
+  }
+}
+
 export function applyEvent(state, event) {
   const data = event.data;
   switch (event.type) {
@@ -886,4 +937,5 @@ export function applyEvent(state, event) {
       state.actionReceipts.set(`${data.characterId}:${data.idempotencyKey}`, structuredClone(data));
       break;
   }
+  applyContextLifecycle(state, event);
 }

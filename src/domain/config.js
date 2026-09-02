@@ -408,7 +408,7 @@ export const defaultConfig = Object.freeze({
     maximumOpenPerCharacter: 3,
   },
   rules: {
-    version: "agent-rules-v11",
+    version: "agent-rules-v12",
   },
   protocol: {
     version: "1.0",
@@ -434,7 +434,7 @@ export const defaultConfig = Object.freeze({
     maximumSummaryHighlights: 10,
   },
   metrics: {
-    definitionVersion: 3,
+    definitionVersion: 4,
     worldConfigurationVersion: "prototype-1",
   },
 });

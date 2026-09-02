@@ -12,9 +12,15 @@
 // See docs/product-backlog/rules/progressive-context-contract.md.
 import { DomainError, derivedTags, gridDistance, profileAffinity, publicJob } from "./world-support.js";
 
-export const CONTEXT_CONTRACT_VERSION = 3;
+export const CONTEXT_CONTRACT_VERSION = 4;
 export const CONTEXT_RESOURCES = ["opportunities", "experiences", "plots", "buildings", "people", "courses"];
 export const CONTEXT_MODES = ["full", "progressive"];
+export const CONTEXT_INVALIDATION_CODES = [
+  "CONTEXT_ITEM_WITHDRAWN", "CONTEXT_ITEM_FILLED", "CONTEXT_ITEM_EXPIRED",
+  "CONTEXT_ITEM_RESCHEDULED", "CONTEXT_ELIGIBILITY_CHANGED",
+  "CONTEXT_RULES_VERSION_CHANGED", "CONTEXT_WORLD_CONFIGURATION_CHANGED",
+  "CONTEXT_SELECTION_SUPERSEDED", "CONTEXT_TTL_EXPIRED",
+];
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAXIMUM_PAGE_SIZE = 50;
@@ -182,6 +188,65 @@ function knownItems(world, characterId, resource) {
   if (resource === "buildings") return knownBuildings(world, characterId);
   if (resource === "courses") return knownCourses(world, characterId);
   return knownPeople(world, characterId);
+}
+
+// A selected item must use exactly the same visibility boundary as a catalog page.
+// Returning null for both an unknown id and an item hidden from this character keeps
+// the command path from becoming an existence oracle.
+export function resolveKnownContext(world, characterId, resource, itemId) {
+  if (!CONTEXT_RESOURCES.includes(resource)) return null;
+  const entry = knownItems(world, characterId, resource).find((candidate) => candidate.id === itemId);
+  if (!entry) return null;
+  return {
+    resource,
+    itemId,
+    catalogVersion: catalogVersion(world, knownItems(world, characterId, resource)),
+    entry: structuredClone(entry),
+  };
+}
+
+// Historical snapshots make a withdrawn item explainable without re-running a
+// current catalog that might no longer be allowed to disclose it. Live feasibility
+// is overlaid only while the item remains known to its owning character.
+export function selectedContextViews(world, characterId) {
+  const selections = world.state.selectedContexts.get(characterId);
+  if (!selections) return [];
+  const priority = { engaged: 0, selected: 1, stale: 2, released: 3 };
+  return [...selections.values()]
+    .filter((selection) => selection.status !== "released")
+    .sort((left, right) => (priority[left.status] - priority[right.status])
+      || left.selectionId.localeCompare(right.selectionId))
+    .map((selection) => {
+      const current = selection.status === "stale"
+        ? null : resolveKnownContext(world, characterId, selection.resource, selection.itemId);
+      const details = structuredClone(selection.snapshot);
+      const feasibility = current?.entry?.item?.feasibility
+        ?? (selection.status === "stale"
+          ? { status: "stale", eligible: false, blockingCode: selection.invalidation?.code ?? null,
+            blockingCodes: selection.invalidation?.code ? [selection.invalidation.code] : [] }
+          : details.feasibility ?? { status: "unknown", eligible: false, blockingCode: null, blockingCodes: [] });
+      return {
+        selectionId: selection.selectionId,
+        resource: selection.resource,
+        itemId: selection.itemId,
+        pinned: selection.status === "engaged" || selection.status === "selected",
+        engaged: selection.status === "engaged",
+        stale: selection.status === "stale",
+        selectedAt: selection.selectedAt,
+        expiresAt: selection.expiresAt ?? null,
+        ...(selection.engagedAt ? { engagedAt: selection.engagedAt } : {}),
+        details,
+        feasibility,
+        versions: {
+          contextContractVersion: selection.contextContractVersion,
+          catalogVersion: selection.catalogVersion,
+          rulesVersion: selection.rulesVersion,
+          worldConfigurationVersion: selection.worldConfigurationVersion ?? null,
+        },
+        ...(selection.invalidation ? { invalidation: structuredClone(selection.invalidation) } : {}),
+        ...(selection.status === "stale" ? { decisionCycleId: selection.decisionCycleId } : {}),
+      };
+    });
 }
 
 // AIT-1205: the same board rule work follows - a course notice is read at its own square,

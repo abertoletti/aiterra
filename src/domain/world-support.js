@@ -66,6 +66,9 @@ export function createEmptyState() {
     conversations: new Map(), jobs: new Map(), gatherings: new Map(), coPresence: new Map(),
     invitations: new Map(), commitments: new Map(),
     notifications: new Map(), knowledge: new Map(), actionReceipts: new Map(),
+    // Character-private retained decision context. This is a projection of immutable
+    // lifecycle events, never a second persistence source.
+    selectedContexts: new Map(),
     systemBudgets: new Map(), platformIncident: null,
     // Credits that left the world rather than changing hands. Construction and upkeep pay
     // nobody: the money becomes a building, or the cost of keeping one standing. Without
@@ -95,6 +98,10 @@ export function itemsTouchedByEvent(event) {
   return [...new Set([
     data.id, data.jobId, data.eventId, data.invitationId, data.commitmentId, data.characterId,
     data.buildingId, data.plotId, data.courseId, data.enrollmentId, data.applicationId,
+    ...(data.contextLifecycle ?? []).flatMap((transition) => [
+      transition.itemId ?? transition.selection?.itemId,
+      transition.selectionId ?? transition.selection?.selectionId,
+    ]),
     ...(data.workerIds ?? []),
   ].filter((value) => typeof value === "string"))];
 }
@@ -108,6 +115,7 @@ export function projectionCharactersForEvent(event) {
   return [...new Set([
     event.actorCharacterId, event.subjectCharacterId,
     ...(event.data?.participantIds ?? []),
+    ...(event.data?.contextLifecycle ?? []).map((transition) => transition.characterId),
   ].filter(Boolean))];
 }
 

@@ -310,6 +310,36 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
       .sort((left, right) => left.characterId.localeCompare(right.characterId)),
   };
 
+  const contextTransitions = events.flatMap((event) => (event.data?.contextLifecycle ?? [])
+    .map((transition) => ({ event, transition })));
+  const selectedContextTransitions = contextTransitions.filter(({ transition }) => transition.kind === "selected");
+  const engagedSelectionIds = new Set(contextTransitions
+    .filter(({ transition }) => transition.kind === "engaged")
+    .map(({ transition }) => transition.selectionId));
+  const invalidations = contextTransitions.filter(({ transition }) => transition.kind === "invalidated");
+  const invalidationsByCause = Object.fromEntries([...new Set(invalidations.map(({ transition }) => transition.code))]
+    .sort().map((code) => [code, invalidations.filter(({ transition }) => transition.code === code).length]));
+  const contextRequests = events.filter((event) => event.type === "DECISION_CONTEXT_REQUESTED");
+  const correlatedActions = events.filter((event) => event.type === "AGENT_ACTION_PROCESSED"
+    && event.data.decisionCycleId);
+  const staleRejections = events.filter((event) => event.type === "CONTEXT_STALE_ACTION_REJECTED");
+  const selectedContext = {
+    selections: selectedContextTransitions.length,
+    releases: contextTransitions.filter(({ transition }) => transition.kind === "released").length,
+    refreshes: contextRequests.length,
+    catalogBytesRequested: contextRequests.reduce((sum, event) => sum + (event.data.bytes ?? 0), 0),
+    retainedSnapshotBytes: selectedContextTransitions.reduce((sum, { transition }) =>
+      sum + JSON.stringify(transition.selection?.snapshot ?? {}).length, 0),
+    avoidedRepeatedCatalogBytes: 0,
+    selectionToFirstEngagementRate: metric(
+      selectedContextTransitions.filter(({ transition }) => transition.selection?.status === "engaged"
+        || engagedSelectionIds.has(transition.selection?.selectionId)).length,
+      selectedContextTransitions.length,
+    ),
+    invalidationsByCause,
+    postDisclosureRejectionRate: metric(staleRejections.length, correlatedActions.length),
+  };
+
   const dimensions = {
     metricDefinitionVersion: world.config.metrics.definitionVersion,
     environment,
@@ -339,6 +369,7 @@ export function getProductMetrics(world, { fromWorldTime = null, throughWorldTim
       platformSuppressedDeadlineCount: events.filter((event) => event.type === "DEADLINE_SUPPRESSED_FOR_PLATFORM_INCIDENT").length,
     },
     experiences,
+    selectedContext,
     buildings: buildingMetrics(world, events, from, through),
     stories: {
       candidates: storyCandidates,
