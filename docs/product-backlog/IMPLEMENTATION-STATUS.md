@@ -256,6 +256,29 @@ On 2026-08-26, grammar version 3 and economy/lifecycle version 1 completed AIT-1
 
 The seven-agent Azure Foundry pilot recorded a median of **31 KB** of decision context per model call, with a p90 of 40 KB, in a world of seven characters. The cost of a decision therefore grows with the size of the world, which Increment D is designed to expand. Approved baseline budget is 8 KB soft and 16 KB hard.
 
+## Selected-context v4 paired pilot (2026-09-02)
+
+Two isolated 30-minute managed pilots used the same frozen
+`local-ten-agent-pilot-v10-emergent-buildings` configuration, ten agents, and the
+`DeepSeek-V4-Flash` Azure deployment. The run directories preserve the frozen configuration,
+manifest, JSONL evidence, and aggregate report; no credentials or prompts are recorded here.
+
+| Metric | Full | Progressive |
+| --- | ---: | ---: |
+| Model calls / accepted actions | 380 / 307 | 303 / 217 |
+| Observation bytes p50 / p90 / max | 29,452 / 32,678 / 39,567 | 13,118 / 16,253 / 19,256 |
+| Context requests / catalog bytes | 0 / 0 | 3 / 9,531 |
+| Selections / releases | 91 / 76 | 66 / 56 |
+| Selection-to-first-engagement | 90 / 91 (98.90%) | 65 / 66 (98.48%) |
+| Canonical invalidations | expired 4, filled 4, withdrawn 1 | expired 2, filled 3, withdrawn 1 |
+| Avoided repeated catalog bytes | 325,530 | 232,503 |
+| Post-disclosure rejections | 0 / 8 (0%) | 0 / 5 (0%) |
+
+The progressive run cut median observed context by 55% and kept its maximum below 20 KB;
+the full baseline exceeded the 32 KB hard ceiling at p90 and at maximum. The pilots provide
+operational evidence for selected-context delivery and telemetry, while deterministic suites
+remain the correctness gate for lifecycle edge cases.
+
 ## Remaining implementation priorities
 
 ### Pilot-v9 corrective gate completed (2026-08-26)

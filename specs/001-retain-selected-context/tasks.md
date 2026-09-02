@@ -155,7 +155,7 @@ stories.
 - [X] T050 [P] Update the public character-agent protocol examples and selected-context compatibility notes in `README.md`
 - [X] T051 Run the complete automated gate (`npm test`, `npm run check`, and `npm run test:20`) and record any required corrections against `specs/001-retain-selected-context/quickstart.md`
 - [ ] T052 Execute every end-to-end scenario in `specs/001-retain-selected-context/quickstart.md` and verify full/progressive parity, privacy, retry, restart, stale-window, and payload-budget outcomes
-- [ ] T053 Run the paired 30-minute full/progressive managed-pilot protocol defined in `specs/001-retain-selected-context/quickstart.md` and record config/model identity, decision counts, p50/p90/max context bytes, conversion, refreshes, releases, canonical invalidations, avoided bytes, and post-disclosure rejection numerators/denominators in `docs/product-backlog/IMPLEMENTATION-STATUS.md`
+- [X] T053 Run the paired 30-minute full/progressive managed-pilot protocol defined in `specs/001-retain-selected-context/quickstart.md` and record config/model identity, decision counts, p50/p90/max context bytes, conversion, refreshes, releases, canonical invalidations, avoided bytes, and post-disclosure rejection numerators/denominators in `docs/product-backlog/IMPLEMENTATION-STATUS.md`
 - [ ] T054 Run `$speckit-converge`, append any remaining implementation gaps to `specs/001-retain-selected-context/tasks.md`, and complete them before declaring AIT-207/AIT-909 Done
 
 ---
