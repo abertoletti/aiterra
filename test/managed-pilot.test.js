@@ -11,7 +11,7 @@ test("managed pilots refuse broad/reused paths and invalid duration before start
     await assert.rejects(runManagedPilot({ runDirectory }), /new child/);
   }
   await assert.rejects(runManagedPilot({ runDirectory: ".data", durationMinutes: 31 }), /new child/);
-  await assert.rejects(runManagedPilot({ runDirectory: `.data/test-${randomUUID()}`, durationMinutes: 31 }), /at most 30/);
+  await assert.rejects(runManagedPilot({ runDirectory: `.data/test-${randomUUID()}`, durationMinutes: 121 }), /at most 120/);
 });
 
 test("a failed runner leaves evidence and its owned server is stopped without any model calls", { timeout: 20_000 }, async () => {

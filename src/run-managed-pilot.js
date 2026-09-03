@@ -14,7 +14,7 @@ export async function runManagedPilot({ runDirectory, durationMinutes = 30, envi
   const scope = relative(dataRoot, directory);
   if (!scope || scope.startsWith("..") || isAbsolute(scope)) throw new Error("Run directory must be a new child of .data");
   if (existsSync(directory)) throw new Error("Run directory already exists; never reuse a pilot log");
-  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 30) throw new Error("Pilot duration must be greater than zero and at most 30 minutes");
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 120) throw new Error("Pilot duration must be greater than zero and at most 120 minutes");
   const configuration = loadWorldConfiguration(resolve(root, environment.WORLD_CONFIG_PATH ?? "config/world.local-5.json"));
   if (configuration.events.length !== 0) throw new Error("This managed pilot requires no initial events");
   const baseUrl = `http://127.0.0.1:${environment.PORT ?? 3000}`;
